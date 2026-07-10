@@ -1,0 +1,165 @@
+'use client'
+
+import { useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
+import { useTheme } from '@/lib/theme-context'
+import { Sun, Moon } from 'lucide-react'
+
+export default function LoginPage() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const router = useRouter()
+  const supabase = createClient()
+  const { theme, toggleTheme } = useTheme()
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) {
+      setError(error.message)
+      setLoading(false)
+    } else {
+      router.push('/dashboard')
+      router.refresh()
+    }
+  }
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '1.5rem',
+      background: 'var(--bg-gradient)',
+    }}>
+      {/* Background pattern */}
+      <div style={{
+        position: 'fixed',
+        inset: 0,
+        backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(245,158,11,0.06) 1px, transparent 0)',
+        backgroundSize: '32px 32px',
+        pointerEvents: 'none',
+      }} />
+
+      {/* Theme Toggler */}
+      <button
+        onClick={toggleTheme}
+        className="btn btn-ghost btn-icon"
+        style={{
+          position: 'fixed',
+          top: '1.5rem',
+          right: '1.5rem',
+          zIndex: 100,
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          boxShadow: 'var(--shadow-card)',
+        }}
+        title="Toggle Theme"
+      >
+        {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+      </button>
+
+      <div style={{ width: '100%', maxWidth: '380px', position: 'relative' }}>
+        {/* Logo */}
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <div style={{
+            width: '64px',
+            height: '64px',
+            background: 'var(--accent-muted)',
+            border: '2px solid var(--accent)',
+            borderRadius: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 1rem',
+            fontSize: '1.75rem',
+          }}>⛏️</div>
+          <h1 style={{
+            fontFamily: 'var(--font-display)',
+            fontSize: '1.75rem',
+            fontWeight: 800,
+            color: 'var(--accent)',
+            letterSpacing: '-0.03em',
+          }}>MineOps</h1>
+          <p style={{
+            fontSize: '0.875rem',
+            color: 'var(--text-muted)',
+            marginTop: '0.375rem',
+          }}>Mine Logistics & Workforce Management</p>
+        </div>
+
+        {/* Card */}
+        <div className="card" style={{ padding: '2rem' }}>
+          <h2 style={{ fontSize: '1.1rem', marginBottom: '1.5rem', fontWeight: 600 }}>
+            Sign In
+          </h2>
+
+          <form onSubmit={handleLogin}>
+            <div className="form-group">
+              <label className="form-label">Email</label>
+              <input
+                className="form-input"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                autoComplete="email"
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Password</label>
+              <input
+                className="form-input"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </div>
+
+            {error && (
+              <div style={{
+                background: 'var(--danger-muted)',
+                border: '1px solid rgba(239,68,68,0.2)',
+                borderRadius: 'var(--radius)',
+                padding: '0.75rem 1rem',
+                fontSize: '0.875rem',
+                color: 'var(--danger)',
+                marginBottom: '1rem',
+              }}>
+                ⚠️ {error}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              className="btn btn-primary btn-lg w-full"
+              disabled={loading}
+            >
+              {loading ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span className="spinner" /> Signing in...
+                </span>
+              ) : 'Sign In'}
+            </button>
+          </form>
+        </div>
+
+        {/* Footer */}
+        <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '1.5rem' }}>
+          Madha Mines Operations Platform
+        </p>
+      </div>
+    </div>
+  )
+}

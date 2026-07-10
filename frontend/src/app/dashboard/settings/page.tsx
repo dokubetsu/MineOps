@@ -1,0 +1,263 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { Plus, X } from 'lucide-react'
+
+import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
+
+export default function SettingsPage() {
+  const { isAdmin, loading: authLoading } = useAuth()
+  const router = useRouter()
+  const [sites, setSites] = useState<any[]>([])
+  const [contractors, setContractors] = useState<any[]>([])
+  const [vehicles, setVehicles] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState<'sites' | 'contractors' | 'vehicles'>('sites')
+
+  // Forms
+  const [siteName, setSiteName] = useState('')
+  const [siteLocation, setSiteLocation] = useState('')
+  const [contractorName, setContractorName] = useState('')
+  const [vehiclePlate, setVehiclePlate] = useState('')
+  const [vehicleType, setVehicleType] = useState('12WH')
+  const [vehicleOwnership, setVehicleOwnership] = useState('rented')
+  const [vehicleContractor, setVehicleContractor] = useState('')
+
+  const supabase = createClient()
+
+  useEffect(() => {
+    if (authLoading) return
+    if (!isAdmin) {
+      router.push('/dashboard')
+      return
+    }
+    loadAll()
+  }, [authLoading, isAdmin])
+
+  const loadAll = async () => {
+    setLoading(true)
+    const [{ data: s }, { data: c }, { data: v }] = await Promise.all([
+      supabase.from('sites').select('*').order('name'),
+      supabase.from('transport_contractors').select('*').order('name'),
+      supabase.from('vehicles').select('*, transport_contractors(name)').order('plate_number'),
+    ])
+    setSites(s || [])
+    setContractors(c || [])
+    setVehicles(v || [])
+    setLoading(false)
+  }
+
+  const addSite = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await supabase.from('sites').insert({ name: siteName, location: siteLocation, active: true })
+    setSiteName(''); setSiteLocation('')
+    loadAll()
+  }
+
+  const addContractor = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await supabase.from('transport_contractors').insert({ name: contractorName, active: true })
+    setContractorName('')
+    loadAll()
+  }
+
+  const addVehicle = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await supabase.from('vehicles').upsert({
+      plate_number: vehiclePlate.toUpperCase(),
+      vehicle_type: vehicleType,
+      ownership: vehicleOwnership,
+      default_contractor_id: vehicleContractor || null,
+      active: true,
+    }, { onConflict: 'plate_number' })
+    setVehiclePlate(''); setVehicleContractor('')
+    loadAll()
+  }
+
+  const toggleActive = async (table: string, id: string, current: boolean) => {
+    await supabase.from(table).update({ active: !current }).eq('id', id)
+    loadAll()
+  }
+
+  const tabs = [
+    { key: 'sites', label: 'Sites', count: sites.length },
+    { key: 'contractors', label: 'Contractors', count: contractors.length },
+    { key: 'vehicles', label: 'Vehicles', count: vehicles.length },
+  ]
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Settings</h1>
+          <p className="page-subtitle">Master Data Configuration</p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1.25rem', background: 'var(--bg-card)', borderRadius: 'var(--radius)', padding: '0.25rem', border: '1px solid var(--border)' }}>
+        {tabs.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key as any)}
+            style={{
+              flex: 1,
+              padding: '0.5rem',
+              border: 'none',
+              borderRadius: '7px',
+              cursor: 'pointer',
+              fontFamily: 'var(--font-sans)',
+              fontSize: '0.8rem',
+              fontWeight: 500,
+              background: activeTab === tab.key ? 'var(--accent)' : 'transparent',
+              color: activeTab === tab.key ? '#0a0b0f' : 'var(--text-muted)',
+              transition: 'all 0.15s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.375rem',
+            }}
+          >
+            {tab.label}
+            <span style={{
+              background: activeTab === tab.key ? 'rgba(0,0,0,0.2)' : 'var(--bg-elevated)',
+              borderRadius: '999px',
+              padding: '0 0.4rem',
+              fontSize: '0.65rem',
+              fontWeight: 700,
+              color: activeTab === tab.key ? 'rgba(0,0,0,0.6)' : 'var(--text-muted)',
+            }}>
+              {tab.count}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {/* Sites */}
+      {activeTab === 'sites' && (
+        <div>
+          <form onSubmit={addSite} className="card mb-4">
+            <h3 style={{ marginBottom: '0.875rem', fontSize: '0.875rem' }}>Add Site / Mine</h3>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Site Name *</label>
+                <input className="form-input" placeholder="e.g. Madha Mines" value={siteName}
+                  onChange={e => setSiteName(e.target.value)} required />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Location</label>
+                <input className="form-input" placeholder="Location/area" value={siteLocation}
+                  onChange={e => setSiteLocation(e.target.value)} />
+              </div>
+            </div>
+            <button type="submit" className="btn btn-primary"><Plus size={16} /> Add Site</button>
+          </form>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {sites.map(site => (
+              <div key={site.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+                <div style={{ fontSize: '1.5rem' }}>⛏️</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600 }}>{site.name}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{site.location || 'No location'}</div>
+                </div>
+                <button
+                  className={`btn btn-sm ${site.active ? 'btn-success' : 'btn-danger'}`}
+                  onClick={() => toggleActive('sites', site.id, site.active)}
+                >
+                  {site.active ? 'Active' : 'Inactive'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Contractors */}
+      {activeTab === 'contractors' && (
+        <div>
+          <form onSubmit={addContractor} className="card mb-4">
+            <h3 style={{ marginBottom: '0.875rem', fontSize: '0.875rem' }}>Add Transport Contractor</h3>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <input className="form-input" placeholder="e.g. KVS, Ruban, Talapathi..." value={contractorName}
+                onChange={e => setContractorName(e.target.value)} required style={{ flex: 1 }} />
+              <button type="submit" className="btn btn-primary"><Plus size={16} /> Add</button>
+            </div>
+          </form>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {contractors.map(c => (
+              <div key={c.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+                <div style={{ fontSize: '1.5rem' }}>🚛</div>
+                <div style={{ flex: 1, fontWeight: 600 }}>{c.name}</div>
+                <button
+                  className={`btn btn-sm ${c.active ? 'btn-success' : 'btn-danger'}`}
+                  onClick={() => toggleActive('transport_contractors', c.id, c.active)}
+                >
+                  {c.active ? 'Active' : 'Inactive'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Vehicles */}
+      {activeTab === 'vehicles' && (
+        <div>
+          <form onSubmit={addVehicle} className="card mb-4">
+            <h3 style={{ marginBottom: '0.875rem', fontSize: '0.875rem' }}>Register Vehicle</h3>
+            <div className="form-group">
+              <label className="form-label">Plate Number *</label>
+              <input className="form-input" placeholder="TN 01 AB 1234" value={vehiclePlate}
+                style={{ textTransform: 'uppercase' }}
+                onChange={e => setVehiclePlate(e.target.value.toUpperCase())} required />
+            </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label className="form-label">Type</label>
+                <select className="form-input form-select" value={vehicleType} onChange={e => setVehicleType(e.target.value)}>
+                  {['12WH', '10WH', '6WH', 'Other'].map(t => <option key={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Ownership</label>
+                <select className="form-input form-select" value={vehicleOwnership} onChange={e => setVehicleOwnership(e.target.value)}>
+                  <option value="rented">Rented</option>
+                  <option value="owned">Owned</option>
+                </select>
+              </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Default Contractor</label>
+              <select className="form-input form-select" value={vehicleContractor} onChange={e => setVehicleContractor(e.target.value)}>
+                <option value="">None</option>
+                {contractors.filter(c => c.active).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <button type="submit" className="btn btn-primary"><Plus size={16} /> Register Vehicle</button>
+          </form>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {vehicles.map(v => (
+              <div key={v.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+                <div style={{ fontSize: '1.5rem' }}>🚛</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 700, fontFamily: 'var(--font-display)' }}>{v.plate_number}</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    {v.vehicle_type} · {v.ownership} · {v.transport_contractors?.name || 'No contractor'}
+                  </div>
+                </div>
+                <button
+                  className={`btn btn-sm ${v.active ? 'btn-success' : 'btn-danger'}`}
+                  onClick={() => toggleActive('vehicles', v.id, v.active)}
+                >
+                  {v.active ? 'Active' : 'Off'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
