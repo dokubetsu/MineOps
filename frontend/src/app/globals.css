@@ -1153,6 +1153,7 @@ a { color: inherit; text-decoration: none; }
 .attendance-grid { display: flex; flex-direction: column; gap: 0.5rem; }
 .attendance-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.875rem;
   padding: 0.875rem 1rem;
@@ -1161,9 +1162,27 @@ a { color: inherit; text-decoration: none; }
   border-radius: var(--radius);
   transition: border-color 0.15s;
 }
+@media (max-width: 480px) {
+  .attendance-row {
+    row-gap: 0.625rem;
+  }
+}
 .attendance-name { font-weight: 600; font-size: 0.9rem; }
 .attendance-role { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
 .attendance-toggles { display: flex; gap: 0.25rem; flex-shrink: 0; }
+@media (max-width: 480px) {
+  .attendance-toggles {
+    width: 100%;
+    justify-content: space-between;
+    margin-top: 0.15rem;
+    border-top: 1.5px dashed var(--border-subtle);
+    padding-top: 0.625rem;
+  }
+  .attendance-toggles .att-btn {
+    flex: 1;
+    height: 36px;
+  }
+}
 .att-btn {
   width: 34px; height: 34px;
   border-radius: var(--radius-sm);
@@ -1255,3 +1274,59 @@ a { color: inherit; text-decoration: none; }
 
 /* Extra margin utility */
 .mb-4 { margin-bottom: 1rem; }
+
+/* =====================================================
+   MOBILE AUTO ADJUSTMENT & RESPONSIVE REFINEMENTS
+   ===================================================== */
+
+@media (max-width: 480px) {
+  /* Stack grid-2 components on narrow devices to prevent text overflow */
+  .grid-2 {
+    grid-template-columns: 1fr;
+    gap: 0.625rem;
+  }
+  
+  /* Optimize cash book balance header for phone view */
+  .balance-bar {
+    padding: 0.75rem;
+    gap: 0.5rem;
+  }
+  
+  .balance-bar-item .value {
+    font-size: 0.95rem;
+    margin-top: 0.15rem;
+  }
+  
+  .balance-bar-item .label {
+    font-size: 0.65rem;
+  }
+
+  /* Compress categories picker to make it easy to tap but not overflow */
+  .category-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}
+
+@media (max-width: 360px) {
+  /* Extra narrow devices adjustment (iPhone SE, etc.) */
+  .page-title {
+    font-size: 1.25rem;
+  }
+  
+  .page-header {
+    margin-bottom: 1rem;
+  }
+  
+  .card, .stat-card {
+    padding: 1rem;
+  }
+  
+  .bottom-nav-item {
+    padding: 0.5rem 0.25rem;
+  }
+  
+  .bottom-nav-label {
+    font-size: 0.6rem;
+  }
+}
+
