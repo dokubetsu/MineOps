@@ -236,7 +236,14 @@ export default function TripsPage() {
                   borderRadius: 'var(--radius)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: '1.25rem', flexShrink: 0,
-                }}>🚛</div>
+                  overflow: 'hidden',
+                }}>
+                  {trip.photo_url ? (
+                    <a href={trip.photo_url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} title="View captured photo">
+                      <img src={trip.photo_url} alt="Truck" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </a>
+                  ) : '🚛'}
+                </div>
                 <div>
                   <div className="trip-vehicle">{trip.vehicles?.plate_number || 'Unknown'}</div>
                   <div className="trip-contractor">{trip.transport_contractors?.name || '—'}</div>

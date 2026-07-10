@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
-import { Save, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Save, ChevronLeft, ChevronRight, Camera, Loader2, Image } from 'lucide-react'
 
 const STATUSES = [
   { key: 'present', label: 'P', color: 'present', full: 'Present' },
@@ -55,6 +55,8 @@ export default function AttendancePage() {
       ...emp,
       att_id: attMap[emp.id]?.id || null,
       status: attMap[emp.id]?.status || 'present',
+      photo_url: attMap[emp.id]?.photo_url || null,
+      uploading: false,
     })))
 
     setLoading(false)
@@ -64,12 +66,37 @@ export default function AttendancePage() {
     setRoster(r => r.map(e => e.id === empId ? { ...e, status } : e))
   }
 
+  const handlePhotoUpload = async (empId: string, file: File) => {
+    setRoster(r => r.map(e => e.id === empId ? { ...e, uploading: true } : e))
+    try {
+      const ext = file.name.split('.').pop() || 'jpg'
+      const path = `${selectedSite}/${selectedDate}/${empId}_${Date.now()}.${ext}`
+
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('attendance-photos')
+        .upload(path, file, { upsert: true })
+
+      if (uploadError) throw uploadError
+
+      if (uploadData) {
+        const { data: urlData } = supabase.storage.from('attendance-photos').getPublicUrl(path)
+        const photoUrl = urlData.publicUrl
+        setRoster(r => r.map(e => e.id === empId ? { ...e, photo_url: photoUrl, uploading: false } : e))
+      }
+    } catch (err) {
+      console.error('Error uploading photo:', err)
+      alert('Failed to upload photo. Please try again.')
+      setRoster(r => r.map(e => e.id === empId ? { ...e, uploading: false } : e))
+    }
+  }
+
   const saveAll = async () => {
     setSaving(true)
     const records = roster.map(emp => ({
       employee_id: emp.id,
       att_date: selectedDate,
       status: emp.status,
+      photo_url: emp.photo_url || null,
     }))
     await supabase.from('attendance').upsert(records, { onConflict: 'employee_id,att_date' })
     setSavedIds(new Set(roster.map(e => e.id)))
@@ -170,6 +197,35 @@ export default function AttendancePage() {
                   {emp.role} · ₹{emp.wage_rate}/{emp.wage_type === 'daily' ? 'day' : 'mo'}
                 </div>
               </div>
+              
+              {/* Photo Evidence upload */}
+              <div style={{ display: 'flex', alignItems: 'center', marginRight: '0.5rem', flexShrink: 0 }}>
+                <label style={{ cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="user"
+                    style={{ display: 'none' }}
+                    onChange={e => {
+                      const f = e.target.files?.[0]
+                      if (f) handlePhotoUpload(emp.id, f)
+                    }}
+                    disabled={emp.uploading}
+                  />
+                  {emp.uploading ? (
+                    <Loader2 size={18} className="spinner" style={{ color: 'var(--accent)' }} />
+                  ) : emp.photo_url ? (
+                    <a href={emp.photo_url} target="_blank" rel="noreferrer" title="View photo evidence" onClick={e => e.stopPropagation()}>
+                      <img src={emp.photo_url} alt="Evidence" style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', border: '1.5px solid var(--success)' }} />
+                    </a>
+                  ) : (
+                    <div className="btn-ghost btn btn-icon" style={{ padding: '0.375rem', color: 'var(--text-muted)' }} title="Capture photo evidence">
+                      <Camera size={18} />
+                    </div>
+                  )}
+                </label>
+              </div>
+
               <div className="attendance-toggles">
                 {STATUSES.map(s => (
                   <button
