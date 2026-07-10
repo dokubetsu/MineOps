@@ -42,13 +42,29 @@ function NavContent() {
     { href: '/dashboard/users', icon: Shield, label: 'User Access', roles: ['admin'] },
   ]
 
-  const role = userRole?.role || 'site_manager'
+  const visibleOps = operationsNav.filter(item => {
+    return (
+      (isAdmin && item.roles.includes('admin')) ||
+      (isSiteManager && item.roles.includes('site_manager')) ||
+      (isStakeholder && item.roles.includes('stakeholder'))
+    )
+  })
 
-  const visibleOps = operationsNav.filter(i => i.roles.includes(role))
-  const visibleMgmt = mgmtNav.filter(i => i.roles.includes(role))
+  const visibleMgmt = mgmtNav.filter(item => {
+    return (
+      (isAdmin && item.roles.includes('admin')) ||
+      (isSiteManager && item.roles.includes('site_manager')) ||
+      (isStakeholder && item.roles.includes('stakeholder'))
+    )
+  })
 
   const roleColor = isAdmin ? 'var(--accent)' : isSiteManager ? 'var(--info)' : 'var(--success)'
-  const roleLabel = isAdmin ? 'Admin' : isSiteManager ? 'Site Manager' : 'Stakeholder'
+  
+  const rolesList: string[] = []
+  if (isAdmin) rolesList.push('Admin')
+  if (isSiteManager) rolesList.push('Site Manager')
+  if (isStakeholder) rolesList.push('Stakeholder')
+  const roleLabel = rolesList.join(' + ') || 'Site Manager'
 
   return (
     <>

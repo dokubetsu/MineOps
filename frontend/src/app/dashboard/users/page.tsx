@@ -39,20 +39,35 @@ export default function UsersPage() {
 
   const loadData = async () => {
     setLoading(true)
-    const [{ data: rolesData }, { data: sitesData }] = await Promise.all([
-      supabase.from('user_roles').select('*, sites(name)'),
-      supabase.from('sites').select('*').eq('active', true).order('name'),
+    const [{ data: rolesData, error: rolesError }, { data: sitesData, error: sitesError }] = await Promise.all([
+      supabase.from('user_roles').select('*, sites(name)').limit(500),
+      supabase.from('sites').select('*').eq('active', true).order('name').limit(500),
     ])
+
+    if (rolesError) alert(`Error loading user roles: ${rolesError.message}`)
+    if (sitesError) alert(`Error loading sites list: ${sitesError.message}`)
+
     setSites(sitesData || [])
 
     // Group by user_id
     const userMap: Record<string, any> = {}
     for (const r of (rolesData || [])) {
       if (!userMap[r.user_id]) {
-        userMap[r.user_id] = { user_id: r.user_id, role: r.role, sites: [] }
+        userMap[r.user_id] = { 
+          user_id: r.user_id, 
+          role: r.role, 
+          sites: [],
+          blanket_role_row_id: r.site_id ? null : r.id
+        }
       }
       if (r.site_id) {
-        userMap[r.user_id].sites.push({ id: r.site_id, name: r.sites?.name })
+        userMap[r.user_id].sites.push({ 
+          id: r.site_id, 
+          name: r.sites?.name,
+          role_row_id: r.id
+        })
+      } else {
+        userMap[r.user_id].blanket_role_row_id = r.id
       }
     }
     setUsers(Object.values(userMap))
@@ -94,10 +109,85 @@ export default function UsersPage() {
   }
 
   const removeRole = async (userId: string) => {
-    if (!confirm('Remove this user\'s access?')) return
-    await supabase.from('user_roles').delete().eq('user_id', userId)
-    await supabase.from('stakeholder_site_access').delete().eq('stakeholder_user_id', userId)
-    loadData()
+    if (!confirm("Remove this user's access completely?")) return
+
+    // Delete stakeholder site access first
+    const { error: stakeholderError } = await supabase
+      .from('stakeholder_site_access')
+      .delete()
+      .eq('stakeholder_user_id', userId)
+
+    if (stakeholderError) {
+      alert(`Error removing stakeholder access: ${stakeholderError.message}`)
+      return
+    }
+
+    // Delete user roles next (will trigger last admin check on DB)
+    const { error: roleError } = await supabase
+      .from('user_roles')
+      .delete()
+      .eq('user_id', userId)
+
+    if (roleError) {
+      alert(`Error removing user roles: ${roleError.message}`)
+    } else {
+      loadData()
+    }
+  }
+
+  const revokeSpecificAccess = async (roleRowId: string, userId: string, siteId: string) => {
+    if (!confirm('Revoke access for this specific site/role?')) return
+
+    // If stakeholder, delete their specific site access
+    const { error: stakeholderError } = await supabase
+      .from('stakeholder_site_access')
+      .delete()
+      .eq('stakeholder_user_id', userId)
+      .eq('site_id', siteId)
+
+    if (stakeholderError) {
+      alert(`Error revoking stakeholder site access: ${stakeholderError.message}`)
+      return
+    }
+
+    // Delete the specific user role row
+    const { error: roleError } = await supabase
+      .from('user_roles')
+      .delete()
+      .eq('id', roleRowId)
+
+    if (roleError) {
+      alert(`Error revoking specific role: ${roleError.message}`)
+    } else {
+      loadData()
+    }
+  }
+
+  const revokeBlanketAccess = async (roleRowId: string, userId: string) => {
+    if (!confirm('Revoke this blanket role?')) return
+
+    // Delete all stakeholder site access
+    const { error: stakeholderError } = await supabase
+      .from('stakeholder_site_access')
+      .delete()
+      .eq('stakeholder_user_id', userId)
+
+    if (stakeholderError) {
+      alert(`Error revoking stakeholder access: ${stakeholderError.message}`)
+      return
+    }
+
+    // Delete the blanket user role row
+    const { error: roleError } = await supabase
+      .from('user_roles')
+      .delete()
+      .eq('id', roleRowId)
+
+    if (roleError) {
+      alert(`Error revoking blanket role: ${roleError.message}`)
+    } else {
+      loadData()
+    }
   }
 
   const roleIcon = (role: string) => role === 'admin' ? '🛡️' : role === 'site_manager' ? '👷' : '📊'
@@ -154,16 +244,40 @@ export default function UsersPage() {
                   ID: {u.user_id.substring(0, 8)}...
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span className={`badge ${roleBadge(u.role)}`}>{u.role.replace('_', ' ')}</span>
+                  <span className={`badge ${roleBadge(u.role)}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    {u.role.replace('_', ' ')}
+                    {u.blanket_role_row_id && (
+                      <button 
+                        style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: '0.25rem' }}
+                        onClick={() => revokeBlanketAccess(u.blanket_role_row_id, u.user_id)}
+                        title="Revoke blanket access"
+                      >
+                        <X size={12} style={{ color: 'var(--danger)' }} />
+                      </button>
+                    )}
+                  </span>
                   {u.sites.map((s: any) => (
-                    <span key={s.id} className="badge badge-gray">{s.name}</span>
+                    <span key={s.id} className="badge badge-gray" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                      {s.name}
+                      <button 
+                        style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
+                        onClick={() => revokeSpecificAccess(s.role_row_id, u.user_id, s.id)}
+                        title={`Revoke access for ${s.name}`}
+                      >
+                        <X size={12} style={{ color: 'var(--danger)' }} />
+                      </button>
+                    </span>
                   ))}
-                  {u.sites.length === 0 && u.role === 'admin' && (
+                  {u.sites.length === 0 && u.role === 'admin' && !u.blanket_role_row_id && (
                     <span className="badge badge-amber">All Sites</span>
                   )}
                 </div>
               </div>
-              <button className="btn btn-ghost btn-icon" onClick={() => removeRole(u.user_id)}>
+              <button 
+                className="btn btn-ghost btn-icon" 
+                onClick={() => removeRole(u.user_id)}
+                title="Remove all access for this user"
+              >
                 <X size={16} style={{ color: 'var(--text-muted)' }} />
               </button>
             </div>

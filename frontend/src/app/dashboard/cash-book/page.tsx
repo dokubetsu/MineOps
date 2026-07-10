@@ -49,23 +49,37 @@ export default function CashBookPage() {
   const loadCashBook = async () => {
     setLoading(true)
     // Get or create cash book
-    let { data: cb } = await supabase
+    const { data: cb, error: loadError } = await supabase
       .from('cash_books')
       .select('*')
       .eq('site_id', selectedSite)
       .eq('book_date', selectedDate)
-      .single()
+      .maybeSingle()
 
-    if (!cb) {
+    if (loadError) {
+      alert(`Error loading cash book: ${loadError.message}`)
+      setLoading(false)
+      return
+    }
+
+    let activeCb = cb
+
+    if (!activeCb) {
       // Get previous closing balance
-      const { data: prev } = await supabase
+      const { data: prev, error: prevError } = await supabase
         .from('cash_books')
         .select('closing_balance')
         .eq('site_id', selectedSite)
         .lt('book_date', selectedDate)
         .order('book_date', { ascending: false })
         .limit(1)
-        .single()
+        .maybeSingle()
+
+      if (prevError) {
+        alert(`Error loading previous closing balance: ${prevError.message}`)
+        setLoading(false)
+        return
+      }
 
       const openingBalance = prev?.closing_balance || 0
 
@@ -77,29 +91,46 @@ export default function CashBookPage() {
         status: 'draft',
       }).select().single()
 
-      if (insertError && insertError.code === '23505') {
-        const { data: retryCb } = await supabase
-          .from('cash_books')
-          .select('*')
-          .eq('site_id', selectedSite)
-          .eq('book_date', selectedDate)
-          .single()
-        cb = retryCb
+      if (insertError) {
+        if (insertError.code === '23505') {
+          const { data: retryCb, error: retryError } = await supabase
+            .from('cash_books')
+            .select('*')
+            .eq('site_id', selectedSite)
+            .eq('book_date', selectedDate)
+            .single()
+          if (retryError) {
+            alert(`Failed to resolve concurrent cash book: ${retryError.message}`)
+            setLoading(false)
+            return
+          }
+          activeCb = retryCb
+        } else {
+          alert(`Error creating cash book: ${insertError.message}`)
+          setLoading(false)
+          return
+        }
       } else {
-        cb = newCb
+        activeCb = newCb
       }
     }
 
-    setCashBook(cb)
+    setCashBook(activeCb)
 
-    if (cb) {
-      const { data: e } = await supabase
+    if (activeCb) {
+      const { data: e, error: entriesError } = await supabase
         .from('cash_entries')
         .select('*')
-        .eq('cash_book_id', cb.id)
+        .eq('cash_book_id', activeCb.id)
         .neq('active', false)
         .order('created_at')
-      setEntries(e || [])
+        .limit(500)
+      
+      if (entriesError) {
+        alert(`Error loading cash entries: ${entriesError.message}`)
+      } else {
+        setEntries(e || [])
+      }
     }
     setLoading(false)
   }
@@ -112,7 +143,7 @@ export default function CashBookPage() {
       return
     }
     setSubmitting(true)
-    await supabase.from('cash_entries').insert({
+    const { error } = await supabase.from('cash_entries').insert({
       cash_book_id: cashBook.id,
       entry_type: entryType,
       category: form.category,
@@ -120,10 +151,15 @@ export default function CashBookPage() {
       note: form.note || null,
       active: true,
     })
-    setForm({ category: '', amount: '', note: '' })
-    setShowForm(false)
+    
+    if (error) {
+      alert(`Error saving cash entry: ${error.message}`)
+    } else {
+      setForm({ category: '', amount: '', note: '' })
+      setShowForm(false)
+      loadCashBook()
+    }
     setSubmitting(false)
-    loadCashBook()
   }
 
   const deleteEntry = async (id: string) => {
@@ -133,14 +169,23 @@ export default function CashBookPage() {
       return
     }
     if (!confirm('Delete this entry?')) return
-    await supabase.from('cash_entries').update({ active: false }).eq('id', id)
-    loadCashBook()
+    const { error } = await supabase.from('cash_entries').update({ active: false }).eq('id', id)
+    if (error) {
+      alert(`Error deleting cash entry: ${error.message}`)
+    } else {
+      loadCashBook()
+    }
   }
 
   const lockCashBook = async () => {
+    if (!cashBook) return
     const newStatus = cashBook.status === 'locked' ? 'draft' : 'locked'
-    await supabase.from('cash_books').update({ status: newStatus }).eq('id', cashBook.id)
-    loadCashBook()
+    const { error } = await supabase.from('cash_books').update({ status: newStatus }).eq('id', cashBook.id)
+    if (error) {
+      alert(`Error updating cash book lock status: ${error.message}`)
+    } else {
+      loadCashBook()
+    }
   }
 
   const totalIn = entries.filter(e => e.entry_type === 'in').reduce((s, e) => s + e.amount, 0)

@@ -34,12 +34,17 @@ export default function EmployeesPage() {
 
   const loadEmployees = async () => {
     setLoading(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('employees')
       .select('*, sites(name)')
       .eq('site_id', selectedSite)
       .order('name')
-    setEmployees(data || [])
+      .limit(500)
+    if (error) {
+      alert(`Error loading employees list: ${error.message}`)
+    } else {
+      setEmployees(data || [])
+    }
     setLoading(false)
   }
 
@@ -51,7 +56,7 @@ export default function EmployeesPage() {
       phone: form.phone || null,
       role: form.role,
       site_id: form.site_id,
-      wage_type: form.wage_type,
+      wage_type: form.wage_type as 'daily' | 'monthly',
       wage_rate: parseFloat(form.wage_rate) || 0,
       join_date: form.join_date,
       active: true,
@@ -68,8 +73,12 @@ export default function EmployeesPage() {
 
   const deactivate = async (id: string) => {
     if (!confirm('Remove this employee?')) return
-    await supabase.from('employees').update({ active: false }).eq('id', id)
-    loadEmployees()
+    const { error } = await supabase.from('employees').update({ active: false }).eq('id', id)
+    if (error) {
+      alert(`Error deactivating employee: ${error.message}`)
+    } else {
+      loadEmployees()
+    }
   }
 
   return (

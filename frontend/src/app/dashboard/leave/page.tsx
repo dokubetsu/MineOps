@@ -24,10 +24,14 @@ export default function LeavePage() {
   useEffect(() => { if (selectedSite) loadApplications() }, [selectedSite, activeTab])
 
   const loadInitialData = async () => {
-    const [{ data: sitesData }, { data: empsData }] = await Promise.all([
-      supabase.from('sites').select('*').eq('active', true).order('name'),
-      supabase.from('employees').select('id, name, site_id').eq('active', true).order('name'),
+    const [{ data: sitesData, error: sitesError }, { data: empsData, error: empsError }] = await Promise.all([
+      supabase.from('sites').select('*').eq('active', true).order('name').limit(500),
+      supabase.from('employees').select('id, name, site_id').eq('active', true).order('name').limit(500),
     ])
+
+    if (sitesError) alert(`Error loading sites: ${sitesError.message}`)
+    if (empsError) alert(`Error loading employees: ${empsError.message}`)
+
     setSites(sitesData || [])
     setEmployees(empsData || [])
     if (sitesData && sitesData.length > 0) setSelectedSite(sitesData[0].id)
@@ -35,7 +39,6 @@ export default function LeavePage() {
 
   const loadApplications = async () => {
     setLoading(true)
-    // Get employees for this site
     const siteEmpIds = employees
       .filter(e => e.site_id === selectedSite)
       .map(e => e.id)
@@ -47,40 +50,53 @@ export default function LeavePage() {
       .select('*, employees(name, site_id)')
       .in('employee_id', siteEmpIds)
       .order('created_at', { ascending: false })
+      .limit(500)
 
     if (activeTab !== 'all') query = query.eq('status', activeTab)
 
-    const { data } = await query
-    setApplications(data || [])
+    const { data, error } = await query
+    if (error) {
+      alert(`Error loading leave applications: ${error.message}`)
+    } else {
+      setApplications(data || [])
+    }
     setLoading(false)
   }
 
   const submitLeave = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
-    await supabase.from('leave_applications').insert({
+    const { error } = await supabase.from('leave_applications').insert({
       employee_id: form.employee_id,
       from_date: form.from_date,
       to_date: form.to_date,
       reason: form.reason || null,
       status: 'pending',
     })
-    setForm({ employee_id: '', from_date: format(new Date(), 'yyyy-MM-dd'), to_date: format(new Date(), 'yyyy-MM-dd'), reason: '' })
-    setShowForm(false)
+    
+    if (error) {
+      alert(`Error submitting leave: ${error.message}`)
+    } else {
+      setForm({ employee_id: '', from_date: format(new Date(), 'yyyy-MM-dd'), to_date: format(new Date(), 'yyyy-MM-dd'), reason: '' })
+      setShowForm(false)
+      loadApplications()
+    }
     setSubmitting(false)
-    loadApplications()
   }
 
   const updateStatus = async (id: string, status: 'approved' | 'rejected') => {
-    await supabase.from('leave_applications').update({ status }).eq('id', id)
+    const { error: updateError } = await supabase.from('leave_applications').update({ status }).eq('id', id)
+    if (updateError) {
+      alert(`Error updating status: ${updateError.message}`)
+      return
+    }
 
-    // If approved, auto-mark attendance as leave for the date range
     if (status === 'approved') {
       const app = applications.find(a => a.id === id)
       if (app) {
         const from = new Date(app.from_date)
         const to = new Date(app.to_date)
-        const records = []
+        const records: { employee_id: string; att_date: string; status: 'present' | 'absent' | 'half-day' | 'leave' }[] = []
         const cur = new Date(from)
         while (cur <= to) {
           records.push({
@@ -91,7 +107,10 @@ export default function LeavePage() {
           cur.setDate(cur.getDate() + 1)
         }
         if (records.length > 0) {
-          await supabase.from('attendance').upsert(records, { onConflict: 'employee_id,att_date' })
+          const { error: upsertError } = await supabase.from('attendance').upsert(records, { onConflict: 'employee_id,att_date' })
+          if (upsertError) {
+            alert(`Error auto-marking attendance: ${upsertError.message}`)
+          }
         }
       }
     }

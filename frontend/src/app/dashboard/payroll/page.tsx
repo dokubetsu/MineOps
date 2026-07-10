@@ -36,22 +36,32 @@ export default function PayrollPage() {
   useEffect(() => { if (selectedSite) loadRuns() }, [selectedSite])
 
   const loadRuns = async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('payroll_runs')
       .select('*, sites(name)')
       .eq('site_id', selectedSite)
       .order('period_month', { ascending: false })
-    setRuns(data || [])
+      .limit(200)
+    if (error) {
+      alert(`Error loading payroll runs: ${error.message}`)
+    } else {
+      setRuns(data || [])
+    }
   }
 
   const loadLines = async (run: any) => {
     setLoading(true)
     setSelectedRun(run)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('payroll_lines')
       .select('*, employees(name, phone)')
       .eq('payroll_run_id', run.id)
-    setLines(data || [])
+      .limit(500)
+    if (error) {
+      alert(`Error loading payroll lines: ${error.message}`)
+    } else {
+      setLines(data || [])
+    }
     setLoading(false)
   }
 
@@ -60,12 +70,18 @@ export default function PayrollPage() {
     const periodDate = period + '-01'
 
     // Check if run exists (Fix 3: idempotent generate)
-    const { data: existingRun } = await supabase
+    const { data: existingRun, error: checkError } = await supabase
       .from('payroll_runs')
       .select('*')
       .eq('site_id', selectedSite)
       .eq('period_month', periodDate)
       .maybeSingle()
+
+    if (checkError) {
+      alert(`Error checking existing payroll: ${checkError.message}`)
+      setGenerating(false)
+      return
+    }
 
     if (existingRun) {
       if (existingRun.status === 'finalized') {
@@ -76,37 +92,112 @@ export default function PayrollPage() {
       
       // If it exists in draft, delete the old run's lines first to allow clean overwrite
       if (confirm('A draft payroll run already exists for this period. Overwrite?')) {
-        await supabase.from('payroll_lines').delete().eq('payroll_run_id', existingRun.id)
-        await supabase.from('payroll_runs').delete().eq('id', existingRun.id)
+        const { error: delLinesError } = await supabase.from('payroll_lines').delete().eq('payroll_run_id', existingRun.id)
+        if (delLinesError) {
+          alert(`Error clearing previous payroll lines: ${delLinesError.message}`)
+          setGenerating(false)
+          return
+        }
+        const { error: delRunError } = await supabase.from('payroll_runs').delete().eq('id', existingRun.id)
+        if (delRunError) {
+          alert(`Error clearing previous payroll run: ${delRunError.message}`)
+          setGenerating(false)
+          return
+        }
       } else {
         setGenerating(false)
         return
       }
     }
 
-    const { data: newRun } = await supabase.from('payroll_runs').insert({
+    const { data: newRun, error: insertError } = await supabase.from('payroll_runs').insert({
       site_id: selectedSite,
       period_month: periodDate,
       status: 'draft',
     }).select().single()
 
-    if (newRun) {
+    let activeRun = newRun
+    if (insertError) {
+      if (insertError.code === '23505') {
+        // Handle concurrent insert race by fetching the concurrently created run
+        const { data: retryRun, error: retryError } = await supabase
+          .from('payroll_runs')
+          .select('*')
+          .eq('site_id', selectedSite)
+          .eq('period_month', periodDate)
+          .single()
+
+        if (retryError) {
+          alert(`Failed to resolve concurrent payroll run: ${retryError.message}`)
+          setGenerating(false)
+          return
+        }
+
+        if (retryRun?.status === 'finalized') {
+          alert('Payroll has already been finalized for this period by another user.')
+          setGenerating(false)
+          return
+        }
+
+        // Delete any concurrently generated lines to clean start
+        await supabase.from('payroll_lines').delete().eq('payroll_run_id', retryRun.id)
+        activeRun = retryRun
+      } else {
+        alert(`Failed to create payroll run: ${insertError.message}`)
+        setGenerating(false)
+        return
+      }
+    }
+
+    if (activeRun) {
       // Get employees & compute
       const periodStart = new Date(periodDate)
       const periodEnd = endOfMonth(periodStart)
-      const { data: employees } = await supabase.from('employees').select('*')
-        .eq('site_id', selectedSite).eq('active', true)
+      
+      const { data: employees, error: empError } = await supabase.from('employees').select('*')
+        .eq('site_id', selectedSite).eq('active', true).limit(500)
 
-      for (const emp of employees || []) {
-        const { data: att } = await supabase.from('attendance').select('status')
-          .eq('employee_id', emp.id)
-          .gte('att_date', format(periodStart, 'yyyy-MM-dd'))
-          .lte('att_date', format(periodEnd, 'yyyy-MM-dd'))
-        const records = att || []
-        const present = records.filter(r => r.status === 'present').length
-        const halfDay = records.filter(r => r.status === 'half-day').length
-        const leave = records.filter(r => r.status === 'leave').length
-        const absent = records.filter(r => r.status === 'absent').length
+      if (empError) {
+        alert(`Error loading employees: ${empError.message}`)
+        setGenerating(false)
+        return
+      }
+
+      if (!employees || employees.length === 0) {
+        alert('No active employees found at this site for this period.')
+        setGenerating(false)
+        return
+      }
+
+      // Batch query attendance for all employees to eliminate N+1 (Fix B5)
+      const empIds = employees.map(e => e.id)
+      const { data: allAtt, error: attError } = await supabase.from('attendance').select('employee_id, status')
+        .in('employee_id', empIds)
+        .gte('att_date', format(periodStart, 'yyyy-MM-dd'))
+        .lte('att_date', format(periodEnd, 'yyyy-MM-dd'))
+        .limit(20000)
+
+      if (attError) {
+        alert(`Error loading attendance records: ${attError.message}`)
+        setGenerating(false)
+        return
+      }
+
+      // Group attendance in-memory
+      const attMap: Record<string, string[]> = {}
+      for (const att of allAtt || []) {
+        if (!attMap[att.employee_id]) attMap[att.employee_id] = []
+        attMap[att.employee_id].push(att.status)
+      }
+
+      // Calculate lines
+      const linesToInsert = []
+      for (const emp of employees) {
+        const statuses = attMap[emp.id] || []
+        const present = statuses.filter(s => s === 'present').length
+        const halfDay = statuses.filter(s => s === 'half-day').length
+        const leave = statuses.filter(s => s === 'leave').length
+        const absent = statuses.filter(s => s === 'absent').length
         
         // Branch on wage_type (Fix 6)
         const wageType = emp.wage_type || 'daily'
@@ -118,8 +209,8 @@ export default function PayrollPage() {
         }
         const finalComputed = Math.round(computed * 100) / 100
 
-        await supabase.from('payroll_lines').insert({
-          payroll_run_id: newRun.id,
+        linesToInsert.push({
+          payroll_run_id: activeRun.id,
           employee_id: emp.id,
           days_present: present,
           days_leave: leave,
@@ -127,19 +218,32 @@ export default function PayrollPage() {
           base_rate: emp.wage_rate,
           computed_amount: finalComputed,
           adjustment: 0,
-          final_amount: finalComputed, // Always write final_amount on generation
+          final_amount: finalComputed,
         })
       }
-      loadRuns()
-      loadLines(newRun)
+
+      // Batch insert payroll lines with transactional rollback on failure (Fix B5)
+      const { error: linesError } = await supabase.from('payroll_lines').insert(linesToInsert)
+      if (linesError) {
+        // Rollback run insertion if lines insert fails
+        await supabase.from('payroll_runs').delete().eq('id', activeRun.id)
+        alert(`Failed to save payroll lines: ${linesError.message}`)
+      } else {
+        loadRuns()
+        loadLines(activeRun)
+      }
     }
     setGenerating(false)
   }
 
   const finalizeRun = async (runId: string) => {
-    await supabase.from('payroll_runs').update({ status: 'finalized' }).eq('id', runId)
-    loadRuns()
-    if (selectedRun?.id === runId) setSelectedRun((r: any) => r ? { ...r, status: 'finalized' } : r)
+    const { error } = await supabase.from('payroll_runs').update({ status: 'finalized' }).eq('id', runId)
+    if (error) {
+      alert(`Error finalizing payroll run: ${error.message}`)
+    } else {
+      loadRuns()
+      if (selectedRun?.id === runId) setSelectedRun((r: any) => r ? { ...r, status: 'finalized' } : r)
+    }
   }
 
   const totalPayroll = lines.reduce((s, l) => s + (l.final_amount !== undefined && l.final_amount !== null ? l.final_amount : (l.computed_amount + l.adjustment)), 0)

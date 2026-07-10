@@ -21,7 +21,6 @@ CREATE TABLE IF NOT EXISTS public.sites (
 CREATE TABLE IF NOT EXISTS public.transport_contractors (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
-  contact_info text,
   active boolean NOT NULL DEFAULT true,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
@@ -33,7 +32,7 @@ CREATE TABLE IF NOT EXISTS public.vehicles (
   plate_number text UNIQUE NOT NULL,
   vehicle_type text NOT NULL CHECK (vehicle_type IN ('12WH','10WH','6WH','Other')),
   ownership text NOT NULL CHECK (ownership IN ('rented','owned')),
-  default_contractor_id uuid REFERENCES public.transport_contractors(id),
+  default_contractor_id uuid REFERENCES public.transport_contractors(id) ON DELETE SET NULL,
   active boolean NOT NULL DEFAULT true,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
@@ -58,7 +57,7 @@ CREATE TABLE IF NOT EXISTS public.employees (
   phone text,
   wage_type text NOT NULL CHECK (wage_type IN ('daily','monthly')),
   wage_rate numeric NOT NULL,
-  site_id uuid REFERENCES public.sites(id),
+  site_id uuid REFERENCES public.sites(id) ON DELETE CASCADE,
   active boolean NOT NULL DEFAULT true,
   join_date date,
   created_at timestamp with time zone DEFAULT now(),
@@ -68,13 +67,12 @@ CREATE TABLE IF NOT EXISTS public.employees (
 -- Trips
 CREATE TABLE IF NOT EXISTS public.trips (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  site_id uuid NOT NULL REFERENCES public.sites(id),
-  vehicle_id uuid REFERENCES public.vehicles(id),
-  driver_id uuid REFERENCES public.drivers(id),
-  contractor_id uuid REFERENCES public.transport_contractors(id),
+  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE CASCADE,
+  vehicle_id uuid REFERENCES public.vehicles(id) ON DELETE SET NULL,
+  driver_id uuid REFERENCES public.drivers(id) ON DELETE SET NULL,
+  contractor_id uuid REFERENCES public.transport_contractors(id) ON DELETE SET NULL,
   trip_date date NOT NULL,
   entry_time timestamp with time zone DEFAULT now(),
-  exit_time timestamp with time zone,
   load_info text,
   dd_number text,
   permit_number text,
@@ -90,7 +88,7 @@ CREATE TABLE IF NOT EXISTS public.trips (
 -- Cash Books
 CREATE TABLE IF NOT EXISTS public.cash_books (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  site_id uuid NOT NULL REFERENCES public.sites(id),
+  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE CASCADE,
   book_date date NOT NULL,
   opening_balance numeric NOT NULL DEFAULT 0.0,
   closing_balance numeric NOT NULL DEFAULT 0.0,
@@ -103,7 +101,7 @@ CREATE TABLE IF NOT EXISTS public.cash_books (
 -- Cash Entries
 CREATE TABLE IF NOT EXISTS public.cash_entries (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  cash_book_id uuid NOT NULL REFERENCES public.cash_books(id),
+  cash_book_id uuid NOT NULL REFERENCES public.cash_books(id) ON DELETE CASCADE,
   entry_type text NOT NULL CHECK (entry_type IN ('in', 'out')),
   category text NOT NULL,
   amount numeric NOT NULL CHECK (amount > 0),
@@ -117,7 +115,7 @@ CREATE TABLE IF NOT EXISTS public.cash_entries (
 -- Attendance
 CREATE TABLE IF NOT EXISTS public.attendance (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id uuid NOT NULL REFERENCES public.employees(id),
+  employee_id uuid NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
   att_date date NOT NULL,
   status text NOT NULL CHECK (status IN ('present','absent','half-day','leave')),
   marked_by uuid,
@@ -130,7 +128,7 @@ CREATE TABLE IF NOT EXISTS public.attendance (
 -- Leave Applications
 CREATE TABLE IF NOT EXISTS public.leave_applications (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  employee_id uuid NOT NULL REFERENCES public.employees(id),
+  employee_id uuid NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
   from_date date NOT NULL,
   to_date date NOT NULL,
   reason text,
@@ -143,7 +141,7 @@ CREATE TABLE IF NOT EXISTS public.leave_applications (
 -- Payroll Runs
 CREATE TABLE IF NOT EXISTS public.payroll_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  site_id uuid NOT NULL REFERENCES public.sites(id),
+  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE CASCADE,
   period_month date NOT NULL CHECK (date_trunc('month', period_month) = period_month),
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','finalized')),
   created_at timestamp with time zone DEFAULT now(),
@@ -154,8 +152,8 @@ CREATE TABLE IF NOT EXISTS public.payroll_runs (
 -- Payroll Lines
 CREATE TABLE IF NOT EXISTS public.payroll_lines (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  payroll_run_id uuid NOT NULL REFERENCES public.payroll_runs(id),
-  employee_id uuid NOT NULL REFERENCES public.employees(id),
+  payroll_run_id uuid NOT NULL REFERENCES public.payroll_runs(id) ON DELETE CASCADE,
+  employee_id uuid NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
   days_present integer NOT NULL DEFAULT 0,
   days_leave integer NOT NULL DEFAULT 0,
   days_absent integer NOT NULL DEFAULT 0,
@@ -173,7 +171,7 @@ CREATE TABLE IF NOT EXISTS public.user_roles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   role text NOT NULL CHECK (role IN ('admin','site_manager','stakeholder')),
-  site_id uuid REFERENCES public.sites(id),
+  site_id uuid REFERENCES public.sites(id) ON DELETE CASCADE,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
 );
@@ -182,18 +180,11 @@ CREATE TABLE IF NOT EXISTS public.user_roles (
 CREATE TABLE IF NOT EXISTS public.stakeholder_site_access (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   stakeholder_user_id uuid NOT NULL,
-  site_id uuid NOT NULL REFERENCES public.sites(id),
-  share_percent numeric NOT NULL DEFAULT 50.0,
+  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE CASCADE,
+  share_percent numeric NOT NULL DEFAULT 50.0 CHECK (share_percent >= 0.0 AND share_percent <= 100.0),
   created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now()
-);
-
--- Cash Entry Categories (Dropdown items)
-CREATE TABLE IF NOT EXISTS public.cash_entry_categories (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  name text UNIQUE NOT NULL,
-  type text NOT NULL, -- 'in' or 'out'
-  created_at timestamp with time zone DEFAULT now()
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT uq_stakeholder_site UNIQUE (stakeholder_user_id, site_id)
 );
 
 
@@ -293,14 +284,25 @@ CREATE OR REPLACE FUNCTION public.check_payroll_run_not_finalized()
 RETURNS trigger AS $$
 DECLARE
   v_status text;
+  v_run_id uuid;
 BEGIN
-  SELECT status INTO v_status FROM public.payroll_runs WHERE id = NEW.payroll_run_id;
-
-  IF v_status = 'finalized' THEN
-    RAISE EXCEPTION 'Cannot update or adjust payroll lines for a finalized payroll run' USING ERRCODE = 'check_violation';
+  IF TG_OP = 'DELETE' THEN
+    v_run_id := OLD.payroll_run_id;
+  ELSE
+    v_run_id := NEW.payroll_run_id;
   END IF;
 
-  RETURN NEW;
+  SELECT status INTO v_status FROM public.payroll_runs WHERE id = v_run_id;
+
+  IF v_status = 'finalized' THEN
+    RAISE EXCEPTION 'Cannot modify payroll lines for a finalized run' USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  ELSE
+    RETURN NEW;
+  END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
@@ -380,7 +382,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 CREATE OR REPLACE FUNCTION public.set_approved_by()
 RETURNS trigger AS $$
 BEGIN
-  IF NEW.status IN ('approved', 'rejected') AND OLD.status = 'pending' THEN
+  IF NEW.status IN ('approved', 'rejected') AND NEW.status IS DISTINCT FROM OLD.status THEN
     NEW.approved_by := auth.uid();
   END IF;
   RETURN NEW;

@@ -88,8 +88,8 @@ export default function SettingsPage() {
 
     const { error } = await supabase.from('vehicles').insert({
       plate_number: upperPlate,
-      vehicle_type: vehicleType,
-      ownership: vehicleOwnership,
+      vehicle_type: vehicleType as '12WH' | '10WH' | '6WH' | 'Other',
+      ownership: vehicleOwnership as 'rented' | 'owned',
       default_contractor_id: vehicleContractor || null,
       active: true,
     })
@@ -102,8 +102,14 @@ export default function SettingsPage() {
     }
   }
 
-  const toggleActive = async (table: string, id: string, current: boolean) => {
-    await supabase.from(table).update({ active: !current }).eq('id', id)
+  const toggleActive = async (table: 'sites' | 'transport_contractors' | 'vehicles', id: string, current: boolean) => {
+    if (table === 'sites') {
+      await supabase.from('sites').update({ active: !current }).eq('id', id)
+    } else if (table === 'transport_contractors') {
+      await supabase.from('transport_contractors').update({ active: !current }).eq('id', id)
+    } else if (table === 'vehicles') {
+      await supabase.from('vehicles').update({ active: !current }).eq('id', id)
+    }
     loadAll()
   }
 

@@ -36,29 +36,60 @@ export default function AttendancePage() {
   const loadRoster = async () => {
     setLoading(true)
     // Get employees
-    const { data: employees } = await supabase
+    const { data: employees, error: empError } = await supabase
       .from('employees')
       .select('id, name, role, wage_type, wage_rate')
       .eq('site_id', selectedSite)
       .eq('active', true)
       .order('name')
+      .limit(500)
+
+    if (empError) {
+      alert(`Error loading employees: ${empError.message}`)
+      setLoading(false)
+      return
+    }
 
     // Get existing attendance
     const empIds = (employees || []).map(e => e.id)
-    const { data: att } = empIds.length > 0
-      ? await supabase.from('attendance').select('*').in('employee_id', empIds).eq('att_date', selectedDate)
-      : { data: [] }
+    const { data: att, error: attError } = empIds.length > 0
+      ? await supabase.from('attendance').select('*').in('employee_id', empIds).eq('att_date', selectedDate).limit(1000)
+      : { data: [], error: null }
+
+    if (attError) {
+      alert(`Error loading attendance records: ${attError.message}`)
+      setLoading(false)
+      return
+    }
 
     const attMap = Object.fromEntries((att || []).map(a => [a.employee_id, a]))
 
-    setRoster((employees || []).map(emp => ({
-      ...emp,
-      att_id: attMap[emp.id]?.id || null,
-      status: attMap[emp.id]?.status || 'present',
-      photo_url: attMap[emp.id]?.photo_url || null,
-      uploading: false,
-    })))
+    // Map roster and dynamically generate a 1-hour signed URL for read access (Fix N4)
+    const rosterData = await Promise.all((employees || []).map(async (emp) => {
+      const dbRecord = attMap[emp.id]
+      let displayPhotoUrl = null
+      if (dbRecord?.photo_url) {
+        let path = dbRecord.photo_url
+        if (path.includes('attendance-photos/')) {
+          path = path.split('attendance-photos/').pop() || path
+        }
+        const { data: signedData } = await supabase.storage
+          .from('attendance-photos')
+          .createSignedUrl(path, 3600)
+        displayPhotoUrl = signedData?.signedUrl || dbRecord.photo_url
+      }
 
+      return {
+        ...emp,
+        att_id: dbRecord?.id || null,
+        status: dbRecord?.status || 'present',
+        photo_url: dbRecord?.photo_url || null,
+        display_photo_url: displayPhotoUrl,
+        uploading: false,
+      }
+    }))
+
+    setRoster(rosterData)
     setLoading(false)
   }
 
@@ -79,13 +110,23 @@ export default function AttendancePage() {
       if (uploadError) throw uploadError
 
       if (uploadData) {
-        const { data: urlData } = supabase.storage.from('attendance-photos').getPublicUrl(path)
-        const photoUrl = urlData.publicUrl
-        setRoster(r => r.map(e => e.id === empId ? { ...e, photo_url: photoUrl, uploading: false } : e))
+        const photoUrl = path
+
+        // Also get a signed URL for immediate preview (Fix N4)
+        const { data: signedData } = await supabase.storage
+          .from('attendance-photos')
+          .createSignedUrl(path, 3600)
+
+        setRoster(r => r.map(e => e.id === empId ? { 
+          ...e, 
+          photo_url: photoUrl, 
+          display_photo_url: signedData?.signedUrl || photoUrl,
+          uploading: false 
+        } : e))
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error uploading photo:', err)
-      alert('Failed to upload photo. Please try again.')
+      alert(`Failed to upload photo: ${err?.message || err}`)
       setRoster(r => r.map(e => e.id === empId ? { ...e, uploading: false } : e))
     }
   }
@@ -98,8 +139,12 @@ export default function AttendancePage() {
       status: emp.status,
       photo_url: emp.photo_url || null,
     }))
-    await supabase.from('attendance').upsert(records, { onConflict: 'employee_id,att_date' })
-    setSavedIds(new Set(roster.map(e => e.id)))
+    const { error } = await supabase.from('attendance').upsert(records, { onConflict: 'employee_id,att_date' })
+    if (error) {
+      alert(`Error saving attendance roster: ${error.message}`)
+    } else {
+      setSavedIds(new Set(roster.map(e => e.id)))
+    }
     setSaving(false)
   }
 
@@ -214,9 +259,9 @@ export default function AttendancePage() {
                   />
                   {emp.uploading ? (
                     <Loader2 size={18} className="spinner" style={{ color: 'var(--accent)' }} />
-                  ) : emp.photo_url ? (
-                    <a href={emp.photo_url} target="_blank" rel="noreferrer" title="View photo evidence" onClick={e => e.stopPropagation()}>
-                      <img src={emp.photo_url} alt="Evidence" style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', border: '1.5px solid var(--success)' }} />
+                  ) : emp.display_photo_url ? (
+                    <a href={emp.display_photo_url} target="_blank" rel="noreferrer" title="View photo evidence" onClick={e => e.stopPropagation()}>
+                      <img src={emp.display_photo_url} alt="Evidence" style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover', border: '1.5px solid var(--success)' }} />
                     </a>
                   ) : (
                     <div className="btn-ghost btn btn-icon" style={{ padding: '0.375rem', color: 'var(--text-muted)' }} title="Capture photo evidence">

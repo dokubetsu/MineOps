@@ -18,15 +18,27 @@ export default function StakeholderDashboardPage() {
 
   const loadData = async () => {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    const { data: { user }, error: userError } = await supabase.auth.getUser()
+    if (userError) {
+      alert(`Authentication error: ${userError.message}`)
+      setLoading(false)
+      return
+    }
     setUser(user)
     if (!user) { setLoading(false); return }
 
     // Get stakeholder site access
-    const { data: access } = await supabase
+    const { data: access, error: accessError } = await supabase
       .from('stakeholder_site_access')
       .select('*, sites(id, name, location)')
       .eq('stakeholder_user_id', user.id)
+      .limit(100)
+
+    if (accessError) {
+      alert(`Error loading stakeholder site access: ${accessError.message}`)
+      setLoading(false)
+      return
+    }
 
     const today = new Date()
     const fromDate = period === '7d'
@@ -40,21 +52,27 @@ export default function StakeholderDashboardPage() {
       const siteId = a.site_id
 
       // Trip count
-      const { count: tripCount } = await supabase
+      const { count: tripCount, error: countError } = await supabase
         .from('trips')
         .select('id', { count: 'exact', head: true })
         .eq('site_id', siteId)
         .gte('trip_date', fromDate)
         .lte('trip_date', toDate)
+        .neq('active', false)
+
+      if (countError) console.error(`Error loading trips count for site ${siteId}:`, countError.message)
 
       // Cash aggregates via stakeholder view
-      const { data: summary } = await supabase
+      const { data: summary, error: summaryError } = await supabase
         .from('stakeholder_daily_summary')
         .select('book_date, total_in, total_out, trip_count')
         .eq('site_id', siteId)
         .gte('book_date', fromDate)
         .lte('book_date', toDate)
         .order('book_date')
+        .limit(366)
+
+      if (summaryError) console.error(`Error loading daily summaries for site ${siteId}:`, summaryError.message)
 
       const rows = summary || []
       const totalIn = rows.reduce((s: number, r: any) => s + (r.total_in || 0), 0)
@@ -63,13 +81,15 @@ export default function StakeholderDashboardPage() {
       const myShare = Math.round((net * a.share_percent) / 100)
 
       // Latest cash book for current balance
-      const { data: latestCb } = await supabase
+      const { data: latestCb, error: cbError } = await supabase
         .from('cash_books')
         .select('closing_balance, book_date')
         .eq('site_id', siteId)
         .order('book_date', { ascending: false })
         .limit(1)
-        .single()
+        .maybeSingle()
+
+      if (cbError) console.error(`Error loading latest cash book for site ${siteId}:`, cbError.message)
 
       // Trips per day trend (last 14 rows max)
       const trend = rows.slice(-14).map((r: any) => ({
@@ -79,12 +99,16 @@ export default function StakeholderDashboardPage() {
       }))
 
       // Contractor breakdown
-      const { data: trips } = await supabase
+      const { data: trips, error: tripsError } = await supabase
         .from('trips')
         .select('transport_contractors(name)')
         .eq('site_id', siteId)
         .gte('trip_date', fromDate)
         .lte('trip_date', toDate)
+        .neq('active', false)
+        .limit(1000)
+
+      if (tripsError) console.error(`Error loading contractor breakdown for site ${siteId}:`, tripsError.message)
 
       const byContractor: Record<string, number> = {}
       for (const t of trips || []) {

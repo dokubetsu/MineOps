@@ -46,13 +46,15 @@ For security, login credentials are not stored in source control. Access control
 ## 🏗️ Getting Started
 
 ### 1. Database Setup
-Ensure that the Supabase SQL database schema is initialized. Six database migrations have been successfully applied covering:
+Ensure that the Supabase SQL database schema is initialized. Eight database migrations have been successfully applied covering:
 1. **Master Tables**: `sites`, `transport_contractors`, `vehicles`, `drivers`, `employees`.
 2. **Operations**: `trips`, `cash_books`, `cash_entries` (with 16 category triggers).
 3. **Workforce**: `attendance`, `leave_applications`, `payroll_runs` + `payroll_lines`.
 4. **Access Rights**: `user_roles`, `stakeholder_site_access`, and views like `stakeholder_daily_summary`.
 5. **Storage buckets**: `trip-photos` and `attendance-photos` buckets for evidence files.
 6. **Robust Triggers & Constraints**: Unique constraints, check constraints, audit triggers, and performance indexes.
+7. **Storage Buckets Security**: Configuring private storage buckets and blocking delete operations on finalized payroll runs.
+8. **Schema Pruning & Cascades**: Dropping dead columns/tables and enforcing referential integrity (ON DELETE CASCADE/SET NULL) constraints.
 
 ### 2. Run the Frontend (Next.js)
 1. Navigate to the frontend directory:

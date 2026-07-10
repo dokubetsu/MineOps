@@ -69,7 +69,7 @@ export default function TripsPage() {
 
   const loadTrips = async () => {
     setLoading(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('trips')
       .select('*, vehicles(plate_number, vehicle_type), transport_contractors(name), drivers(name)')
       .eq('site_id', selectedSite)
@@ -77,7 +77,30 @@ export default function TripsPage() {
       .neq('active', false)
       .order('created_at', { ascending: false })
       .limit(500)
-    setTrips(data || [])
+
+    if (error) {
+      alert(`Error loading trips: ${error.message}`)
+      setTrips([])
+    } else if (data) {
+      // Map over trips and dynamically generate a 1-hour signed URL for read access (Fix N4)
+      const tripsWithSignedUrls = await Promise.all(data.map(async (trip: any) => {
+        if (trip.photo_url) {
+          let path = trip.photo_url
+          if (path.includes('trip-photos/')) {
+            path = path.split('trip-photos/').pop() || path
+          }
+          const { data: signedData } = await supabase.storage
+            .from('trip-photos')
+            .createSignedUrl(path, 3600)
+          
+          return { ...trip, signed_photo_url: signedData?.signedUrl || trip.photo_url }
+        }
+        return trip
+      }))
+      setTrips(tripsWithSignedUrls)
+    } else {
+      setTrips([])
+    }
     setLoading(false)
   }
 
@@ -102,21 +125,33 @@ export default function TripsPage() {
     // Create vehicle on-the-fly if new plate (Fix 12: preserve master data)
     if (!vehicleId && vehicleSearch) {
       const upperPlate = vehicleSearch.toUpperCase()
-      const { data: existing } = await supabase.from('vehicles')
+      const { data: existing, error: findError } = await supabase.from('vehicles')
         .select('id')
         .eq('plate_number', upperPlate)
         .maybeSingle()
 
+      if (findError) {
+        alert(`Error checking vehicles: ${findError.message}`)
+        setSubmitting(false)
+        return
+      }
+
       if (existing) {
         vehicleId = existing.id
       } else {
-        const { data: newVehicle } = await supabase.from('vehicles').insert({
+        const { data: newVehicle, error: createError } = await supabase.from('vehicles').insert({
           plate_number: upperPlate,
-          vehicle_type: form.vehicle_type,
-          ownership: form.ownership,
+          vehicle_type: form.vehicle_type as '12WH' | '10WH' | '6WH' | 'Other',
+          ownership: form.ownership as 'rented' | 'owned',
           default_contractor_id: form.contractor_id || null,
           active: true,
         }).select().single()
+
+        if (createError) {
+          alert(`Error creating vehicle: ${createError.message}`)
+          setSubmitting(false)
+          return
+        }
         vehicleId = newVehicle?.id
       }
     }
@@ -126,16 +161,22 @@ export default function TripsPage() {
     if (photoFile) {
       const ext = photoFile.name.split('.').pop() || 'jpg'
       const path = `${selectedSite}/${selectedDate}/${Date.now()}.${ext}`
-      const { data: uploadData } = await supabase.storage
+      const { data: uploadData, error: uploadError } = await supabase.storage
         .from('trip-photos')
         .upload(path, photoFile, { upsert: true })
+      
+      if (uploadError) {
+        alert(`Error uploading trip slip photo: ${uploadError.message}`)
+        setSubmitting(false)
+        return
+      }
+
       if (uploadData) {
-        const { data: urlData } = supabase.storage.from('trip-photos').getPublicUrl(path)
-        photoUrl = urlData.publicUrl
+        photoUrl = path
       }
     }
 
-    await supabase.from('trips').insert({
+    const { error: insertError } = await supabase.from('trips').insert({
       site_id: selectedSite,
       vehicle_id: vehicleId || null,
       contractor_id: form.contractor_id || null,
@@ -149,19 +190,27 @@ export default function TripsPage() {
       photo_url: photoUrl,
     })
 
-    setShowForm(false)
-    setForm({ vehicle_id: '', plate_number: '', contractor_id: '', ownership: 'rented', vehicle_type: '12WH', dd_number: '', permit_number: '', load_info: '', notes: '' })
-    setVehicleSearch('')
-    setPhotoFile(null)
-    setPhotoPreview(null)
+    if (insertError) {
+      alert(`Error saving trip details: ${insertError.message}`)
+    } else {
+      setShowForm(false)
+      setForm({ vehicle_id: '', plate_number: '', contractor_id: '', ownership: 'rented', vehicle_type: '12WH', dd_number: '', permit_number: '', load_info: '', notes: '' })
+      setVehicleSearch('')
+      setPhotoFile(null)
+      setPhotoPreview(null)
+      loadTrips()
+    }
     setSubmitting(false)
-    loadTrips()
   }
 
   const deleteTrip = async (id: string) => {
     if (!confirm('Delete this trip?')) return
-    await supabase.from('trips').update({ active: false }).eq('id', id)
-    loadTrips()
+    const { error } = await supabase.from('trips').update({ active: false }).eq('id', id)
+    if (error) {
+      alert(`Error deleting trip: ${error.message}`)
+    } else {
+      loadTrips()
+    }
   }
 
   // Group trips by contractor
@@ -250,9 +299,9 @@ export default function TripsPage() {
                   fontSize: '1.25rem', flexShrink: 0,
                   overflow: 'hidden',
                 }}>
-                  {trip.photo_url ? (
-                    <a href={trip.photo_url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} title="View captured photo">
-                      <img src={trip.photo_url} alt="Truck" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  {trip.signed_photo_url ? (
+                    <a href={trip.signed_photo_url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} title="View captured photo">
+                      <img src={trip.signed_photo_url} alt="Truck" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                     </a>
                   ) : '🚛'}
                 </div>

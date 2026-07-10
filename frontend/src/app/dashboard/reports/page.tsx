@@ -17,9 +17,13 @@ export default function ReportsPage() {
   const supabase = createClient()
 
   useEffect(() => {
-    supabase.from('sites').select('*').eq('active', true).order('name').then(({ data }) => {
-      setSites(data || [])
-      if (data?.length) setSelectedSite(data[0].id)
+    supabase.from('sites').select('*').eq('active', true).order('name').limit(200).then(({ data, error }) => {
+      if (error) {
+        alert(`Error loading sites: ${error.message}`)
+      } else {
+        setSites(data || [])
+        if (data?.length) setSelectedSite(data[0].id)
+      }
     })
   }, [])
 
@@ -30,7 +34,7 @@ export default function ReportsPage() {
     const from = period + '-01'
     const to = format(endOfMonth(new Date(from)), 'yyyy-MM-dd')
 
-    const [{ data: tripsData }, { data: booksData }] = await Promise.all([
+    const [{ data: tripsData, error: tripsError }, { data: booksData, error: booksError }] = await Promise.all([
       supabase
         .from('trips')
         .select('*, vehicles(plate_number, vehicle_type), transport_contractors(name)')
@@ -38,15 +42,20 @@ export default function ReportsPage() {
         .gte('trip_date', from)
         .lte('trip_date', to)
         .neq('active', false)
-        .order('trip_date'),
+        .order('trip_date')
+        .limit(1000),
       supabase
         .from('cash_books')
         .select('*, cash_entries(*)')
         .eq('site_id', selectedSite)
         .gte('book_date', from)
         .lte('book_date', to)
-        .order('book_date'),
+        .order('book_date')
+        .limit(1000),
     ])
+
+    if (tripsError) alert(`Error loading report trips: ${tripsError.message}`)
+    if (booksError) alert(`Error loading report cash books: ${booksError.message}`)
 
     setTrips(tripsData || [])
     setCashBooks(booksData || [])
