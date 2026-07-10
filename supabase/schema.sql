@@ -274,7 +274,8 @@ FOR EACH ROW EXECUTE FUNCTION public.check_cash_book_not_locked();
 -- 4. Database Views
 -- ------------------------------------------
 
-CREATE OR REPLACE VIEW public.stakeholder_daily_summary AS
+CREATE OR REPLACE VIEW public.stakeholder_daily_summary 
+WITH (security_invoker = true) AS
   SELECT cb.site_id,
     cb.book_date,
     COALESCE(sum(
@@ -356,12 +357,12 @@ CREATE POLICY leave_manager ON public.leave_applications TO authenticated USING 
 -- Payroll Runs Policies
 ALTER TABLE public.payroll_runs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY payroll_runs_admin ON public.payroll_runs TO authenticated USING (get_user_role() = 'admin');
-CREATE POLICY payroll_runs_manager ON public.payroll_runs FOR SELECT TO authenticated USING (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids()));
+CREATE POLICY payroll_runs_manager ON public.payroll_runs TO authenticated USING (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids()));
 
 -- Payroll Lines Policies
 ALTER TABLE public.payroll_lines ENABLE ROW LEVEL SECURITY;
 CREATE POLICY payroll_lines_admin ON public.payroll_lines TO authenticated USING (get_user_role() = 'admin');
-CREATE POLICY payroll_lines_manager ON public.payroll_lines FOR SELECT TO authenticated USING (get_user_role() = 'site_manager' AND payroll_run_id IN (SELECT id FROM payroll_runs WHERE site_id = ANY (get_user_site_ids())));
+CREATE POLICY payroll_lines_manager ON public.payroll_lines TO authenticated USING (get_user_role() = 'site_manager' AND payroll_run_id IN (SELECT id FROM payroll_runs WHERE site_id = ANY (get_user_site_ids())));
 
 -- User Roles Policies
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
