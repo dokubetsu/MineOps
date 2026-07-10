@@ -74,6 +74,7 @@ export default function TripsPage() {
       .select('*, vehicles(plate_number, vehicle_type), transport_contractors(name), drivers(name)')
       .eq('site_id', selectedSite)
       .eq('trip_date', selectedDate)
+      .neq('active', false)
       .order('created_at', { ascending: false })
     setTrips(data || [])
     setLoading(false)
@@ -97,16 +98,26 @@ export default function TripsPage() {
     setSubmitting(true)
     let vehicleId = form.vehicle_id
 
-    // Create vehicle on-the-fly if new plate
+    // Create vehicle on-the-fly if new plate (Fix 12: preserve master data)
     if (!vehicleId && vehicleSearch) {
-      const { data: newVehicle } = await supabase.from('vehicles').upsert({
-        plate_number: vehicleSearch.toUpperCase(),
-        vehicle_type: form.vehicle_type,
-        ownership: form.ownership,
-        default_contractor_id: form.contractor_id || null,
-        active: true,
-      }, { onConflict: 'plate_number' }).select().single()
-      vehicleId = newVehicle?.id
+      const upperPlate = vehicleSearch.toUpperCase()
+      const { data: existing } = await supabase.from('vehicles')
+        .select('id')
+        .eq('plate_number', upperPlate)
+        .maybeSingle()
+
+      if (existing) {
+        vehicleId = existing.id
+      } else {
+        const { data: newVehicle } = await supabase.from('vehicles').insert({
+          plate_number: upperPlate,
+          vehicle_type: form.vehicle_type,
+          ownership: form.ownership,
+          default_contractor_id: form.contractor_id || null,
+          active: true,
+        }).select().single()
+        vehicleId = newVehicle?.id
+      }
     }
 
     // Upload photo if captured
@@ -148,7 +159,7 @@ export default function TripsPage() {
 
   const deleteTrip = async (id: string) => {
     if (!confirm('Delete this trip?')) return
-    await supabase.from('trips').delete().eq('id', id)
+    await supabase.from('trips').update({ active: false }).eq('id', id)
     loadTrips()
   }
 

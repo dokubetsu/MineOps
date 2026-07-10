@@ -42,13 +42,12 @@ A mobile-first full-stack PWA web application designed to digitize manual mine r
 
 ---
 
-## 🔑 Seeded Login Credentials
+## 🔑 Application Authentication & Users
 
-| User Role | Email | Password | Site Access |
-|---|---|---|---|
-| **Admin** | `admin@mineops.in` | `MineOps@2026` | Full Access (All Sites) |
-| **Site Manager** | `manager@mineops.in` | `Manager@2026` | Scoped to **Madha Mines** operations |
-| **Stakeholder** (Murali) | `murali@mineops.in` | `Murali@2026` | Read-only **Madha Mines** revenue dashboard (50% share) |
+For security, seeded login credentials are not stored in source control. Access controls are managed dynamically:
+- **Admin**: Configure an admin account via Supabase Auth and map it to `role = 'admin'` in the `user_roles` table.
+- **Site Manager**: Configure accounts mapped to `role = 'site_manager'` with specific `site_id` scopes.
+- **Stakeholder**: Configure read-only stakeholder accounts with specific revenue share allocations mapped via `stakeholder_site_access`.
 
 ---
 

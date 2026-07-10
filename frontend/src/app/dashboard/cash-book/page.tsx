@@ -87,6 +87,7 @@ export default function CashBookPage() {
         .from('cash_entries')
         .select('*')
         .eq('cash_book_id', cb.id)
+        .neq('active', false)
         .order('created_at')
       setEntries(e || [])
     }
@@ -96,6 +97,10 @@ export default function CashBookPage() {
   const addEntry = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!cashBook || !form.category || !form.amount) return
+    if (cashBook.status === 'locked') {
+      alert('This cash book is locked and cannot be modified.')
+      return
+    }
     setSubmitting(true)
     await supabase.from('cash_entries').insert({
       cash_book_id: cashBook.id,
@@ -103,6 +108,7 @@ export default function CashBookPage() {
       category: form.category,
       amount: parseFloat(form.amount),
       note: form.note || null,
+      active: true,
     })
     setForm({ category: '', amount: '', note: '' })
     setShowForm(false)
@@ -111,8 +117,13 @@ export default function CashBookPage() {
   }
 
   const deleteEntry = async (id: string) => {
+    if (!cashBook) return
+    if (cashBook.status === 'locked') {
+      alert('This cash book is locked and entries cannot be deleted.')
+      return
+    }
     if (!confirm('Delete this entry?')) return
-    await supabase.from('cash_entries').delete().eq('id', id)
+    await supabase.from('cash_entries').update({ active: false }).eq('id', id)
     loadCashBook()
   }
 

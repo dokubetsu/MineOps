@@ -81,7 +81,16 @@ export default function PayrollPage() {
         const halfDay = records.filter(r => r.status === 'half-day').length
         const leave = records.filter(r => r.status === 'leave').length
         const absent = records.filter(r => r.status === 'absent').length
-        const computed = (present + halfDay * 0.5) * emp.wage_rate
+        
+        // Branch on wage_type (Fix 6)
+        const wageType = emp.wage_type || 'daily'
+        let computed = 0
+        if (wageType === 'monthly') {
+          computed = emp.wage_rate
+        } else {
+          computed = (present + halfDay * 0.5) * emp.wage_rate
+        }
+        const finalComputed = Math.round(computed * 100) / 100
 
         await supabase.from('payroll_lines').insert({
           payroll_run_id: newRun.id,
@@ -90,8 +99,9 @@ export default function PayrollPage() {
           days_leave: leave,
           days_absent: absent,
           base_rate: emp.wage_rate,
-          computed_amount: Math.round(computed * 100) / 100,
+          computed_amount: finalComputed,
           adjustment: 0,
+          final_amount: finalComputed, // Always write final_amount on generation
         })
       }
       loadRuns()
@@ -106,7 +116,7 @@ export default function PayrollPage() {
     if (selectedRun?.id === runId) setSelectedRun((r: any) => r ? { ...r, status: 'finalized' } : r)
   }
 
-  const totalPayroll = lines.reduce((s, l) => s + (l.computed_amount + l.adjustment), 0)
+  const totalPayroll = lines.reduce((s, l) => s + (l.final_amount !== undefined && l.final_amount !== null ? l.final_amount : (l.computed_amount + l.adjustment)), 0)
 
   return (
     <div>
@@ -243,7 +253,7 @@ export default function PayrollPage() {
                       </td>
                       <td>
                         <strong style={{ fontFamily: 'var(--font-display)' }}>
-                          ₹{(line.computed_amount + line.adjustment).toLocaleString('en-IN')}
+                          ₹{(line.final_amount !== undefined && line.final_amount !== null ? line.final_amount : (line.computed_amount + line.adjustment)).toLocaleString('en-IN')}
                         </strong>
                       </td>
                     </tr>
