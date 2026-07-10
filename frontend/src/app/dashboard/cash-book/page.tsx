@@ -69,7 +69,7 @@ export default function CashBookPage() {
 
       const openingBalance = prev?.closing_balance || 0
 
-      const { data: newCb } = await supabase.from('cash_books').insert({
+      const { data: newCb, error: insertError } = await supabase.from('cash_books').insert({
         site_id: selectedSite,
         book_date: selectedDate,
         opening_balance: openingBalance,
@@ -77,7 +77,17 @@ export default function CashBookPage() {
         status: 'draft',
       }).select().single()
 
-      cb = newCb
+      if (insertError && insertError.code === '23505') {
+        const { data: retryCb } = await supabase
+          .from('cash_books')
+          .select('*')
+          .eq('site_id', selectedSite)
+          .eq('book_date', selectedDate)
+          .single()
+        cb = retryCb
+      } else {
+        cb = newCb
+      }
     }
 
     setCashBook(cb)

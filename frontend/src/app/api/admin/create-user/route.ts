@@ -8,9 +8,19 @@ import { NextRequest, NextResponse } from 'next/server'
  * confirmation and create users without side effects.
  */
 export async function POST(req: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !serviceKey) {
+    return NextResponse.json(
+      { error: 'Internal Server Error: Missing Supabase environment variables' },
+      { status: 500 }
+    )
+  }
+
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    supabaseUrl,
+    serviceKey,
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 

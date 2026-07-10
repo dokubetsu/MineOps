@@ -76,6 +76,7 @@ export default function TripsPage() {
       .eq('trip_date', selectedDate)
       .neq('active', false)
       .order('created_at', { ascending: false })
+      .limit(500)
     setTrips(data || [])
     setLoading(false)
   }

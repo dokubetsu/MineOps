@@ -31,65 +31,59 @@ const AuthContext = createContext<AuthContextType>({
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null)
-  const [userRole, setUserRole] = useState<UserRole | null>(null)
+  const [userRoles, setUserRoles] = useState<UserRole[]>([])
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
+
+  const loadRoles = async (userId: string | undefined) => {
+    if (!userId) {
+      setUserRoles([])
+      return
+    }
+    const { data } = await supabase
+      .from('user_roles')
+      .select('*')
+      .eq('user_id', userId)
+    setUserRoles(data || [])
+  }
 
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       setUser(user)
       if (user) {
-        const { data } = await supabase
-          .from('user_roles')
-          .select('*')
-          .eq('user_id', user.id)
-          .limit(1)
-          .single()
-        setUserRole(data || null)
+        await loadRoles(user.id)
       }
       setLoading(false)
     }
     init()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        const { data } = await supabase
-          .from('user_roles')
-          .select('*')
-          .eq('user_id', session.user.id)
-          .limit(1)
-          .single()
-        setUserRole(data || null)
+      const currentUser = session?.user ?? null
+      setUser(currentUser)
+      if (currentUser) {
+        await loadRoles(currentUser.id)
       } else {
-        setUserRole(null)
+        setUserRoles([])
       }
+      setLoading(false)
     })
     return () => subscription.unsubscribe()
   }, [])
 
-  // Collect all site_ids for this user
-  const [siteIds, setSiteIds] = useState<string[]>([])
-  useEffect(() => {
-    if (!user) return
-    supabase
-      .from('user_roles')
-      .select('site_id')
-      .eq('user_id', user.id)
-      .then(({ data }) => {
-        setSiteIds((data || []).map((r: any) => r.site_id).filter(Boolean))
-      })
-  }, [user])
+  const isAdmin = userRoles.some(r => r.role === 'admin')
+  const isSiteManager = userRoles.some(r => r.role === 'site_manager')
+  const isStakeholder = userRoles.some(r => r.role === 'stakeholder')
+  const siteIds = userRoles.map(r => r.site_id).filter(Boolean) as string[]
 
   return (
     <AuthContext.Provider value={{
       user,
-      userRole,
+      userRole: userRoles[0] || null, // backward-compatible fallback
       loading,
-      isAdmin: userRole?.role === 'admin',
-      isSiteManager: userRole?.role === 'site_manager',
-      isStakeholder: userRole?.role === 'stakeholder',
+      isAdmin,
+      isSiteManager,
+      isStakeholder,
       siteIds,
     }}>
       {children}

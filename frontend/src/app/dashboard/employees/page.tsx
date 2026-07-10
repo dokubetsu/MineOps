@@ -46,7 +46,7 @@ export default function EmployeesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
-    await supabase.from('employees').insert({
+    const { error } = await supabase.from('employees').insert({
       name: form.name,
       phone: form.phone || null,
       role: form.role,
@@ -56,10 +56,14 @@ export default function EmployeesPage() {
       join_date: form.join_date,
       active: true,
     })
-    setShowForm(false)
-    setForm({ name: '', phone: '', role: 'worker', site_id: selectedSite, wage_type: 'daily', wage_rate: '', join_date: format(new Date(), 'yyyy-MM-dd') })
+    if (error) {
+      alert(`Error saving employee: ${error.message}`)
+    } else {
+      setShowForm(false)
+      setForm({ name: '', phone: '', role: 'worker', site_id: selectedSite, wage_type: 'daily', wage_rate: '', join_date: format(new Date(), 'yyyy-MM-dd') })
+      loadEmployees()
+    }
     setSubmitting(false)
-    loadEmployees()
   }
 
   const deactivate = async (id: string) => {

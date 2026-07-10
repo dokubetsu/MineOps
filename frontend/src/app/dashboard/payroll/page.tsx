@@ -58,6 +58,32 @@ export default function PayrollPage() {
   const generatePayroll = async () => {
     setGenerating(true)
     const periodDate = period + '-01'
+
+    // Check if run exists (Fix 3: idempotent generate)
+    const { data: existingRun } = await supabase
+      .from('payroll_runs')
+      .select('*')
+      .eq('site_id', selectedSite)
+      .eq('period_month', periodDate)
+      .maybeSingle()
+
+    if (existingRun) {
+      if (existingRun.status === 'finalized') {
+        alert('Payroll has already been finalized for this period and cannot be re-generated.')
+        setGenerating(false)
+        return
+      }
+      
+      // If it exists in draft, delete the old run's lines first to allow clean overwrite
+      if (confirm('A draft payroll run already exists for this period. Overwrite?')) {
+        await supabase.from('payroll_lines').delete().eq('payroll_run_id', existingRun.id)
+        await supabase.from('payroll_runs').delete().eq('id', existingRun.id)
+      } else {
+        setGenerating(false)
+        return
+      }
+    }
+
     const { data: newRun } = await supabase.from('payroll_runs').insert({
       site_id: selectedSite,
       period_month: periodDate,

@@ -37,6 +37,7 @@ export default function ReportsPage() {
         .eq('site_id', selectedSite)
         .gte('trip_date', from)
         .lte('trip_date', to)
+        .neq('active', false)
         .order('trip_date'),
       supabase
         .from('cash_books')
@@ -50,7 +51,9 @@ export default function ReportsPage() {
     setTrips(tripsData || [])
     setCashBooks(booksData || [])
     const allEntries = (booksData || []).flatMap((b: any) =>
-      (b.cash_entries || []).map((e: any) => ({ ...e, book_date: b.book_date }))
+      (b.cash_entries || [])
+        .filter((e: any) => e.active !== false)
+        .map((e: any) => ({ ...e, book_date: b.book_date }))
     )
     setCashEntries(allEntries)
     setLoading(false)

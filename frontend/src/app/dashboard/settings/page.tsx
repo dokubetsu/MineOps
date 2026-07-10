@@ -39,9 +39,9 @@ export default function SettingsPage() {
   const loadAll = async () => {
     setLoading(true)
     const [{ data: s }, { data: c }, { data: v }] = await Promise.all([
-      supabase.from('sites').select('*').order('name'),
-      supabase.from('transport_contractors').select('*').order('name'),
-      supabase.from('vehicles').select('*, transport_contractors(name)').order('plate_number'),
+      supabase.from('sites').select('*').order('name').limit(200),
+      supabase.from('transport_contractors').select('*').order('name').limit(200),
+      supabase.from('vehicles').select('*, transport_contractors(name)').order('plate_number').limit(1000),
     ])
     setSites(s || [])
     setContractors(c || [])
@@ -51,29 +51,55 @@ export default function SettingsPage() {
 
   const addSite = async (e: React.FormEvent) => {
     e.preventDefault()
-    await supabase.from('sites').insert({ name: siteName, location: siteLocation, active: true })
-    setSiteName(''); setSiteLocation('')
-    loadAll()
+    const { error } = await supabase.from('sites').insert({ name: siteName, location: siteLocation, active: true })
+    if (error) {
+      alert(`Error adding site: ${error.message}`)
+    } else {
+      setSiteName(''); setSiteLocation('')
+      loadAll()
+    }
   }
 
   const addContractor = async (e: React.FormEvent) => {
     e.preventDefault()
-    await supabase.from('transport_contractors').insert({ name: contractorName, active: true })
-    setContractorName('')
-    loadAll()
+    const { error } = await supabase.from('transport_contractors').insert({ name: contractorName, active: true })
+    if (error) {
+      alert(`Error adding contractor: ${error.message}`)
+    } else {
+      setContractorName('')
+      loadAll()
+    }
   }
 
   const addVehicle = async (e: React.FormEvent) => {
     e.preventDefault()
-    await supabase.from('vehicles').upsert({
-      plate_number: vehiclePlate.toUpperCase(),
+    const upperPlate = vehiclePlate.toUpperCase()
+    
+    // Check if vehicle plate already exists first to show a friendly error
+    const { data: existing } = await supabase.from('vehicles')
+      .select('id')
+      .eq('plate_number', upperPlate)
+      .maybeSingle()
+
+    if (existing) {
+      alert(`Vehicle with plate ${upperPlate} already exists.`)
+      return
+    }
+
+    const { error } = await supabase.from('vehicles').insert({
+      plate_number: upperPlate,
       vehicle_type: vehicleType,
       ownership: vehicleOwnership,
       default_contractor_id: vehicleContractor || null,
       active: true,
-    }, { onConflict: 'plate_number' })
-    setVehiclePlate(''); setVehicleContractor('')
-    loadAll()
+    })
+
+    if (error) {
+      alert(error.message)
+    } else {
+      setVehiclePlate(''); setVehicleContractor('')
+      loadAll()
+    }
   }
 
   const toggleActive = async (table: string, id: string, current: boolean) => {
