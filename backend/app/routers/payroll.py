@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
-from typing import List
+from fastapi import APIRouter, HTTPException, Depends
+from typing import List, Optional
 from uuid import UUID
 from app.models import PayrollRunCreate, PayrollLineAdjustment
 from app.database import get_supabase
+from app.auth import get_current_user
 from datetime import date, timedelta
 import calendar
 
@@ -10,14 +11,15 @@ router = APIRouter()
 
 
 @router.post("/runs", response_model=dict, status_code=201)
-async def generate_payroll(run: PayrollRunCreate):
+async def generate_payroll(run: PayrollRunCreate, current_user=Depends(get_current_user)):
     """Generate payroll for a site for a given month"""
     db = get_supabase()
 
     period = run.period_month
-    # Get first and last day of the month
     first_day = period.replace(day=1)
     last_day = period.replace(day=calendar.monthrange(period.year, period.month)[1])
+    # Total working days in the month (for monthly wage proration)
+    total_working_days = calendar.monthrange(period.year, period.month)[1]
 
     # Create payroll run
     run_result = db.table("payroll_runs").insert({
@@ -33,16 +35,18 @@ async def generate_payroll(run: PayrollRunCreate):
     ).eq("active", True).execute()
     employees = emp_result.data or []
 
-    # Get attendance for the period
+    # Guard: empty employee list → empty .in_ crash
     emp_ids = [e["id"] for e in employees]
+    if not emp_ids:
+        return payroll_run
+
+    # Get attendance for the period
     att_result = db.table("attendance").select("employee_id, status").in_(
         "employee_id", emp_ids
     ).gte("att_date", str(first_day)).lte("att_date", str(last_day)).execute()
 
-    # Count by employee
-    att_counts = {}
-    for emp in employees:
-        att_counts[emp["id"]] = {"present": 0, "absent": 0, "half_day": 0, "leave": 0}
+    # Count attendance by employee
+    att_counts = {emp["id"]: {"present": 0, "absent": 0, "half_day": 0, "leave": 0} for emp in employees}
     for a in (att_result.data or []):
         eid = a["employee_id"]
         if eid in att_counts:
@@ -56,15 +60,24 @@ async def generate_payroll(run: PayrollRunCreate):
             elif s == "leave":
                 att_counts[eid]["leave"] += 1
 
-    # Create payroll lines
+    # Create payroll lines — branch on wage_type (Fix 6)
     lines = []
     for emp in employees:
         counts = att_counts[emp["id"]]
         base_rate = emp["wage_rate"]
         days_present = counts["present"]
         days_half = counts["half_day"]
-        # half-day counts as 0.5
-        computed = (days_present + days_half * 0.5) * base_rate
+        wage_type = emp.get("wage_type", "daily")
+
+        if wage_type == "monthly":
+            # Monthly: employee gets flat monthly rate regardless of days present
+            # (adjust here if you want proration: base_rate * effective_days / total_working_days)
+            computed = base_rate
+        else:
+            # Daily: pay per day (half-day = 0.5)
+            computed = (days_present + days_half * 0.5) * base_rate
+
+        computed = round(computed, 2)
         lines.append({
             "payroll_run_id": payroll_run["id"],
             "employee_id": emp["id"],
@@ -72,8 +85,9 @@ async def generate_payroll(run: PayrollRunCreate):
             "days_leave": counts["leave"],
             "days_absent": counts["absent"],
             "base_rate": base_rate,
-            "computed_amount": round(computed, 2),
+            "computed_amount": computed,
             "adjustment": 0,
+            "final_amount": computed,  # Fix 6: always write final_amount
         })
 
     if lines:
@@ -83,7 +97,7 @@ async def generate_payroll(run: PayrollRunCreate):
 
 
 @router.get("/runs", response_model=List[dict])
-async def list_payroll_runs(site_id: UUID = None):
+async def list_payroll_runs(site_id: Optional[UUID] = None, current_user=Depends(get_current_user)):
     db = get_supabase()
     query = db.table("payroll_runs").select("*, sites(name)")
     if site_id:
@@ -93,7 +107,7 @@ async def list_payroll_runs(site_id: UUID = None):
 
 
 @router.get("/runs/{run_id}/lines", response_model=List[dict])
-async def get_payroll_lines(run_id: UUID):
+async def get_payroll_lines(run_id: UUID, current_user=Depends(get_current_user)):
     db = get_supabase()
     result = db.table("payroll_lines").select("*, employees(name, phone)").eq(
         "payroll_run_id", str(run_id)
@@ -102,11 +116,19 @@ async def get_payroll_lines(run_id: UUID):
 
 
 @router.patch("/lines/{line_id}/adjust", response_model=dict)
-async def adjust_payroll_line(line_id: UUID, adj: PayrollLineAdjustment):
+async def adjust_payroll_line(line_id: UUID, adj: PayrollLineAdjustment, current_user=Depends(get_current_user)):
     db = get_supabase()
+    # Fetch current computed_amount to calculate final_amount correctly
+    existing = db.table("payroll_lines").select("computed_amount").eq("id", str(line_id)).execute()
+    if not existing.data:
+        raise HTTPException(status_code=404, detail="Payroll line not found")
+    computed = existing.data[0].get("computed_amount", 0) or 0
+    final = round(computed + (adj.adjustment or 0), 2)
+
     result = db.table("payroll_lines").update({
         "adjustment": adj.adjustment,
         "notes": adj.notes,
+        "final_amount": final,  # Fix 6: keep final_amount in sync
     }).eq("id", str(line_id)).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Payroll line not found")
@@ -114,7 +136,7 @@ async def adjust_payroll_line(line_id: UUID, adj: PayrollLineAdjustment):
 
 
 @router.patch("/runs/{run_id}/finalize", response_model=dict)
-async def finalize_payroll(run_id: UUID):
+async def finalize_payroll(run_id: UUID, current_user=Depends(get_current_user)):
     db = get_supabase()
     result = db.table("payroll_runs").update({"status": "finalized"}).eq(
         "id", str(run_id)

@@ -65,32 +65,24 @@ export default function UsersPage() {
     setError('')
 
     try {
-      // Use Supabase admin signup via the signUp function
-      const { data: signupData, error: signupError } = await supabase.auth.signUp({
-        email: form.email,
-        password: form.password,
-        options: { emailRedirectTo: `${window.location.origin}/dashboard` }
+      // Use the server-side admin route — never expose service role key to the client
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+        },
+        body: JSON.stringify({
+          email: form.email,
+          password: form.password,
+          role: form.role,
+          site_id: form.site_id || null,
+          share_percent: form.share_percent,
+        }),
       })
-
-      if (signupError) throw signupError
-      const newUserId = signupData.user?.id
-      if (!newUserId) throw new Error('User creation failed')
-
-      // Assign role
-      await supabase.from('user_roles').insert({
-        user_id: newUserId,
-        role: form.role,
-        site_id: form.site_id || null,
-      })
-
-      // If stakeholder with site, add access record
-      if (form.role === 'stakeholder' && form.site_id) {
-        await supabase.from('stakeholder_site_access').insert({
-          stakeholder_user_id: newUserId,
-          site_id: form.site_id,
-          share_percent: parseFloat(form.share_percent) || 50,
-        })
-      }
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to create user')
 
       setShowForm(false)
       setForm({ email: '', password: '', role: 'site_manager', site_id: '', share_percent: '50' })

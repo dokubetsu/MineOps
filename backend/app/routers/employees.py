@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from uuid import UUID
 from app.models import EmployeeCreate, EmployeeUpdate
 from app.database import get_supabase
+from app.auth import get_current_user
 
 router = APIRouter()
 
@@ -11,6 +12,7 @@ router = APIRouter()
 async def list_employees(
     site_id: Optional[UUID] = None,
     active: Optional[bool] = None,
+    current_user=Depends(get_current_user),
 ):
     db = get_supabase()
     query = db.table("employees").select("*, sites(name)")
@@ -23,7 +25,7 @@ async def list_employees(
 
 
 @router.post("/", response_model=dict, status_code=201)
-async def create_employee(employee: EmployeeCreate):
+async def create_employee(employee: EmployeeCreate, current_user=Depends(get_current_user)):
     db = get_supabase()
     data = employee.model_dump()
     for key in ["site_id"]:
@@ -38,7 +40,7 @@ async def create_employee(employee: EmployeeCreate):
 
 
 @router.get("/{employee_id}", response_model=dict)
-async def get_employee(employee_id: UUID):
+async def get_employee(employee_id: UUID, current_user=Depends(get_current_user)):
     db = get_supabase()
     result = db.table("employees").select("*, sites(name)").eq("id", str(employee_id)).single().execute()
     if not result.data:
@@ -47,7 +49,7 @@ async def get_employee(employee_id: UUID):
 
 
 @router.patch("/{employee_id}", response_model=dict)
-async def update_employee(employee_id: UUID, employee: EmployeeUpdate):
+async def update_employee(employee_id: UUID, employee: EmployeeUpdate, current_user=Depends(get_current_user)):
     db = get_supabase()
     update_data = {k: str(v) if isinstance(v, UUID) else v for k, v in employee.model_dump().items() if v is not None}
     result = db.table("employees").update(update_data).eq("id", str(employee_id)).execute()
@@ -57,7 +59,7 @@ async def update_employee(employee_id: UUID, employee: EmployeeUpdate):
 
 
 @router.delete("/{employee_id}", status_code=204)
-async def deactivate_employee(employee_id: UUID):
+async def deactivate_employee(employee_id: UUID, current_user=Depends(get_current_user)):
     """Soft delete - sets active=False"""
     db = get_supabase()
     db.table("employees").update({"active": False}).eq("id", str(employee_id)).execute()

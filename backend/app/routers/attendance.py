@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from uuid import UUID
 from datetime import date, datetime, timedelta
 from app.database import get_supabase
+from app.auth import get_current_user
 
 router = APIRouter()
 
@@ -11,6 +12,7 @@ router = APIRouter()
 async def get_attendance_roster(
     site_id: UUID,
     att_date: Optional[date] = None,
+    current_user=Depends(get_current_user),
 ):
     """Get full attendance roster for a site on a given date"""
     db = get_supabase()
@@ -22,6 +24,10 @@ async def get_attendance_roster(
         "site_id", str(site_id)
     ).eq("active", True).order("name").execute()
     employees = emp_result.data or []
+
+    # Guard: empty employee list → safe early return
+    if not employees:
+        return []
 
     # Get existing attendance records
     att_result = db.table("attendance").select("*").in_(
@@ -46,7 +52,8 @@ async def get_attendance_roster(
 async def bulk_mark_attendance(
     site_id: UUID,
     att_date: date,
-    records: List[dict],  # [{employee_id, status}]
+    records: List[dict],
+    current_user=Depends(get_current_user),
 ):
     """Bulk mark attendance for a site on a date - upsert for idempotency"""
     db = get_supabase()
@@ -69,6 +76,7 @@ async def get_attendance_summary(
     site_id: UUID,
     from_date: date,
     to_date: date,
+    current_user=Depends(get_current_user),
 ):
     """Summary of attendance for payroll period"""
     db = get_supabase()
@@ -77,6 +85,10 @@ async def get_attendance_summary(
     ).eq("active", True).execute()
     employees = emp_result.data or []
     emp_ids = [e["id"] for e in employees]
+
+    # Guard: empty list crashes .in_
+    if not emp_ids:
+        return {"from_date": str(from_date), "to_date": str(to_date), "employees": []}
 
     att_result = db.table("attendance").select("employee_id, status").in_(
         "employee_id", emp_ids

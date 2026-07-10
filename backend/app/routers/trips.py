@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from uuid import UUID
 from app.models import TripCreate, TripUpdate
 from app.database import get_supabase
+from app.auth import get_current_user
 from datetime import date
 
 router = APIRouter()
@@ -16,6 +17,7 @@ async def list_trips(
     to_date: Optional[date] = None,
     contractor_id: Optional[UUID] = None,
     vehicle_id: Optional[UUID] = None,
+    current_user=Depends(get_current_user),
 ):
     db = get_supabase()
     query = db.table("trips").select(
@@ -38,7 +40,7 @@ async def list_trips(
 
 
 @router.post("/", response_model=dict, status_code=201)
-async def create_trip(trip: TripCreate):
+async def create_trip(trip: TripCreate, current_user=Depends(get_current_user)):
     db = get_supabase()
     data = trip.model_dump()
     # Convert UUID fields to strings
@@ -58,7 +60,7 @@ async def create_trip(trip: TripCreate):
 
 
 @router.get("/{trip_id}", response_model=dict)
-async def get_trip(trip_id: UUID):
+async def get_trip(trip_id: UUID, current_user=Depends(get_current_user)):
     db = get_supabase()
     result = db.table("trips").select(
         "*, vehicles(plate_number, vehicle_type), drivers(name), transport_contractors(name)"
@@ -69,7 +71,7 @@ async def get_trip(trip_id: UUID):
 
 
 @router.patch("/{trip_id}", response_model=dict)
-async def update_trip(trip_id: UUID, trip: TripUpdate):
+async def update_trip(trip_id: UUID, trip: TripUpdate, current_user=Depends(get_current_user)):
     db = get_supabase()
     update_data = {k: str(v) if isinstance(v, UUID) else v for k, v in trip.model_dump().items() if v is not None}
     result = db.table("trips").update(update_data).eq("id", str(trip_id)).execute()
@@ -79,13 +81,14 @@ async def update_trip(trip_id: UUID, trip: TripUpdate):
 
 
 @router.delete("/{trip_id}", status_code=204)
-async def delete_trip(trip_id: UUID):
+async def delete_trip(trip_id: UUID, current_user=Depends(get_current_user)):
+    """Soft-delete: preserve financial audit trail"""
     db = get_supabase()
-    db.table("trips").delete().eq("id", str(trip_id)).execute()
+    db.table("trips").update({"active": False}).eq("id", str(trip_id)).execute()
 
 
 @router.get("/summary/daily")
-async def get_daily_summary(site_id: UUID, trip_date: date = None):
+async def get_daily_summary(site_id: UUID, trip_date: Optional[date] = None, current_user=Depends(get_current_user)):
     """Get trip count summary for a site on a given date"""
     db = get_supabase()
     if trip_date is None:

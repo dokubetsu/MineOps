@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 from uuid import UUID
 from app.models import VehicleCreate, VehicleUpdate
 from app.database import get_supabase
+from app.auth import get_current_user
 
 router = APIRouter()
 
@@ -11,6 +12,7 @@ router = APIRouter()
 async def list_vehicles(
     active: Optional[bool] = None,
     search: Optional[str] = None,
+    current_user=Depends(get_current_user),
 ):
     db = get_supabase()
     query = db.table("vehicles").select("*, transport_contractors(name)")
@@ -23,7 +25,7 @@ async def list_vehicles(
 
 
 @router.post("/", response_model=dict, status_code=201)
-async def create_vehicle(vehicle: VehicleCreate):
+async def create_vehicle(vehicle: VehicleCreate, current_user=Depends(get_current_user)):
     db = get_supabase()
     data = vehicle.model_dump()
     data["plate_number"] = data["plate_number"].upper()
@@ -36,7 +38,7 @@ async def create_vehicle(vehicle: VehicleCreate):
 
 
 @router.get("/{vehicle_id}", response_model=dict)
-async def get_vehicle(vehicle_id: UUID):
+async def get_vehicle(vehicle_id: UUID, current_user=Depends(get_current_user)):
     db = get_supabase()
     result = db.table("vehicles").select("*, transport_contractors(name)").eq("id", str(vehicle_id)).single().execute()
     if not result.data:
@@ -45,7 +47,7 @@ async def get_vehicle(vehicle_id: UUID):
 
 
 @router.patch("/{vehicle_id}", response_model=dict)
-async def update_vehicle(vehicle_id: UUID, vehicle: VehicleUpdate):
+async def update_vehicle(vehicle_id: UUID, vehicle: VehicleUpdate, current_user=Depends(get_current_user)):
     db = get_supabase()
     update_data = {}
     for k, v in vehicle.model_dump().items():
@@ -63,6 +65,6 @@ async def update_vehicle(vehicle_id: UUID, vehicle: VehicleUpdate):
 
 
 @router.delete("/{vehicle_id}", status_code=204)
-async def deactivate_vehicle(vehicle_id: UUID):
+async def deactivate_vehicle(vehicle_id: UUID, current_user=Depends(get_current_user)):
     db = get_supabase()
     db.table("vehicles").update({"active": False}).eq("id", str(vehicle_id)).execute()
