@@ -2,9 +2,14 @@
 -- Prevents race-condition duplicate rows when two concurrent requests hit get-or-create
 
 ALTER TABLE cash_books
+  DROP CONSTRAINT IF EXISTS uq_cash_books_site_date;
+ALTER TABLE cash_books
   ADD CONSTRAINT uq_cash_books_site_date UNIQUE (site_id, book_date);
 
 -- Migration: Fix 10 — Validate entry_type and amount on cash_entries
+ALTER TABLE cash_entries
+  DROP CONSTRAINT IF EXISTS chk_entry_type,
+  DROP CONSTRAINT IF EXISTS chk_amount_positive;
 ALTER TABLE cash_entries
   ADD CONSTRAINT chk_entry_type CHECK (entry_type IN ('in', 'out')),
   ADD CONSTRAINT chk_amount_positive CHECK (amount > 0);

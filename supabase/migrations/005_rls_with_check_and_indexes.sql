@@ -12,16 +12,32 @@ FROM cash_books cb LEFT JOIN cash_entries ce ON ce.cash_book_id=cb.id
 GROUP BY cb.id, cb.site_id, cb.book_date, cb.opening_balance, cb.closing_balance;
 
 -- 2. Add UNIQUE constraint to payroll_runs(site_id, period_month) (Fix #3)
+ALTER TABLE public.payroll_runs DROP CONSTRAINT IF EXISTS uq_payroll_runs_site_month;
 ALTER TABLE public.payroll_runs ADD CONSTRAINT uq_payroll_runs_site_month UNIQUE (site_id, period_month);
 
 -- 3. Add CHECK constraints for status / type / role columns (Fix #19)
+ALTER TABLE public.attendance DROP CONSTRAINT IF EXISTS chk_attendance_status;
 ALTER TABLE public.attendance ADD CONSTRAINT chk_attendance_status CHECK (status IN ('present','absent','half-day','leave'));
+
+ALTER TABLE public.leave_applications DROP CONSTRAINT IF EXISTS chk_leave_status;
 ALTER TABLE public.leave_applications ADD CONSTRAINT chk_leave_status CHECK (status IN ('pending','approved','rejected'));
+
+ALTER TABLE public.payroll_runs DROP CONSTRAINT IF EXISTS chk_payroll_status;
 ALTER TABLE public.payroll_runs ADD CONSTRAINT chk_payroll_status CHECK (status IN ('draft','finalized'));
+
+ALTER TABLE public.cash_books DROP CONSTRAINT IF EXISTS chk_cashbook_status;
 ALTER TABLE public.cash_books ADD CONSTRAINT chk_cashbook_status CHECK (status IN ('draft','locked'));
+
+ALTER TABLE public.user_roles DROP CONSTRAINT IF EXISTS chk_user_role;
 ALTER TABLE public.user_roles ADD CONSTRAINT chk_user_role CHECK (role IN ('admin','site_manager','stakeholder'));
+
+ALTER TABLE public.vehicles DROP CONSTRAINT IF EXISTS chk_vehicle_type;
 ALTER TABLE public.vehicles ADD CONSTRAINT chk_vehicle_type CHECK (vehicle_type IN ('12WH','10WH','6WH','Other'));
+
+ALTER TABLE public.vehicles DROP CONSTRAINT IF EXISTS chk_ownership;
 ALTER TABLE public.vehicles ADD CONSTRAINT chk_ownership CHECK (ownership IN ('rented','owned'));
+
+ALTER TABLE public.employees DROP CONSTRAINT IF EXISTS chk_wage_type;
 ALTER TABLE public.employees ADD CONSTRAINT chk_wage_type CHECK (wage_type IN ('daily','monthly'));
 
 -- 4. Set search_path and prefix on helper functions to protect SECURITY DEFINER queries (Fix #10)
@@ -161,6 +177,7 @@ CREATE INDEX IF NOT EXISTS idx_stakeholder_access_user ON public.stakeholder_sit
 CREATE INDEX IF NOT EXISTS idx_employees_site ON public.employees (site_id) WHERE active IS NOT FALSE;
 
 -- 10. Add first day of month CHECK constraint on payroll period_month (Fix #24)
+ALTER TABLE public.payroll_runs DROP CONSTRAINT IF EXISTS chk_payroll_period_first_day;
 ALTER TABLE public.payroll_runs ADD CONSTRAINT chk_payroll_period_first_day CHECK (date_trunc('month', period_month) = period_month);
 
 -- 11. Add updated_at columns and change tracking triggers (Fix #23)
