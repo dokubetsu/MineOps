@@ -40,6 +40,13 @@ jobs:
           ANON_KEY=$(echo $STATUS_JSON | jq -r 'if .["anon.key"] != null and .["anon.key"] != "null" then .["anon.key"] else .["anon_key"] end')
           SERVICE_KEY=$(echo $STATUS_JSON | jq -r 'if .["service.key"] != null and .["service.key"] != "null" then .["service.key"] else (if .["service_role_key"] != null and .["service_role_key"] != "null" then .["service_role_key"] else .["service_key"] end) end')
           
+          if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ]; then
+            echo "JSON parsing returned null; falling back to status text parsing..."
+            STATUS_TEXT=$(supabase status)
+            ANON_KEY=$(echo "$STATUS_TEXT" | grep -i "anon key" | sed 's/.*anon key: //I' | tr -d '[:space:]')
+            SERVICE_KEY=$(echo "$STATUS_TEXT" | grep -i "service_role key" | sed 's/.*service_role key: //I' | tr -d '[:space:]')
+          fi
+          
           echo "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> $GITHUB_ENV
           echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_KEY" >> $GITHUB_ENV
