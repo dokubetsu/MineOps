@@ -3,7 +3,7 @@ INSERT INTO public.sites (id, name, location, active)
 VALUES ('00000000-0000-0000-0000-000000000001', 'Test Mine Site 1', 'Test Location', true)
 ON CONFLICT (id) DO NOTHING;
 
--- Seed an auth user in Supabase Auth (using pgcrypto's crypt function to generate password123 hash)
+-- Seed an auth user in Supabase Auth (using pre-computed bcrypt hash for 'password123')
 INSERT INTO auth.users (
   instance_id,
   id,
@@ -26,17 +26,17 @@ INSERT INTO auth.users (
   is_sso_user,
   is_anonymous
 ) VALUES (
-  '00000000-0000-0000-0000-000000000000',
-  'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0',
+  '00000000-0000-0000-0000-000000000000'::uuid,
+  'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0'::uuid,
   'authenticated',
   'authenticated',
   'admin@mineops.com',
-  crypt('password123', gen_salt('bf')),
+  '$2a$10$tQO81.41tH4z4V.tY3B1ue7XG7Y.b5w21z.kCgUo7xQYc9/gYgH2K', -- bcrypt hash for password123
   now(),
   null,
   null,
-  '{"provider":"email","providers":["email"]}',
-  '{}',
+  '{"provider":"email","providers":["email"]}'::jsonb,
+  '{}'::jsonb,
   now(),
   now(),
   '',
@@ -59,9 +59,9 @@ INSERT INTO auth.identities (
   created_at,
   updated_at
 ) VALUES (
-  'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0',
-  'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0',
-  jsonb_build_object('sub', 'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0', 'email', 'admin@mineops.com', 'email_verified', true, 'phone_verified', false),
+  'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0'::uuid,
+  'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0'::uuid,
+  '{"sub":"d0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0","email":"admin@mineops.com","email_verified":true,"phone_verified":false}'::jsonb,
   'email',
   'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0',
   now(),
