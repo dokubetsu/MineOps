@@ -34,18 +34,36 @@ jobs:
       - name: Start Supabase Stack & Seed DB
         run: |
           supabase start || (docker logs supabase_db_idea2 && docker logs supabase_auth_idea2 && exit 1)
-          STATUS_JSON=$(supabase status -o json)
-          echo "Supabase Status Output: $STATUS_JSON"
           
-          ANON_KEY=$(echo $STATUS_JSON | jq -r 'if .["anon.key"] != null and .["anon.key"] != "null" then .["anon.key"] else .["anon_key"] end')
-          SERVICE_KEY=$(echo $STATUS_JSON | jq -r 'if .["service.key"] != null and .["service.key"] != "null" then .["service.key"] else (if .["service_role_key"] != null and .["service_role_key"] != "null" then .["service_role_key"] else .["service_key"] end) end')
+          ANON_KEY=""
+          SERVICE_KEY=""
           
+          # 1. Try reading from supabase/.temp/api-keys (Newer CLI standard)
+          if [ -f supabase/.temp/api-keys ]; then
+            echo "Parsing keys from supabase/.temp/api-keys..."
+            ANON_KEY=$(grep "anon=" supabase/.temp/api-keys | cut -d'=' -f2- | tr -d '[:space:]')
+            SERVICE_KEY=$(grep "service_role=" supabase/.temp/api-keys | cut -d'=' -f2- | tr -d '[:space:]')
+          fi
+          
+          # 2. Try JSON status parser if keys are still empty
           if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ]; then
-            echo "JSON parsing returned null; falling back to status text parsing..."
-            STATUS_TEXT=$(supabase status)
+            echo "api-keys file not found or empty. Trying JSON status output..."
+            STATUS_JSON=$(supabase status -o json 2>/dev/null || echo "{}")
+            echo "Supabase Status Output: $STATUS_JSON"
+            ANON_KEY=$(echo "$STATUS_JSON" | jq -r 'if .["anon.key"] != null and .["anon.key"] != "null" then .["anon.key"] else .["anon_key"] end' 2>/dev/null)
+            SERVICE_KEY=$(echo "$STATUS_JSON" | jq -r 'if .["service.key"] != null and .["service.key"] != "null" then .["service.key"] else (if .["service_role_key"] != null and .["service_role_key"] != "null" then .["service_role_key"] else .["service_key"] end) end' 2>/dev/null)
+          fi
+          
+          # 3. Try standard status text parsing if keys are still empty
+          if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ] || [ "$ANON_KEY" = "" ]; then
+            echo "JSON parsing returned null/empty. Trying status text parsing..."
+            STATUS_TEXT=$(supabase status 2>/dev/null || echo "")
             ANON_KEY=$(echo "$STATUS_TEXT" | grep -i "anon key" | sed 's/.*anon key: //I' | tr -d '[:space:]')
             SERVICE_KEY=$(echo "$STATUS_TEXT" | grep -i "service_role key" | sed 's/.*service_role key: //I' | tr -d '[:space:]')
           fi
+          
+          echo "Extracted ANON_KEY length: ${#ANON_KEY}"
+          echo "Extracted SERVICE_KEY length: ${#SERVICE_KEY}"
           
           echo "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> $GITHUB_ENV
