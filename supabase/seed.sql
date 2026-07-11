@@ -21,7 +21,10 @@ INSERT INTO auth.users (
   confirmation_token,
   email_change,
   email_change_token_new,
-  recovery_token
+  recovery_token,
+  confirmed_at,
+  is_sso_user,
+  is_anonymous
 ) VALUES (
   '00000000-0000-0000-0000-000000000000',
   'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0',
@@ -39,7 +42,10 @@ INSERT INTO auth.users (
   '',
   '',
   '',
-  ''
+  '',
+  now(),
+  false,
+  false
 ) ON CONFLICT (id) DO NOTHING;
 
 -- Seed an auth identity in Supabase Auth (required for email provider logins to succeed)

@@ -11,6 +11,10 @@ import { test, expect } from '@playwright/test'
  */
 test.describe('MineOps End-to-End Business Flow', () => {
   test('User can login, log a trip, record attendance, run and finalize payroll, and view stakeholder revenue', async ({ page }) => {
+    // Enable console and pageerror logging to capture login/auth failure details in CI
+    page.on('console', msg => console.log('PAGE LOG:', msg.text()))
+    page.on('pageerror', err => console.log('PAGE ERROR:', err.message))
+
     // 1. Login page
     await page.goto('/')
     await expect(page).toHaveTitle(/MineOps/)
