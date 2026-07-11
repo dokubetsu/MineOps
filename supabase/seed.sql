@@ -42,6 +42,29 @@ INSERT INTO auth.users (
   ''
 ) ON CONFLICT (id) DO NOTHING;
 
+-- Seed an auth identity in Supabase Auth (required for email provider logins to succeed)
+INSERT INTO auth.identities (
+  id,
+  user_id,
+  identity_data,
+  provider,
+  provider_id,
+  email,
+  last_sign_in_at,
+  created_at,
+  updated_at
+) VALUES (
+  'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0',
+  'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0',
+  jsonb_build_object('sub', 'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0', 'email', 'admin@mineops.com', 'email_verified', true, 'phone_verified', false),
+  'email',
+  'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0',
+  'admin@mineops.com',
+  now(),
+  now(),
+  now()
+) ON CONFLICT (provider_id, provider) DO NOTHING;
+
 -- Grant admin role to the user in user_roles
 INSERT INTO public.user_roles (id, user_id, role, site_id)
 VALUES ('00000000-0000-0000-0000-000000000002', 'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0', 'admin', null)
