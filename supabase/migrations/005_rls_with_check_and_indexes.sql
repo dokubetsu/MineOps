@@ -155,7 +155,7 @@ BEGIN
   WHERE site_id = NEW.site_id AND id <> COALESCE(NEW.id, '00000000-0000-0000-0000-000000000000'::uuid);
 
   IF (v_sum + NEW.share_percent) > 100.0 THEN
-    RAISE EXCEPTION 'Total stakeholder share percentage for this site cannot exceed 100%% (current sum: %%, trying to add: %%)', v_sum, NEW.share_percent USING ERRCODE = 'check_violation';
+    RAISE EXCEPTION 'Total stakeholder share percentage for this site cannot exceed 100%% (current sum: %, trying to add: %)', v_sum, NEW.share_percent USING ERRCODE = 'check_violation';
   END IF;
 
   RETURN NEW;
