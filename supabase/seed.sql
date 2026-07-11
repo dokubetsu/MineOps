@@ -22,7 +22,6 @@ INSERT INTO auth.users (
   email_change,
   email_change_token_new,
   recovery_token,
-  confirmed_at,
   is_sso_user,
   is_anonymous
 ) VALUES (
@@ -43,7 +42,6 @@ INSERT INTO auth.users (
   '',
   '',
   '',
-  now(),
   false,
   false
 ) ON CONFLICT (id) DO NOTHING;
