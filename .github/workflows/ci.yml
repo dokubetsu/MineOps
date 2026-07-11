@@ -33,7 +33,7 @@ jobs:
 
       - name: Start Supabase Stack & Seed DB
         run: |
-          supabase start
+          supabase start || (docker logs supabase_db_idea2 && docker logs supabase_auth_idea2 && exit 1)
           # Extract URL and Keys from Supabase CLI JSON output
           STATUS_JSON=$(supabase status -o json)
           echo "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321" >> $GITHUB_ENV
