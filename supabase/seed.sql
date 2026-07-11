@@ -30,7 +30,7 @@ INSERT INTO auth.users (
   'authenticated',
   'authenticated',
   'admin@mineops.com',
-  '$2a$10$tQO81.41tH4z4V.tY3B1ue7XG7Y.b5w21z.kCgUo7xQYc9/gYgH2K', -- bcrypt hash for password123
+  '$2b$10$k9w6pk2UNlP4LCek3i57N.t8fFGCANArlAHjGgYUDgumh8vpmsBOC', -- verified bcrypt hash for password123
   now(),
   null,
   null,
