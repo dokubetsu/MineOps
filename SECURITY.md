@@ -23,7 +23,7 @@ ALTER FUNCTION public.get_user_role() SET search_path = public, pg_temp;
 ### Trips and Attendance Photo Buckets
 Trips and attendance images are stored in **private** storage buckets (`public = false`) to guarantee data confidentiality:
 1. **Access Control**: Short-lived signed URLs (valid for 3600 seconds) are generated programmatically on the client and server to render images securely.
-2. **Exposure Risk**: Because the buckets are private, unauthorized users cannot access images directly, even if they obtain the raw object paths. Read/write operations are strictly protected via Row Level Security (RLS) policies.
+2. **Exposure Risk**: Because the buckets are private, unauthenticated users cannot access images directly, even if they obtain the raw object paths. Access is restricted to authenticated users via bucket policies and short-lived signed URLs.
 
 ---
 
