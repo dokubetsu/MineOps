@@ -34,11 +34,15 @@ jobs:
       - name: Start Supabase Stack & Seed DB
         run: |
           supabase start || (docker logs supabase_db_idea2 && docker logs supabase_auth_idea2 && exit 1)
-          # Extract URL and Keys from Supabase CLI JSON output
           STATUS_JSON=$(supabase status -o json)
+          echo "Supabase Status Output: $STATUS_JSON"
+          
+          ANON_KEY=$(echo $STATUS_JSON | jq -r 'if .["anon.key"] != null and .["anon.key"] != "null" then .["anon.key"] else .["anon_key"] end')
+          SERVICE_KEY=$(echo $STATUS_JSON | jq -r 'if .["service.key"] != null and .["service.key"] != "null" then .["service.key"] else (if .["service_role_key"] != null and .["service_role_key"] != "null" then .["service_role_key"] else .["service_key"] end) end')
+          
           echo "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$(echo $STATUS_JSON | jq -r '.["anon.key"]')" >> $GITHUB_ENV
-          echo "SUPABASE_SERVICE_ROLE_KEY=$(echo $STATUS_JSON | jq -r '.["service.key"]')" >> $GITHUB_ENV
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> $GITHUB_ENV
+          echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_KEY" >> $GITHUB_ENV
 
       - name: Type Check & Verify
         run: |
