@@ -22,7 +22,7 @@ test.describe('MineOps End-to-End Business Flow', () => {
     
     // Validate redirect to dashboard
     await expect(page).toHaveURL(/\/dashboard/)
-    await expect(page.locator('text=MineOps')).toBeVisible()
+    await expect(page.locator('.sidebar-logo-text')).toBeVisible()
 
     // 2. Trips Logging
     await page.click('a[href="/dashboard/trips"]')
