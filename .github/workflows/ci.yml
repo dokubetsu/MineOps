@@ -38,28 +38,53 @@ jobs:
           ANON_KEY=""
           SERVICE_KEY=""
           
-          # 1. Try reading from supabase/.temp/api-keys (Newer CLI standard)
+          # Debug: Show CLI version and available files
+          echo "=== DEBUG: Supabase CLI version ==="
+          supabase --version || true
+          echo "=== DEBUG: Checking supabase/.temp/ ==="
+          ls -la supabase/.temp/ 2>/dev/null || echo "supabase/.temp/ does not exist"
+          echo "=== DEBUG: supabase status raw output ==="
+          supabase status 2>&1 || true
+          echo "=== DEBUG: supabase status --output env ==="
+          supabase status --output env 2>&1 || true
+          
+          # Method 1: Try supabase/.temp/api-keys file (newer CLI)
           if [ -f supabase/.temp/api-keys ]; then
-            echo "Parsing keys from supabase/.temp/api-keys..."
+            echo ">>> Method 1: Parsing from supabase/.temp/api-keys"
+            cat supabase/.temp/api-keys
             ANON_KEY=$(grep "anon=" supabase/.temp/api-keys | cut -d'=' -f2- | tr -d '[:space:]')
             SERVICE_KEY=$(grep "service_role=" supabase/.temp/api-keys | cut -d'=' -f2- | tr -d '[:space:]')
           fi
           
-          # 2. Try JSON status parser if keys are still empty
+          # Method 2: Try supabase status --output env (newer CLI flag)
           if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ]; then
-            echo "api-keys file not found or empty. Trying JSON status output..."
-            STATUS_JSON=$(supabase status -o json 2>/dev/null || echo "{}")
-            echo "Supabase Status Output: $STATUS_JSON"
-            ANON_KEY=$(echo "$STATUS_JSON" | jq -r 'if .["anon.key"] != null and .["anon.key"] != "null" then .["anon.key"] else .["anon_key"] end' 2>/dev/null)
-            SERVICE_KEY=$(echo "$STATUS_JSON" | jq -r 'if .["service.key"] != null and .["service.key"] != "null" then .["service.key"] else (if .["service_role_key"] != null and .["service_role_key"] != "null" then .["service_role_key"] else .["service_key"] end) end' 2>/dev/null)
+            echo ">>> Method 2: Trying --output env"
+            ENV_OUTPUT=$(supabase status --output env 2>/dev/null || echo "")
+            ANON_KEY=$(echo "$ENV_OUTPUT" | grep "ANON_KEY=" | cut -d'=' -f2- | tr -d '[:space:]' | tr -d '"')
+            SERVICE_KEY=$(echo "$ENV_OUTPUT" | grep "SERVICE_ROLE_KEY=" | cut -d'=' -f2- | tr -d '[:space:]' | tr -d '"')
           fi
           
-          # 3. Try standard status text parsing if keys are still empty
-          if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ] || [ "$ANON_KEY" = "" ]; then
-            echo "JSON parsing returned null/empty. Trying status text parsing..."
+          # Method 3: Try JSON output (some CLI versions)
+          if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ]; then
+            echo ">>> Method 3: Trying -o json / --output json"
+            STATUS_JSON=$(supabase status -o json 2>/dev/null || supabase status --output json 2>/dev/null || echo "{}")
+            ANON_KEY=$(echo "$STATUS_JSON" | jq -r '(.["anon_key"] // .["anon.key"] // .["ANON_KEY"] // empty)' 2>/dev/null)
+            SERVICE_KEY=$(echo "$STATUS_JSON" | jq -r '(.["service_role_key"] // .["service.key"] // .["SERVICE_ROLE_KEY"] // empty)' 2>/dev/null)
+          fi
+          
+          # Method 4: Text grep from supabase status
+          if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ]; then
+            echo ">>> Method 4: Trying status text grep"
             STATUS_TEXT=$(supabase status 2>/dev/null || echo "")
-            ANON_KEY=$(echo "$STATUS_TEXT" | grep -i "anon key" | sed 's/.*anon key: //I' | tr -d '[:space:]')
-            SERVICE_KEY=$(echo "$STATUS_TEXT" | grep -i "service_role key" | sed 's/.*service_role key: //I' | tr -d '[:space:]')
+            ANON_KEY=$(echo "$STATUS_TEXT" | grep -i "anon" | grep -oE 'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+')
+            SERVICE_KEY=$(echo "$STATUS_TEXT" | grep -i "service" | grep -oE 'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+')
+          fi
+          
+          # Method 5: Well-known default local dev keys (always the same for supabase local)
+          if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ]; then
+            echo ">>> Method 5: Using well-known default Supabase local dev keys"
+            ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
+            SERVICE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU"
           fi
           
           echo "Extracted ANON_KEY length: ${#ANON_KEY}"
