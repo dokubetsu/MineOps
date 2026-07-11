@@ -49,7 +49,6 @@ INSERT INTO auth.identities (
   identity_data,
   provider,
   provider_id,
-  email,
   last_sign_in_at,
   created_at,
   updated_at
@@ -59,7 +58,6 @@ INSERT INTO auth.identities (
   jsonb_build_object('sub', 'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0', 'email', 'admin@mineops.com', 'email_verified', true, 'phone_verified', false),
   'email',
   'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0',
-  'admin@mineops.com',
   now(),
   now(),
   now()
