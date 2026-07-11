@@ -26,6 +26,20 @@ jobs:
           cd frontend
           npm ci
 
+      - name: Setup Supabase Local Development CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start Supabase Stack & Seed DB
+        run: |
+          supabase start
+          # Extract URL and Keys from Supabase CLI JSON output
+          STATUS_JSON=$(supabase status -o json)
+          echo "NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321" >> $GITHUB_ENV
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$(echo $STATUS_JSON | jq -r '.["anon.key"]')" >> $GITHUB_ENV
+          echo "SUPABASE_SERVICE_ROLE_KEY=$(echo $STATUS_JSON | jq -r '.["service.key"]')" >> $GITHUB_ENV
+
       - name: Type Check & Verify
         run: |
           cd frontend
@@ -36,7 +50,23 @@ jobs:
           cd frontend
           npm run build
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+
+      - name: Install Playwright Chromium Browser
+        run: |
+          cd frontend
+          npx playwright install chromium --with-deps
+
+      - name: Run E2E Integration Tests
+        run: |
+          cd frontend
+          npm run test:e2e
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+
 
 
