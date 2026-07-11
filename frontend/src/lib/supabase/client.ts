@@ -8,6 +8,8 @@ export function createClient() {
   // Guard only in client-side runtime to allow build-time prerendering to pass
   if (typeof window !== 'undefined' && (!url || !key)) {
     throw new Error('Supabase configuration error: missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables')
+  } else if (!url || !key) {
+    console.warn('Warning: Supabase environment variables are missing during SSR/build-time prerender. Returning placeholder browser client.')
   }
 
   return createBrowserClient<Database>(

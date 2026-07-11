@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS public.employees (
   phone text,
   wage_type text NOT NULL CHECK (wage_type IN ('daily','monthly')),
   wage_rate numeric NOT NULL,
-  site_id uuid REFERENCES public.sites(id) ON DELETE CASCADE,
+  site_id uuid REFERENCES public.sites(id) ON DELETE RESTRICT,
   active boolean NOT NULL DEFAULT true,
   join_date date,
   created_at timestamp with time zone DEFAULT now(),
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS public.employees (
 -- Trips
 CREATE TABLE IF NOT EXISTS public.trips (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE CASCADE,
+  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE RESTRICT,
   vehicle_id uuid REFERENCES public.vehicles(id) ON DELETE SET NULL,
   driver_id uuid REFERENCES public.drivers(id) ON DELETE SET NULL,
   contractor_id uuid REFERENCES public.transport_contractors(id) ON DELETE SET NULL,
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS public.trips (
 -- Cash Books
 CREATE TABLE IF NOT EXISTS public.cash_books (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE CASCADE,
+  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE RESTRICT,
   book_date date NOT NULL,
   opening_balance numeric NOT NULL DEFAULT 0.0,
   closing_balance numeric NOT NULL DEFAULT 0.0,
@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS public.leave_applications (
 -- Payroll Runs
 CREATE TABLE IF NOT EXISTS public.payroll_runs (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE CASCADE,
+  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE RESTRICT,
   period_month date NOT NULL CHECK (date_trunc('month', period_month) = period_month),
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','finalized')),
   created_at timestamp with time zone DEFAULT now(),
@@ -171,7 +171,7 @@ CREATE TABLE IF NOT EXISTS public.user_roles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
   role text NOT NULL CHECK (role IN ('admin','site_manager','stakeholder')),
-  site_id uuid REFERENCES public.sites(id) ON DELETE CASCADE,
+  site_id uuid REFERENCES public.sites(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
 );
@@ -180,7 +180,7 @@ CREATE TABLE IF NOT EXISTS public.user_roles (
 CREATE TABLE IF NOT EXISTS public.stakeholder_site_access (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   stakeholder_user_id uuid NOT NULL,
-  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE CASCADE,
+  site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE RESTRICT,
   share_percent numeric NOT NULL DEFAULT 50.0 CHECK (share_percent >= 0.0 AND share_percent <= 100.0),
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),

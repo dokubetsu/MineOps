@@ -37,8 +37,8 @@ On the configuration page, adjust the following settings:
 - Vercel will automatically detect and set this to **Next.js**. Leave it as is.
 
 ### 3. Build & Development Settings
-- Keep the default commands:
-  - **Build Command**: `next build`
+- Keep the default settings (Vercel will run the script from `package.json` which automatically includes the required `--webpack` compiler flag):
+  - **Build Command**: `npm run build` (runs `next build --webpack`)
   - **Install Command**: `npm install`
 
 ---

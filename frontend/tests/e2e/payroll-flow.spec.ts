@@ -1,5 +1,14 @@
 import { test, expect } from '@playwright/test'
 
+/**
+ * MineOps End-to-End Business Flow Integration Test
+ * 
+ * NOTE: This test is configured for local execution against a running instance with seeded data.
+ * To run:
+ * 1. Ensure the Supabase database has a test admin account (e.g. user: admin@mineops.com, password: password123).
+ * 2. Start the local server using `npm run dev` or `npm run start` inside the frontend directory.
+ * 3. Run: `npx playwright test`
+ */
 test.describe('MineOps End-to-End Business Flow', () => {
   test('User can login, log a trip, record attendance, run and finalize payroll, and view stakeholder revenue', async ({ page }) => {
     // 1. Login page
@@ -35,35 +44,39 @@ test.describe('MineOps End-to-End Business Flow', () => {
     
     // Toggle first employee's status to 'present' and save roster
     await page.click('.attendance-toggles >> text=P')
-    await page.click('button:has-text("Save Roster")')
-    await expect(page.locator('text=All saved')).toBeVisible()
+    await page.click('button:has-text("Save All")')
+    
+    // Wait for the Save All button to complete saving (spinner disappears, button is re-enabled)
+    const saveButton = page.locator('button:has-text("Save All")')
+    await expect(saveButton).toBeEnabled()
 
     // 4. Payroll Operations
     await page.click('a[href="/dashboard/payroll"]')
     await expect(page).toHaveURL(/\/dashboard\/payroll/)
     
-    // Select current month and click generate
-    await page.click('button:has-text("Generate Payroll")')
-    
-    // If overwrite confirmation pops up, handle it
+    // Register dialog listener BEFORE the action that triggers the prompt
     page.on('dialog', async dialog => {
       await dialog.accept()
     })
     
-    // Wait for the payroll rows to render
-    await expect(page.locator('.payroll-line-row')).toBeVisible()
+    // Select current month and click generate
+    await page.click('button:has-text("Generate Payroll")')
+    
+    // Wait for the payroll data table rows to render
+    await expect(page.locator('table.data-table tbody tr')).toBeVisible()
     
     // Finalize the payroll run
-    await page.click('button:has-text("Finalize Payroll")')
-    await expect(page.locator('text=Status: finalized')).toBeVisible()
+    await page.click('button:has-text("Finalize")')
+    await expect(page.locator('span:has-text("finalized")')).toBeVisible()
 
     // 5. Stakeholder Dashboard View
     await page.click('a[href="/dashboard/stakeholder"]')
     await expect(page).toHaveURL(/\/dashboard\/stakeholder/)
     
     // Verify revenue share summary widget has non-zero calculations
-    await expect(page.locator('.revenue-share-card')).toBeVisible()
-    const myShareText = await page.locator('.revenue-share-amount').textContent()
+    const shareCard = page.locator('.stat-card.card-accent')
+    await expect(shareCard).toBeVisible()
+    const myShareText = await shareCard.locator('.stat-value').textContent()
     expect(myShareText).not.toBe('₹0')
   })
 })

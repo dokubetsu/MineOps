@@ -21,12 +21,9 @@ ALTER FUNCTION public.get_user_role() SET search_path = public, pg_temp;
 ## 📷 Photo Storage & Access Control
 
 ### Trips and Attendance Photo Buckets
-Trips and attendance images are stored in public storage buckets under the following design tradeoffs:
-1. **Performance**: Site Managers in remote mining regions frequently experience high latency and network drops. Direct public URL loading provides rapid thumbnail loading without the overhead of signed URL handshakes.
-2. **Exposure Risk**: URLs contain complex UUID structures which cannot be brute-forced (cryptographically secure identifier generation). However, anyone with the direct URL can view the image.
-
-> [!NOTE]
-> If higher compliance standards are required in the future, these buckets should be set to private, and the client application updated to fetch short-lived signed URLs via `supabase.storage.from(bucket).createSignedUrl(path, expiresSeconds)`.
+Trips and attendance images are stored in **private** storage buckets (`public = false`) to guarantee data confidentiality:
+1. **Access Control**: Short-lived signed URLs (valid for 3600 seconds) are generated programmatically on the client and server to render images securely.
+2. **Exposure Risk**: Because the buckets are private, unauthorized users cannot access images directly, even if they obtain the raw object paths. Read/write operations are strictly protected via Row Level Security (RLS) policies.
 
 ---
 

@@ -24,7 +24,11 @@ MineOps has transitioned to a streamlined architecture (Option A: client-to-data
 ├── frontend/              # Next.js 16 React application
 │   ├── src/
 │   │   ├── app/           # App router page folders and API route handlers
-│   │   └── lib/           # Supabase connection, auth context, theme context
+│   │   └── lib/           
+│   │       └── supabase/
+│   │           └── database.types.ts  # Supabase typed schemas
+│   ├── tests/e2e/         # Playwright integration flows
+│   ├── playwright.config.ts # Playwright settings
 │   ├── vercel.json        # Vercel deployment configurations
 │   └── package.json       # Node dependencies and scripts
 │
@@ -46,7 +50,7 @@ For security, login credentials are not stored in source control. Access control
 ## 🏗️ Getting Started
 
 ### 1. Database Setup
-Ensure that the Supabase SQL database schema is initialized. Eight database migrations have been successfully applied covering:
+Ensure that the Supabase SQL database schema is initialized. Nine database migrations have been successfully applied covering:
 1. **Master Tables**: `sites`, `transport_contractors`, `vehicles`, `drivers`, `employees`.
 2. **Operations**: `trips`, `cash_books`, `cash_entries` (with 16 category triggers).
 3. **Workforce**: `attendance`, `leave_applications`, `payroll_runs` + `payroll_lines`.
@@ -55,6 +59,7 @@ Ensure that the Supabase SQL database schema is initialized. Eight database migr
 6. **Robust Triggers & Constraints**: Unique constraints, check constraints, audit triggers, and performance indexes.
 7. **Storage Buckets Security**: Configuring private storage buckets and blocking delete operations on finalized payroll runs.
 8. **Schema Pruning & Cascades**: Dropping dead columns/tables and enforcing referential integrity (ON DELETE CASCADE/SET NULL) constraints.
+9. **Site Delete Restrictions**: Protecting database records against accidental deletion cascades via ON DELETE RESTRICT on site foreign keys.
 
 ### 2. Run the Frontend (Next.js)
 1. Navigate to the frontend directory:
