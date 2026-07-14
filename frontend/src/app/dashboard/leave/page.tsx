@@ -4,8 +4,12 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import { Plus, Check, X, Clock } from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
 
 export default function LeavePage() {
+  const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
+  const router = useRouter()
   const [applications, setApplications] = useState<any[]>([])
   const [employees, setEmployees] = useState<any[]>([])
   const [sites, setSites] = useState<any[]>([])
@@ -20,7 +24,14 @@ export default function LeavePage() {
   const [submitting, setSubmitting] = useState(false)
   const supabase = createClient()
 
-  useEffect(() => { loadInitialData() }, [])
+  useEffect(() => {
+    if (authLoading) return
+    if (!isAdmin && !isSiteManager) {
+      router.push('/dashboard')
+      return
+    }
+    loadInitialData()
+  }, [authLoading, isAdmin, isSiteManager])
   useEffect(() => { if (selectedSite) loadApplications() }, [selectedSite, activeTab])
 
   const loadInitialData = async () => {

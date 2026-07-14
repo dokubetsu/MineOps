@@ -1,6 +1,20 @@
-import { createServerClient } from '@supabase/ssr'
+﻿import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { Database } from './lib/supabase/database.types'
+
+// Routes that stakeholders are NOT allowed to access
+// (they should only see /dashboard/stakeholder and /dashboard itself)
+const STAKEHOLDER_BLOCKED_PREFIXES = [
+  '/dashboard/trips',
+  '/dashboard/cash-book',
+  '/dashboard/attendance',
+  '/dashboard/leave',
+  '/dashboard/payroll',
+  '/dashboard/reports',
+  '/dashboard/employees',
+  '/dashboard/settings',
+  '/dashboard/users',
+]
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -32,18 +46,46 @@ export async function proxy(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Redirect unauthenticated users from protected routes
+  // ── 1. Unauthenticated → redirect to login ──────────────────────────────
   if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/'
-    return NextResponse.redirect(url)
+    const redirectUrl = request.nextUrl.clone()
+    redirectUrl.pathname = '/'
+    return NextResponse.redirect(redirectUrl)
   }
 
-  // Redirect authenticated users away from login page
+  // ── 2. Authenticated on login page → redirect to dashboard ──────────────
   if (user && request.nextUrl.pathname === '/') {
-    const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
-    return NextResponse.redirect(url)
+    const redirectUrl = request.nextUrl.clone()
+    redirectUrl.pathname = '/dashboard'
+    return NextResponse.redirect(redirectUrl)
+  }
+
+  // ── 3. Role-based route guard for authenticated users ───────────────────
+  if (user && request.nextUrl.pathname.startsWith('/dashboard')) {
+    const pathname = request.nextUrl.pathname
+    const isBlockedForStakeholder = STAKEHOLDER_BLOCKED_PREFIXES.some(p =>
+      pathname.startsWith(p)
+    )
+
+    if (isBlockedForStakeholder) {
+      // Fetch role — single lightweight query, only for protected paths
+      const { data: roleRow } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .order('role') // admin < site_manager < stakeholder alphabetically — will prefer admin
+        .limit(1)
+        .maybeSingle()
+
+      const role = roleRow?.role ?? 'stakeholder'
+
+      // Stakeholders can't access operational pages — send to their dashboard
+      if (role === 'stakeholder') {
+        const redirectUrl = request.nextUrl.clone()
+        redirectUrl.pathname = '/dashboard/stakeholder'
+        return NextResponse.redirect(redirectUrl)
+      }
+    }
   }
 
   return supabaseResponse

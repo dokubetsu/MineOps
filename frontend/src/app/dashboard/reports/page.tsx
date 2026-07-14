@@ -1,11 +1,15 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
 import { Download, FileText, Printer, Calendar } from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
 
 export default function ReportsPage() {
+  const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
+  const router = useRouter()
   const [sites, setSites] = useState<any[]>([])
   const [selectedSite, setSelectedSite] = useState('')
   const [period, setPeriod] = useState(format(startOfMonth(new Date()), 'yyyy-MM'))
@@ -23,6 +27,11 @@ export default function ReportsPage() {
   const supabase = createClient()
 
   useEffect(() => {
+    if (authLoading) return
+    if (!isAdmin && !isSiteManager) {
+      router.push('/dashboard')
+      return
+    }
     supabase.from('sites').select('*').eq('active', true).order('name').limit(200).then(({ data, error }) => {
       if (error) {
         alert(`Error loading sites: ${error.message}`)
@@ -31,7 +40,7 @@ export default function ReportsPage() {
         if (data?.length) setSelectedSite(data[0].id)
       }
     })
-  }, [])
+  }, [authLoading, isAdmin, isSiteManager])
 
   useEffect(() => { if (selectedSite) loadData() }, [selectedSite, period])
 

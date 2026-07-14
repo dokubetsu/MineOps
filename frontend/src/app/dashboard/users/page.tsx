@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, X, Shield, User, Eye } from 'lucide-react'
+import { Plus, X, Shield, Pencil, Check } from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
 
 const ROLES = [
   { value: 'admin', label: 'Admin', desc: 'Full access to all sites and data', icon: '🛡️' },
@@ -10,20 +12,20 @@ const ROLES = [
   { value: 'stakeholder', label: 'Stakeholder', desc: 'Read-only revenue share dashboard', icon: '📊' },
 ]
 
-import { useAuth } from '@/lib/auth-context'
-import { useRouter } from 'next/navigation'
-
 export default function UsersPage() {
   const { isAdmin, loading: authLoading } = useAuth()
   const router = useRouter()
-  const [users, setUsers] = useState<any[]>([])
+  const [userRoleRows, setUserRoleRows] = useState<any[]>([])
+  const [authUsers, setAuthUsers] = useState<Record<string, string>>({}) // id → email
   const [sites, setSites] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [editingRow, setEditingRow] = useState<any | null>(null) // row being edited
   const [form, setForm] = useState({
     email: '', password: '', role: 'site_manager',
     site_id: '', share_percent: '50',
   })
+  const [editForm, setEditForm] = useState({ role: '', site_id: '', share_percent: '' })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const supabase = createClient()
@@ -37,57 +39,65 @@ export default function UsersPage() {
     loadData()
   }, [authLoading, isAdmin])
 
+  const getAuthToken = async () => {
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token ?? ''
+  }
+
   const loadData = async () => {
     setLoading(true)
-    const [{ data: rolesData, error: rolesError }, { data: sitesData, error: sitesError }] = await Promise.all([
-      supabase.from('user_roles').select('*, sites(name)').limit(500),
+    const token = await getAuthToken()
+
+    const [{ data: rolesData, error: rolesError }, { data: sitesData, error: sitesError }, authRes] = await Promise.all([
+      supabase.from('user_roles').select('*, sites(name)').order('created_at').limit(500),
       supabase.from('sites').select('*').eq('active', true).order('name').limit(500),
+      fetch('/api/admin/list-users', {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then(r => r.json()).catch(() => ({ users: [] })),
     ])
 
     if (rolesError) alert(`Error loading user roles: ${rolesError.message}`)
-    if (sitesError) alert(`Error loading sites list: ${sitesError.message}`)
+    if (sitesError) alert(`Error loading sites: ${sitesError.message}`)
 
     setSites(sitesData || [])
+    setUserRoleRows(rolesData || [])
 
-    // Group by user_id
-    const userMap: Record<string, any> = {}
-    for (const r of (rolesData || [])) {
-      if (!userMap[r.user_id]) {
-        userMap[r.user_id] = { 
-          user_id: r.user_id, 
-          role: r.role, 
-          sites: [],
-          blanket_role_row_id: r.site_id ? null : r.id
-        }
-      }
-      if (r.site_id) {
-        userMap[r.user_id].sites.push({ 
-          id: r.site_id, 
-          name: r.sites?.name,
-          role_row_id: r.id
-        })
-      } else {
-        userMap[r.user_id].blanket_role_row_id = r.id
-      }
-    }
-    setUsers(Object.values(userMap))
+    // Build id → email map
+    const emailMap: Record<string, string> = {}
+    for (const u of (authRes.users || [])) emailMap[u.id] = u.email
+    setAuthUsers(emailMap)
     setLoading(false)
   }
+
+  // Group role rows by user_id for display
+  const userMap: Record<string, any> = {}
+  for (const r of userRoleRows) {
+    if (!userMap[r.user_id]) {
+      userMap[r.user_id] = {
+        user_id: r.user_id,
+        email: authUsers[r.user_id] || '',
+        role: r.role,
+        rows: [],
+      }
+    }
+    userMap[r.user_id].rows.push(r)
+    // Highest-privilege role wins for display
+    const priority = (role: string) => role === 'admin' ? 1 : role === 'site_manager' ? 2 : 3
+    if (priority(r.role) < priority(userMap[r.user_id].role)) {
+      userMap[r.user_id].role = r.role
+    }
+  }
+  const users = Object.values(userMap)
 
   const inviteUser = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
     setError('')
-
     try {
-      // Use the server-side admin route — never expose service role key to the client
-      const { data: { session } } = await supabase.auth.getSession()
+      const token = await getAuthToken()
       const res = await fetch('/api/admin/create-user', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           email: form.email,
           password: form.password,
@@ -98,7 +108,6 @@ export default function UsersPage() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to create user')
-
       setShowForm(false)
       setForm({ email: '', password: '', role: 'site_manager', site_id: '', share_percent: '50' })
       loadData()
@@ -108,86 +117,60 @@ export default function UsersPage() {
     setSubmitting(false)
   }
 
-  const removeRole = async (userId: string) => {
+  const removeUser = async (userId: string) => {
     if (!confirm("Remove this user's access completely?")) return
-
     // Delete stakeholder site access first
-    const { error: stakeholderError } = await supabase
-      .from('stakeholder_site_access')
-      .delete()
-      .eq('stakeholder_user_id', userId)
-
-    if (stakeholderError) {
-      alert(`Error removing stakeholder access: ${stakeholderError.message}`)
-      return
-    }
-
-    // Delete user roles next (will trigger last admin check on DB)
-    const { error: roleError } = await supabase
-      .from('user_roles')
-      .delete()
-      .eq('user_id', userId)
-
-    if (roleError) {
-      alert(`Error removing user roles: ${roleError.message}`)
-    } else {
-      loadData()
-    }
+    await supabase.from('stakeholder_site_access').delete().eq('stakeholder_user_id', userId)
+    const { error } = await supabase.from('user_roles').delete().eq('user_id', userId)
+    if (error) alert(`Error: ${error.message}`)
+    else loadData()
   }
 
-  const revokeSpecificAccess = async (roleRowId: string, userId: string, siteId: string) => {
-    if (!confirm('Revoke access for this specific site/role?')) return
-
-    // If stakeholder, delete their specific site access
-    const { error: stakeholderError } = await supabase
-      .from('stakeholder_site_access')
-      .delete()
-      .eq('stakeholder_user_id', userId)
-      .eq('site_id', siteId)
-
-    if (stakeholderError) {
-      alert(`Error revoking stakeholder site access: ${stakeholderError.message}`)
-      return
+  const revokeRow = async (rowId: string, userId: string, siteId: string | null) => {
+    if (!confirm('Revoke this specific role/site access?')) return
+    if (siteId) {
+      await supabase.from('stakeholder_site_access').delete()
+        .eq('stakeholder_user_id', userId).eq('site_id', siteId)
     }
-
-    // Delete the specific user role row
-    const { error: roleError } = await supabase
-      .from('user_roles')
-      .delete()
-      .eq('id', roleRowId)
-
-    if (roleError) {
-      alert(`Error revoking specific role: ${roleError.message}`)
-    } else {
-      loadData()
-    }
+    const { error } = await supabase.from('user_roles').delete().eq('id', rowId)
+    if (error) alert(`Error: ${error.message}`)
+    else loadData()
   }
 
-  const revokeBlanketAccess = async (roleRowId: string, userId: string) => {
-    if (!confirm('Revoke this blanket role?')) return
+  const startEdit = (row: any) => {
+    setEditingRow(row)
+    setEditForm({
+      role: row.role,
+      site_id: row.site_id || '',
+      share_percent: '50',
+    })
+  }
 
-    // Delete all stakeholder site access
-    const { error: stakeholderError } = await supabase
-      .from('stakeholder_site_access')
-      .delete()
-      .eq('stakeholder_user_id', userId)
-
-    if (stakeholderError) {
-      alert(`Error revoking stakeholder access: ${stakeholderError.message}`)
-      return
-    }
-
-    // Delete the blanket user role row
-    const { error: roleError } = await supabase
+  const saveEdit = async () => {
+    if (!editingRow) return
+    setSubmitting(true)
+    const { error } = await supabase
       .from('user_roles')
-      .delete()
-      .eq('id', roleRowId)
-
-    if (roleError) {
-      alert(`Error revoking blanket role: ${roleError.message}`)
+      .update({
+        role: editForm.role as 'admin' | 'site_manager' | 'stakeholder',
+        site_id: editForm.site_id || null,
+      })
+      .eq('id', editingRow.id)
+    if (error) {
+      alert(`Error updating role: ${error.message}`)
     } else {
+      // If changing to/from stakeholder update site access
+      if (editForm.role === 'stakeholder' && editForm.site_id) {
+        await supabase.from('stakeholder_site_access').upsert({
+          stakeholder_user_id: editingRow.user_id,
+          site_id: editForm.site_id,
+          share_percent: parseFloat(editForm.share_percent) || 50,
+        }, { onConflict: 'stakeholder_user_id,site_id' })
+      }
+      setEditingRow(null)
       loadData()
     }
+    setSubmitting(false)
   }
 
   const roleIcon = (role: string) => role === 'admin' ? '🛡️' : role === 'site_manager' ? '👷' : '📊'
@@ -228,58 +211,98 @@ export default function UsersPage() {
           <div className="empty-desc">Add users to grant them access to MineOps</div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           {users.map(u => (
-            <div key={u.user_id} className="card" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-              <div style={{
-                width: '44px', height: '44px', borderRadius: '50%',
-                background: 'var(--bg-elevated)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '1.25rem', flexShrink: 0,
-              }}>
-                {roleIcon(u.role)}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: 'var(--font-display)', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>
-                  ID: {u.user_id.substring(0, 8)}...
+            <div key={u.user_id} className="card" style={{ padding: '1rem' }}>
+              {/* User header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', marginBottom: u.rows.length > 0 ? '0.75rem' : 0 }}>
+                <div style={{
+                  width: '40px', height: '40px', borderRadius: '50%',
+                  background: 'var(--bg-elevated)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: '1.1rem', flexShrink: 0,
+                }}>
+                  {roleIcon(u.role)}
                 </div>
-                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span className={`badge ${roleBadge(u.role)}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {u.email || <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.75rem' }}>ID: {u.user_id.substring(0, 12)}…</span>}
+                  </div>
+                  <span className={`badge ${roleBadge(u.role)}`} style={{ marginTop: '0.2rem', display: 'inline-block' }}>
                     {u.role.replace('_', ' ')}
-                    {u.blanket_role_row_id && (
-                      <button 
-                        style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', marginLeft: '0.25rem' }}
-                        onClick={() => revokeBlanketAccess(u.blanket_role_row_id, u.user_id)}
-                        title="Revoke blanket access"
-                      >
-                        <X size={12} style={{ color: 'var(--danger)' }} />
-                      </button>
-                    )}
                   </span>
-                  {u.sites.map((s: any) => (
-                    <span key={s.id} className="badge badge-gray" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
-                      {s.name}
-                      <button 
-                        style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-                        onClick={() => revokeSpecificAccess(s.role_row_id, u.user_id, s.id)}
-                        title={`Revoke access for ${s.name}`}
-                      >
-                        <X size={12} style={{ color: 'var(--danger)' }} />
-                      </button>
-                    </span>
-                  ))}
-                  {u.sites.length === 0 && u.role === 'admin' && !u.blanket_role_row_id && (
-                    <span className="badge badge-amber">All Sites</span>
-                  )}
                 </div>
+                <button
+                  className="btn btn-ghost btn-icon"
+                  onClick={() => removeUser(u.user_id)}
+                  title="Remove all access"
+                  style={{ color: 'var(--danger)', flexShrink: 0 }}
+                >
+                  <X size={16} />
+                </button>
               </div>
-              <button 
-                className="btn btn-ghost btn-icon" 
-                onClick={() => removeRole(u.user_id)}
-                title="Remove all access for this user"
-              >
-                <X size={16} style={{ color: 'var(--text-muted)' }} />
-              </button>
+
+              {/* Role rows */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+                {u.rows.map((row: any) => (
+                  <div key={row.id} style={{
+                    display: 'flex', alignItems: 'center', gap: '0.5rem',
+                    padding: '0.5rem 0.625rem',
+                    background: 'var(--bg-elevated)', borderRadius: '6px',
+                    border: '1px solid var(--border)',
+                  }}>
+                    {editingRow?.id === row.id ? (
+                      // ── Edit mode ──
+                      <>
+                        <select className="form-input form-select" style={{ flex: 1, fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                          value={editForm.role} onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}>
+                          {ROLES.map(r => <option key={r.value} value={r.value}>{r.icon} {r.label}</option>)}
+                        </select>
+                        {editForm.role !== 'admin' && (
+                          <select className="form-input form-select" style={{ flex: 1, fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                            value={editForm.site_id} onChange={e => setEditForm(f => ({ ...f, site_id: e.target.value }))}>
+                            <option value="">No site</option>
+                            {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </select>
+                        )}
+                        {editForm.role === 'stakeholder' && editForm.site_id && (
+                          <input type="number" className="form-input" style={{ width: '80px', fontSize: '0.8rem', padding: '0.25rem 0.5rem' }}
+                            placeholder="Share %" min="0" max="100" value={editForm.share_percent}
+                            onChange={e => setEditForm(f => ({ ...f, share_percent: e.target.value }))} />
+                        )}
+                        <button className="btn btn-success btn-sm btn-icon" onClick={saveEdit} disabled={submitting} title="Save">
+                          <Check size={14} />
+                        </button>
+                        <button className="btn btn-secondary btn-sm btn-icon" onClick={() => setEditingRow(null)} title="Cancel">
+                          <X size={14} />
+                        </button>
+                      </>
+                    ) : (
+                      // ── View mode ──
+                      <>
+                        <span style={{ fontSize: '0.8rem', flex: 1, color: 'var(--text-secondary)' }}>
+                          <span className={`badge ${roleBadge(row.role)}`} style={{ marginRight: '0.4rem' }}>
+                            {row.role.replace('_', ' ')}
+                          </span>
+                          {row.site_id ? (
+                            <span style={{ color: 'var(--text-muted)' }}>@ {row.sites?.name || row.site_id.substring(0, 8)}</span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)' }}>All sites</span>
+                          )}
+                        </span>
+                        <button className="btn btn-ghost btn-icon" style={{ padding: '0.2rem' }}
+                          onClick={() => startEdit(row)} title="Edit this role">
+                          <Pencil size={13} style={{ color: 'var(--text-muted)' }} />
+                        </button>
+                        <button className="btn btn-ghost btn-icon" style={{ padding: '0.2rem' }}
+                          onClick={() => revokeRow(row.id, u.user_id, row.site_id)} title="Revoke this role">
+                          <X size={13} style={{ color: 'var(--danger)' }} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>

@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import { Save, ChevronLeft, ChevronRight, Camera, Loader2, Image } from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
 
 const STATUSES = [
   { key: 'present', label: 'P', color: 'present', full: 'Present' },
@@ -13,6 +15,8 @@ const STATUSES = [
 ]
 
 export default function AttendancePage() {
+  const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
+  const router = useRouter()
   const [sites, setSites] = useState<any[]>([])
   const [selectedSite, setSelectedSite] = useState('')
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
@@ -23,11 +27,16 @@ export default function AttendancePage() {
   const supabase = createClient()
 
   useEffect(() => {
+    if (authLoading) return
+    if (!isAdmin && !isSiteManager) {
+      router.push('/dashboard')
+      return
+    }
     supabase.from('sites').select('*').eq('active', true).order('name').then(({ data }) => {
       setSites(data || [])
       if (data && data.length > 0) setSelectedSite(data[0].id)
     })
-  }, [])
+  }, [authLoading, isAdmin, isSiteManager])
 
   useEffect(() => {
     if (selectedSite) loadRoster()
