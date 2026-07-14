@@ -30,15 +30,6 @@ export default function UsersPage() {
   const [error, setError] = useState('')
   const supabase = createClient()
 
-  useEffect(() => {
-    if (authLoading) return
-    if (!isAdmin) {
-      router.push('/dashboard')
-      return
-    }
-    loadData()
-  }, [authLoading, isAdmin])
-
   const getAuthToken = async () => {
     const { data: { session } } = await supabase.auth.getSession()
     return session?.access_token ?? ''
@@ -68,6 +59,15 @@ export default function UsersPage() {
     setAuthUsers(emailMap)
     setLoading(false)
   }
+
+  useEffect(() => {
+    if (authLoading) return
+    if (!isAdmin) {
+      router.push('/dashboard')
+      return
+    }
+    loadData()
+  }, [authLoading, isAdmin])
 
   // Group role rows by user_id for display
   const userMap: Record<string, any> = {}
