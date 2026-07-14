@@ -6,11 +6,14 @@ import { format } from 'date-fns'
 import { Plus, Search, Truck, X, Camera, Image as ImageIcon } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
-import { Site, Vehicle, TransportContractor, Trip } from '@/lib/supabase/types'
+import { Site, Vehicle, TransportContractor } from '@/lib/supabase/types'
+import { tripsRepository } from '@/lib/repositories/trips'
+import BottomSheet from '@/components/BottomSheet'
+import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
 
-const VEHICLE_TYPES = ['12WH', '10WH', '6WH', 'Other']
-const OWNERSHIP_TYPES = ['rented', 'owned']
+const VEHICLE_TYPES = ['12WH', '10WH', '6WH', 'Other'] as const
+const OWNERSHIP_TYPES = ['rented', 'owned'] as const
 
 interface ExtendedVehicle extends Vehicle {
   transport_contractors?: {
@@ -18,7 +21,22 @@ interface ExtendedVehicle extends Vehicle {
   } | null
 }
 
-interface ExtendedTrip extends Trip {
+interface ExtendedTrip {
+  id: string
+  site_id: string
+  vehicle_id: string | null
+  contractor_id: string | null
+  trip_date: string
+  entry_time: string | null
+  ownership_snapshot: string | null
+  dd_number: string | null
+  permit_number: string | null
+  load_info: string | null
+  notes: string | null
+  photo_url: string | null
+  active: boolean | null
+  created_at: string | null
+  updated_at: string | null
   vehicles?: {
     plate_number: string
     vehicle_type: '12WH' | '10WH' | '6WH' | 'Other'
@@ -45,6 +63,7 @@ export default function TripsPage() {
   const [showForm, setShowForm] = useState(false)
   const [vehicleSearch, setVehicleSearch] = useState('')
   const [filteredVehicles, setFilteredVehicles] = useState<ExtendedVehicle[]>([])
+  
   const [form, setForm] = useState({
     vehicle_id: '', plate_number: '', contractor_id: '',
     ownership: 'rented', vehicle_type: '12WH', dd_number: '',
@@ -53,6 +72,10 @@ export default function TripsPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // ConfirmDialog states
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
   const supabase = createClient()
 
   useEffect(() => {
@@ -78,52 +101,40 @@ export default function TripsPage() {
   }, [vehicleSearch, vehicles])
 
   const loadInitialData = async () => {
-    const [{ data: sitesData }, { data: vehiclesData }, { data: contractorsData }] = await Promise.all([
-      supabase.from('sites').select('*').eq('active', true).order('name'),
-      supabase.from('vehicles').select('*, transport_contractors(name)').eq('active', true).order('plate_number'),
-      supabase.from('transport_contractors').select('*').eq('active', true).order('name'),
-    ])
-    setSites(sitesData || [])
-    setVehicles((vehiclesData as any) || [])
-    setContractors(contractorsData || [])
-    if (sitesData && sitesData.length > 0) setSelectedSite(sitesData[0].id)
-    setLoading(false)
+    try {
+      const [{ data: sitesData }, { data: vehiclesData }, { data: contractorsData }] = await Promise.all([
+        supabase.from('sites').select('*').eq('active', true).order('name'),
+        supabase.from('vehicles').select('*, transport_contractors(name)').eq('active', true).order('plate_number'),
+        supabase.from('transport_contractors').select('*').eq('active', true).order('name'),
+      ])
+      
+      const loadedSites = sitesData || []
+      setSites(loadedSites)
+      setVehicles((vehiclesData as any) || [])
+      setContractors(contractorsData || [])
+
+      // Smart Default: Auto-select single site if the user only has access to one
+      if (loadedSites.length > 0) {
+        setSelectedSite(loadedSites[0].id)
+      }
+    } catch (err: any) {
+      toast.error(`Error loading master data: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const loadTrips = async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('trips')
-      .select('*, vehicles(plate_number, vehicle_type), transport_contractors(name), drivers(name)')
-      .eq('site_id', selectedSite)
-      .eq('trip_date', selectedDate)
-      .neq('active', false)
-      .order('created_at', { ascending: false })
-      .limit(500)
-
-    if (error) {
+    try {
+      const data = await tripsRepository.list(supabase, selectedSite, selectedDate)
+      setTrips(data)
+    } catch (error: any) {
       toast.error(`Error loading trips: ${error.message}`)
       setTrips([])
-    } else if (data) {
-      const tripsWithSignedUrls = await Promise.all((data as any).map(async (trip: any) => {
-        if (trip.photo_url) {
-          let path = trip.photo_url
-          if (path.includes('trip-photos/')) {
-            path = path.split('trip-photos/').pop() || path
-          }
-          const { data: signedData } = await supabase.storage
-            .from('trip-photos')
-            .createSignedUrl(path, 3600)
-          
-          return { ...trip, signed_photo_url: signedData?.signedUrl || trip.photo_url }
-        }
-        return trip
-      }))
-      setTrips(tripsWithSignedUrls)
-    } else {
-      setTrips([])
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const selectVehicle = (vehicle: ExtendedVehicle) => {
@@ -153,99 +164,94 @@ export default function TripsPage() {
     setSubmitting(true)
     let vehicleId = form.vehicle_id
 
-    // Create vehicle on-the-fly if new plate (Fix 12: preserve master data)
-    if (!vehicleId && vehicleSearch) {
-      const upperPlate = vehicleSearch.toUpperCase()
-      const { data: existing, error: findError } = await supabase.from('vehicles')
-        .select('id')
-        .eq('plate_number', upperPlate)
-        .maybeSingle()
+    try {
+      // Create vehicle on-the-fly if new plate
+      if (!vehicleId && vehicleSearch) {
+        const upperPlate = vehicleSearch.toUpperCase()
+        const { data: existing } = await supabase.from('vehicles')
+          .select('id')
+          .eq('plate_number', upperPlate)
+          .maybeSingle()
 
-      if (findError) {
-        toast.error(`Error checking vehicles: ${findError.message}`)
-        setSubmitting(false)
-        return
-      }
+        if (existing) {
+          vehicleId = existing.id
+        } else {
+          const { data: newVehicle, error: createError } = await supabase.from('vehicles').insert({
+            plate_number: upperPlate,
+            vehicle_type: form.vehicle_type as '12WH' | '10WH' | '6WH' | 'Other',
+            ownership: form.ownership as 'rented' | 'owned',
+            default_contractor_id: form.contractor_id || null,
+            active: true,
+          }).select().single()
 
-      if (existing) {
-        vehicleId = existing.id
-      } else {
-        const { data: newVehicle, error: createError } = await supabase.from('vehicles').insert({
-          plate_number: upperPlate,
-          vehicle_type: form.vehicle_type as '12WH' | '10WH' | '6WH' | 'Other',
-          ownership: form.ownership as 'rented' | 'owned',
-          default_contractor_id: form.contractor_id || null,
-          active: true,
-        }).select().single()
-
-        if (createError) {
-          toast.error(`Error creating vehicle: ${createError.message}`)
-          setSubmitting(false)
-          return
+          if (createError) throw createError
+          vehicleId = newVehicle?.id || ''
         }
-        vehicleId = newVehicle?.id
-      }
-    }
-
-    // Upload photo if captured
-    let photoUrl: string | null = null
-    if (photoFile) {
-      const ext = photoFile.name.split('.').pop() || 'jpg'
-      // Use crypto.randomUUID() to prevent collisions/overwrites
-      const fileUuid = crypto.randomUUID()
-      const path = `${selectedSite}/${selectedDate}/${fileUuid}.${ext}`
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('trip-photos')
-        .upload(path, photoFile, { upsert: true })
-      
-      if (uploadError) {
-        toast.error(`Error uploading trip slip photo: ${uploadError.message}`)
-        setSubmitting(false)
-        return
       }
 
-      if (uploadData) {
-        photoUrl = path
+      // Upload photo
+      let photoUrl: string | null = null
+      if (photoFile) {
+        const ext = photoFile.name.split('.').pop() || 'jpg'
+        const fileUuid = crypto.randomUUID()
+        const path = `${selectedSite}/${selectedDate}/${fileUuid}.${ext}`
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('trip-photos')
+          .upload(path, photoFile, { upsert: true })
+        
+        if (uploadError) throw uploadError
+        if (uploadData) photoUrl = path
       }
-    }
 
-    const { error: insertError } = await supabase.from('trips').insert({
-      site_id: selectedSite,
-      vehicle_id: vehicleId || null,
-      contractor_id: form.contractor_id || null,
-      trip_date: selectedDate,
-      entry_time: new Date().toISOString(),
-      ownership_snapshot: form.ownership,
-      dd_number: form.dd_number || null,
-      permit_number: form.permit_number || null,
-      load_info: form.load_info || null,
-      notes: form.notes || null,
-      photo_url: photoUrl,
-      active: true,
-    } as any)
+      // Create Trip
+      await tripsRepository.create(supabase, {
+        site_id: selectedSite,
+        vehicle_id: vehicleId || null,
+        contractor_id: form.contractor_id || null,
+        trip_date: selectedDate,
+        ownership_snapshot: form.ownership,
+        dd_number: form.dd_number || null,
+        permit_number: form.permit_number || null,
+        load_info: form.load_info || null,
+        notes: form.notes || null,
+        photo_url: photoUrl,
+      })
 
-    if (insertError) {
-      toast.error(`Error saving trip details: ${insertError.message}`)
-    } else {
+      // Smart Default: Pre-fill last contractor & vehicle type to allow rapid entry
+      const lastContractor = form.contractor_id
+      const lastOwnership = form.ownership
+      const lastType = form.vehicle_type
+
       toast.success('Trip logged successfully')
       setShowForm(false)
-      setForm({ vehicle_id: '', plate_number: '', contractor_id: '', ownership: 'rented', vehicle_type: '12WH', dd_number: '', permit_number: '', load_info: '', notes: '' })
+      setForm({
+        vehicle_id: '', plate_number: '',
+        contractor_id: lastContractor,
+        ownership: lastOwnership,
+        vehicle_type: lastType,
+        dd_number: '', permit_number: '', load_info: '', notes: ''
+      })
       setVehicleSearch('')
       setPhotoFile(null)
       setPhotoPreview(null)
       loadTrips()
+    } catch (err: any) {
+      toast.error(`Error saving trip details: ${err.message}`)
+    } finally {
+      setSubmitting(false)
     }
-    setSubmitting(false)
   }
 
-  const deleteTrip = async (id: string) => {
-    if (!confirm('Delete this trip?')) return
-    const { error } = await supabase.from('trips').update({ active: false }).eq('id', id)
-    if (error) {
-      toast.error(`Error deleting trip: ${error.message}`)
-    } else {
+  const executeDeleteTrip = async () => {
+    if (!confirmDeleteId) return
+    try {
+      await tripsRepository.delete(supabase, confirmDeleteId)
       toast.success('Trip deleted')
       loadTrips()
+    } catch (error: any) {
+      toast.error(`Error deleting trip: ${error.message}`)
+    } finally {
+      setConfirmDeleteId(null)
     }
   }
 
@@ -337,7 +343,7 @@ export default function TripsPage() {
                 }}>
                   {trip.signed_photo_url ? (
                     <a href={trip.signed_photo_url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} title="View captured photo">
-                      <img src={trip.signed_photo_url} alt="Truck" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      <img src={trip.signed_photo_url} alt="Truck" style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />
                     </a>
                   ) : '🚛'}
                 </div>
@@ -353,7 +359,7 @@ export default function TripsPage() {
                 </span>
                 <button
                   className="btn btn-danger btn-icon btn-sm"
-                  onClick={() => deleteTrip(trip.id)}
+                  onClick={() => setConfirmDeleteId(trip.id)}
                   title="Delete trip"
                 >
                   <X size={14} />
@@ -369,170 +375,171 @@ export default function TripsPage() {
         <Plus size={24} />
       </button>
 
-      {/* Trip Form Sheet */}
-      {showForm && (
-        <>
-          <div className="sheet-overlay" onClick={() => setShowForm(false)} />
-          <div className="sheet">
-            <div className="sheet-handle" />
-            <div className="sheet-title">Log Trip</div>
-
-            <form onSubmit={handleSubmit}>
-              {/* Vehicle Search */}
-              <div className="form-group" style={{ position: 'relative' }}>
-                <label className="form-label">Vehicle Plate Number *</label>
-                <div style={{ position: 'relative' }}>
-                  <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                  <input
-                    className="form-input"
-                    style={{ paddingLeft: '2.5rem', textTransform: 'uppercase' }}
-                    placeholder="Search or enter new plate..."
-                    value={vehicleSearch}
-                    onChange={e => { setVehicleSearch(e.target.value.toUpperCase()); setForm(f => ({ ...f, vehicle_id: '' })) }}
-                    required
-                    autoComplete="off"
-                  />
-                </div>
-                {filteredVehicles.length > 0 && (
-                  <div style={{
-                    position: 'absolute', top: '100%', left: 0, right: 0,
-                    background: 'var(--bg-elevated)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius)',
-                    zIndex: 10,
-                    maxHeight: '200px',
-                    overflowY: 'auto',
-                    boxShadow: 'var(--shadow-elevated)',
-                  }}>
-                    {filteredVehicles.map(v => (
-                      <div
-                        key={v.id}
-                        onClick={() => selectVehicle(v)}
-                        style={{
-                          padding: '0.75rem 1rem',
-                          cursor: 'pointer',
-                          borderBottom: '1px solid var(--border-subtle)',
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                        }}
-                      >
-                        <div>
-                          <span style={{ fontWeight: 600, fontFamily: 'var(--font-display)' }}>{v.plate_number}</span>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>{v.vehicle_type}</span>
-                        </div>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--accent)' }}>{v.transport_contractors?.name}</span>
-                      </div>
-                    ))}
+      {/* Shared BottomSheet for logging trips */}
+      <BottomSheet isOpen={showForm} onClose={() => setShowForm(false)} title="Log Trip">
+        <form onSubmit={handleSubmit}>
+          {/* Vehicle Search */}
+          <div className="form-group" style={{ position: 'relative' }}>
+            <label className="form-label">Vehicle Plate Number *</label>
+            <div style={{ position: 'relative' }}>
+              <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+              <input
+                className="form-input"
+                style={{ paddingLeft: '2.5rem', textTransform: 'uppercase' }}
+                placeholder="Search or enter new plate..."
+                value={vehicleSearch}
+                onChange={e => { setVehicleSearch(e.target.value.toUpperCase()); setForm(f => ({ ...f, vehicle_id: '' })) }}
+                required
+                autoComplete="off"
+              />
+            </div>
+            {filteredVehicles.length > 0 && (
+              <div style={{
+                position: 'absolute', top: '100%', left: 0, right: 0,
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                zIndex: 10,
+                maxHeight: '200px',
+                overflowY: 'auto',
+                boxShadow: 'var(--shadow-elevated)',
+              }}>
+                {filteredVehicles.map(v => (
+                  <div
+                    key={v.id}
+                    onClick={() => selectVehicle(v)}
+                    style={{
+                      padding: '0.75rem 1rem',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid var(--border-subtle)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <div>
+                      <span style={{ fontWeight: 600, fontFamily: 'var(--font-display)' }}>{v.plate_number}</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>{v.vehicle_type}</span>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--accent)' }}>{v.transport_contractors?.name}</span>
                   </div>
-                )}
+                ))}
               </div>
-
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Type</label>
-                  <select className="form-input form-select" value={form.vehicle_type}
-                    onChange={e => setForm(f => ({ ...f, vehicle_type: e.target.value }))}>
-                    {VEHICLE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Ownership</label>
-                  <select className="form-input form-select" value={form.ownership}
-                    onChange={e => setForm(f => ({ ...f, ownership: e.target.value }))}>
-                    {OWNERSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Transport Contractor</label>
-                <select className="form-input form-select" value={form.contractor_id}
-                  onChange={e => setForm(f => ({ ...f, contractor_id: e.target.value }))}>
-                  <option value="">Select contractor</option>
-                  {contractors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">DD Number</label>
-                  <input className="form-input" value={form.dd_number}
-                    onChange={e => setForm(f => ({ ...f, dd_number: e.target.value }))}
-                    placeholder="Optional" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Permit No.</label>
-                  <input className="form-input" value={form.permit_number}
-                    onChange={e => setForm(f => ({ ...f, permit_number: e.target.value }))}
-                    placeholder="Optional" />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Load Info</label>
-                <input className="form-input" value={form.load_info}
-                  onChange={e => setForm(f => ({ ...f, load_info: e.target.value }))}
-                  placeholder="e.g. 6 loads, 12 tonnes..." />
-              </div>
-
-              {/* Photo capture */}
-              <div className="form-group">
-                <label className="form-label">Photo Evidence (optional)</label>
-                <div style={{ display: 'flex', gap: '0.625rem' }}>
-                  <label style={{
-                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    gap: '0.5rem', padding: '0.75rem',
-                    background: 'var(--bg-elevated)', border: '1.5px dashed var(--border)',
-                    borderRadius: 'var(--radius)', cursor: 'pointer', fontSize: '0.875rem',
-                    color: 'var(--text-muted)', transition: 'all 0.15s',
-                  }}>
-                    <Camera size={18} /> Capture
-                    <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
-                      onChange={e => {
-                        const f = e.target.files?.[0]
-                        if (f) handlePhotoSelect(f)
-                      }} />
-                  </label>
-                  <label style={{
-                    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    gap: '0.5rem', padding: '0.75rem',
-                    background: 'var(--bg-elevated)', border: '1.5px dashed var(--border)',
-                    borderRadius: 'var(--radius)', cursor: 'pointer', fontSize: '0.875rem',
-                    color: 'var(--text-muted)', transition: 'all 0.15s',
-                  }}>
-                    <ImageIcon size={18} /> Gallery
-                    <input type="file" accept="image/*" style={{ display: 'none' }}
-                      onChange={e => {
-                        const f = e.target.files?.[0]
-                        if (f) handlePhotoSelect(f)
-                      }} />
-                  </label>
-                </div>
-                {photoPreview && (
-                  <div style={{ position: 'relative', marginTop: '0.625rem' }}>
-                    <img src={photoPreview} alt="Preview"
-                      style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }} />
-                    <button type="button" onClick={() => { setPhotoFile(null); setPhotoPreview(null) }}
-                      style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', background: 'rgba(0,0,0,0.7)', border: 'none', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
-                      <X size={14} />
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.5rem' }}>
-                <button type="button" className="btn btn-secondary w-full" onClick={() => setShowForm(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn btn-primary w-full" disabled={submitting}>
-                  {submitting ? <span className="spinner" /> : '+ Log Trip'}
-                </button>
-              </div>
-            </form>
+            )}
           </div>
-        </>
-      )}
+
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="form-label">Type</label>
+              <select className="form-input form-select" value={form.vehicle_type}
+                onChange={e => setForm(f => ({ ...f, vehicle_type: e.target.value }))}>
+                {VEHICLE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Ownership</label>
+              <select className="form-input form-select" value={form.ownership}
+                onChange={e => setForm(f => ({ ...f, ownership: e.target.value }))}>
+                {OWNERSHIP_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Transport Contractor</label>
+            <select className="form-input form-select" value={form.contractor_id}
+              onChange={e => setForm(f => ({ ...f, contractor_id: e.target.value }))}>
+              <option value="">Select contractor</option>
+              {contractors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="form-label">DD Number</label>
+              <input className="form-input" value={form.dd_number}
+                onChange={e => setForm(f => ({ ...f, dd_number: e.target.value }))}
+                placeholder="Optional" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Permit No.</label>
+              <input className="form-input" value={form.permit_number}
+                onChange={e => setForm(f => ({ ...f, permit_number: e.target.value }))}
+                placeholder="Optional" />
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Load Info</label>
+            <input className="form-input" value={form.load_info}
+              onChange={e => setForm(f => ({ ...f, load_info: e.target.value }))}
+              placeholder="e.g. 6 loads, 12 tonnes..." />
+          </div>
+
+          {/* Photo capture */}
+          <div className="form-group">
+            <label className="form-label">Photo Evidence (optional)</label>
+            <div style={{ display: 'flex', gap: '0.625rem' }}>
+              <label style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: '0.5rem', padding: '0.75rem',
+                background: 'var(--bg-elevated)', border: '1.5px dashed var(--border)',
+                borderRadius: 'var(--radius)', cursor: 'pointer', fontSize: '0.875rem',
+                color: 'var(--text-muted)', transition: 'all 0.15s',
+              }}>
+                <Camera size={18} /> Capture
+                <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
+                  onChange={e => {
+                    const f = e.target.files?.[0]
+                    if (f) handlePhotoSelect(f)
+                  }} />
+              </label>
+              <label style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: '0.5rem', padding: '0.75rem',
+                background: 'var(--bg-elevated)', border: '1.5px dashed var(--border)',
+                borderRadius: 'var(--radius)', cursor: 'pointer', fontSize: '0.875rem',
+                color: 'var(--text-muted)', transition: 'all 0.15s',
+              }}>
+                <ImageIcon size={18} /> Gallery
+                <input type="file" accept="image/*" style={{ display: 'none' }}
+                  onChange={e => {
+                    const f = e.target.files?.[0]
+                    if (f) handlePhotoSelect(f)
+                  }} />
+              </label>
+            </div>
+            {photoPreview && (
+              <div style={{ position: 'relative', marginTop: '0.625rem' }}>
+                <img src={photoPreview} alt="Preview"
+                  style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }} />
+                <button type="button" onClick={() => { setPhotoFile(null); setPhotoPreview(null) }}
+                  style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', background: 'rgba(0,0,0,0.7)', border: 'none', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.5rem' }}>
+            <button type="button" className="btn btn-secondary w-full" onClick={() => setShowForm(false)}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary w-full" disabled={submitting}>
+              {submitting ? <span className="spinner" /> : '+ Log Trip'}
+            </button>
+          </div>
+        </form>
+      </BottomSheet>
+
+      {/* Shared ConfirmDialog for deletion */}
+      <ConfirmDialog 
+        isOpen={confirmDeleteId !== null}
+        title="Delete Trip"
+        message="Are you sure you want to delete this trip record? This action cannot be undone."
+        onConfirm={executeDeleteTrip}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </div>
   )
 }
