@@ -1,4 +1,4 @@
-﻿import { SupabaseClient } from '@supabase/supabase-js'
+import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
 import { endOfMonth, format } from 'date-fns'
 
@@ -141,7 +141,7 @@ export const payrollRepository = {
       } else {
         computed = (present + halfDay * 0.5) * emp.wage_rate
       }
-      const finalComputed = Math.round(computed * 100) / 100
+      const finalComputed = Math.round((computed + 1e-9) * 100) / 100
 
       linesToInsert.push({
         payroll_run_id: activeRun.id,

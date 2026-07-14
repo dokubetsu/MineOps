@@ -56,14 +56,14 @@ export const cashBookRepository = {
     return newCb
   },
 
-  async listEntries(supabase: SupabaseClient<Database>, cashBookId: string): Promise<CashEntry[]> {
+  async listEntries(supabase: SupabaseClient<Database>, cashBookId: string, limit = 50, offset = 0): Promise<CashEntry[]> {
     const { data, error } = await supabase
       .from('cash_entries')
       .select('*')
       .eq('cash_book_id', cashBookId)
       .neq('active', false)
-      .order('created_at')
-      .limit(500)
+      .order('created_at', { ascending: false })
+      .range(offset, offset + limit - 1)
 
     if (error) throw error
     return data || []

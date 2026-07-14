@@ -2,7 +2,7 @@
 import { Database } from '../supabase/database.types'
 
 export const tripsRepository = {
-  async list(supabase: SupabaseClient<Database>, siteId: string, date: string): Promise<any[]> {
+  async list(supabase: SupabaseClient<Database>, siteId: string, date: string, limit = 50, offset = 0): Promise<any[]> {
     const { data, error } = await supabase
       .from('trips')
       .select('*, vehicles(plate_number, vehicle_type), transport_contractors(name), drivers(name)')
@@ -10,7 +10,7 @@ export const tripsRepository = {
       .eq('trip_date', date)
       .neq('active', false)
       .order('created_at', { ascending: false })
-      .limit(500)
+      .range(offset, offset + limit - 1)
 
     if (error) throw error
     return data || []

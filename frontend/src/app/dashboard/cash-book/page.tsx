@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -35,11 +35,17 @@ export default function CashBookPage() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  // Pagination states
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [usersMap, setUsersMap] = useState<Record<string, string>>({}) // uuid -> email
+
   // ConfirmDialog states
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmLock, setConfirmLock] = useState(false)
 
   const supabase = createClient()
+  const PAGE_LIMIT = 20
 
   useEffect(() => {
     if (authLoading) return
@@ -51,7 +57,7 @@ export default function CashBookPage() {
   }, [authLoading, isAdmin, isSiteManager])
 
   useEffect(() => {
-    if (selectedSite) loadCashBook()
+    if (selectedSite) loadCashBook(false)
   }, [selectedSite, selectedDate])
 
   const loadSites = async () => {
@@ -62,25 +68,55 @@ export default function CashBookPage() {
       if (loadedSites.length > 0) {
         setSelectedSite(loadedSites[0].id)
       }
+
+      // Fetch user profile map for Audit details
+      const token = await supabase.auth.getSession().then(({ data }) => data.session?.access_token)
+      if (token) {
+        fetch('/api/admin/list-users', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+          .then(r => r.json())
+          .then(data => {
+            if (data?.users) {
+              const mapping: Record<string, string> = {}
+              for (const u of data.users) {
+                mapping[u.id] = u.email
+              }
+              setUsersMap(mapping)
+            }
+          })
+          .catch(() => {})
+      }
     } catch (err: any) {
       toast.error(`Error loading sites: ${err.message}`)
     }
   }
 
-  const loadCashBook = async () => {
-    setLoading(true)
+  const loadCashBook = async (loadMore = false) => {
+    if (loadMore) {
+      setLoadingMore(true)
+    } else {
+      setLoading(true)
+    }
     try {
       const cb = await cashBookRepository.getOrCreate(supabase, selectedSite, selectedDate)
       setCashBook(cb)
       
-      const loadedEntries = await cashBookRepository.listEntries(supabase, cb.id)
-      setEntries(loadedEntries)
+      const offset = loadMore ? entries.length : 0
+      const loadedEntries = await cashBookRepository.listEntries(supabase, cb.id, PAGE_LIMIT, offset)
+      if (loadMore) {
+        setEntries(prev => [...prev, ...loadedEntries])
+      } else {
+        setEntries(loadedEntries)
+      }
+      setHasMore(loadedEntries.length === PAGE_LIMIT)
     } catch (error: any) {
       toast.error(`Error loading cash book: ${error.message}`)
       setCashBook(null)
-      setEntries([])
+      if (!loadMore) setEntries([])
     } finally {
       setLoading(false)
+      setLoadingMore(false)
     }
   }
 
@@ -300,6 +336,10 @@ export default function CashBookPage() {
                       <div>
                         <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{entry.category}</div>
                         {entry.note && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>{entry.note}</div>}
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
+                          {entry.created_at ? format(new Date(entry.created_at), 'hh:mm a') : ''}
+                          {entry.created_by && usersMap[entry.created_by] ? ` by ${usersMap[entry.created_by]}` : ''}
+                        </div>
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -318,6 +358,20 @@ export default function CashBookPage() {
                     </div>
                   </div>
                 ))}
+
+                {/* Load More Button */}
+                {hasMore && (
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem', borderTop: '1px solid var(--border-subtle)' }}>
+                    <button 
+                      className="btn btn-secondary" 
+                      onClick={() => loadCashBook(true)}
+                      disabled={loadingMore}
+                      style={{ minWidth: '150px' }}
+                    >
+                      {loadingMore ? <span className="spinner" /> : 'Load More Entries'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
