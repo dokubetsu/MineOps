@@ -1,5 +1,6 @@
-import type { Metadata, Viewport } from 'next'
+﻿import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import { Toaster } from 'react-hot-toast'
 
 export const metadata: Metadata = {
   title: 'MineOps — Mine Logistics & Workforce',
@@ -37,6 +38,16 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           {children}
+          <Toaster 
+            position="top-right"
+            toastOptions={{
+              style: {
+                background: 'var(--bg-elevated)',
+                color: 'var(--text-main)',
+                border: '1px solid var(--border)',
+              },
+            }}
+          />
         </ThemeProvider>
       </body>
     </html>

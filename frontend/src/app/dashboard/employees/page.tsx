@@ -1,15 +1,17 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
-import { Plus, X, Edit } from 'lucide-react'
+import { Plus, X } from 'lucide-react'
+import { Site, Employee } from '@/lib/supabase/types'
+import toast from 'react-hot-toast'
 
 const ROLES = ['worker', 'supervisor', 'driver', 'other']
 
 export default function EmployeesPage() {
-  const [employees, setEmployees] = useState<any[]>([])
-  const [sites, setSites] = useState<any[]>([])
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -25,10 +27,11 @@ export default function EmployeesPage() {
 
   const loadData = async () => {
     const { data: sitesData } = await supabase.from('sites').select('*').eq('active', true).order('name')
-    setSites(sitesData || [])
-    if (sitesData && sitesData.length > 0) {
-      setSelectedSite(sitesData[0].id)
-      setForm(f => ({ ...f, site_id: sitesData[0].id }))
+    const loadedSites = sitesData || []
+    setSites(loadedSites)
+    if (loadedSites.length > 0) {
+      setSelectedSite(loadedSites[0].id)
+      setForm(f => ({ ...f, site_id: loadedSites[0].id }))
     }
   }
 
@@ -36,12 +39,13 @@ export default function EmployeesPage() {
     setLoading(true)
     const { data, error } = await supabase
       .from('employees')
-      .select('*, sites(name)')
+      .select('*')
       .eq('site_id', selectedSite)
+      .eq('active', true)
       .order('name')
       .limit(500)
     if (error) {
-      alert(`Error loading employees list: ${error.message}`)
+      toast.error(`Error loading employees: ${error.message}`)
     } else {
       setEmployees(data || [])
     }
@@ -62,8 +66,9 @@ export default function EmployeesPage() {
       active: true,
     })
     if (error) {
-      alert(`Error saving employee: ${error.message}`)
+      toast.error(`Error saving employee: ${error.message}`)
     } else {
+      toast.success('Employee added successfully')
       setShowForm(false)
       setForm({ name: '', phone: '', role: 'worker', site_id: selectedSite, wage_type: 'daily', wage_rate: '', join_date: format(new Date(), 'yyyy-MM-dd') })
       loadEmployees()
@@ -75,8 +80,9 @@ export default function EmployeesPage() {
     if (!confirm('Remove this employee?')) return
     const { error } = await supabase.from('employees').update({ active: false }).eq('id', id)
     if (error) {
-      alert(`Error deactivating employee: ${error.message}`)
+      toast.error(`Error deactivating employee: ${error.message}`)
     } else {
+      toast.success('Employee deactivated')
       loadEmployees()
     }
   }

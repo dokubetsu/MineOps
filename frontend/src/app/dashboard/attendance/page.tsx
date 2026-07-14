@@ -1,29 +1,43 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
-import { Save, ChevronLeft, ChevronRight, Camera, Loader2, Image } from 'lucide-react'
+import { Save, ChevronLeft, ChevronRight, Camera, Loader2 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
+import { Site } from '@/lib/supabase/types'
+import toast from 'react-hot-toast'
+
+interface RosterEmployee {
+  id: string
+  name: string
+  role: string
+  wage_type: string
+  wage_rate: number
+  att_id: string | null
+  status: 'present' | 'absent' | 'half-day' | 'leave'
+  photo_url: string | null
+  display_photo_url: string | null
+  uploading: boolean
+}
 
 const STATUSES = [
   { key: 'present', label: 'P', color: 'present', full: 'Present' },
   { key: 'absent', label: 'A', color: 'absent', full: 'Absent' },
   { key: 'half-day', label: 'H', color: 'half', full: 'Half Day' },
   { key: 'leave', label: 'L', color: 'leave', full: 'Leave' },
-]
+] as const
 
 export default function AttendancePage() {
   const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
   const router = useRouter()
-  const [sites, setSites] = useState<any[]>([])
+  const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
-  const [roster, setRoster] = useState<any[]>([])
+  const [roster, setRoster] = useState<RosterEmployee[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set())
   const supabase = createClient()
 
   useEffect(() => {
@@ -54,7 +68,7 @@ export default function AttendancePage() {
       .limit(500)
 
     if (empError) {
-      alert(`Error loading employees: ${empError.message}`)
+      toast.error(`Error loading employees: ${empError.message}`)
       setLoading(false)
       return
     }
@@ -66,7 +80,7 @@ export default function AttendancePage() {
       : { data: [], error: null }
 
     if (attError) {
-      alert(`Error loading attendance records: ${attError.message}`)
+      toast.error(`Error loading attendance records: ${attError.message}`)
       setLoading(false)
       return
     }
@@ -91,7 +105,7 @@ export default function AttendancePage() {
       return {
         ...emp,
         att_id: dbRecord?.id || null,
-        status: dbRecord?.status || 'present',
+        status: (dbRecord?.status as any) || 'present',
         photo_url: dbRecord?.photo_url || null,
         display_photo_url: displayPhotoUrl,
         uploading: false,
@@ -102,15 +116,23 @@ export default function AttendancePage() {
     setLoading(false)
   }
 
-  const updateStatus = (empId: string, status: string) => {
+  const updateStatus = (empId: string, status: 'present' | 'absent' | 'half-day' | 'leave') => {
     setRoster(r => r.map(e => e.id === empId ? { ...e, status } : e))
   }
 
   const handlePhotoUpload = async (empId: string, file: File) => {
+    // Client-side file size check (5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size exceeds the 5MB limit')
+      return
+    }
+
     setRoster(r => r.map(e => e.id === empId ? { ...e, uploading: true } : e))
     try {
       const ext = file.name.split('.').pop() || 'jpg'
-      const path = `${selectedSite}/${selectedDate}/${empId}_${Date.now()}.${ext}`
+      // Use crypto.randomUUID() to prevent collisions/overwrites
+      const fileUuid = crypto.randomUUID()
+      const path = `${selectedSite}/${selectedDate}/${empId}_${fileUuid}.${ext}`
 
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('attendance-photos')
@@ -121,7 +143,7 @@ export default function AttendancePage() {
       if (uploadData) {
         const photoUrl = path
 
-        // Also get a signed URL for immediate preview (Fix N4)
+        // Get signed URL for preview (Fix N4)
         const { data: signedData } = await supabase.storage
           .from('attendance-photos')
           .createSignedUrl(path, 3600)
@@ -132,10 +154,11 @@ export default function AttendancePage() {
           display_photo_url: signedData?.signedUrl || photoUrl,
           uploading: false 
         } : e))
+        toast.success('Evidence photo uploaded successfully')
       }
     } catch (err: any) {
       console.error('Error uploading photo:', err)
-      alert(`Failed to upload photo: ${err?.message || err}`)
+      toast.error(`Failed to upload photo: ${err?.message || err}`)
       setRoster(r => r.map(e => e.id === empId ? { ...e, uploading: false } : e))
     }
   }
@@ -150,9 +173,9 @@ export default function AttendancePage() {
     }))
     const { error } = await supabase.from('attendance').upsert(records, { onConflict: 'employee_id,att_date' })
     if (error) {
-      alert(`Error saving attendance roster: ${error.message}`)
+      toast.error(`Error saving attendance roster: ${error.message}`)
     } else {
-      setSavedIds(new Set(roster.map(e => e.id)))
+      toast.success('Attendance saved successfully')
     }
     setSaving(false)
   }

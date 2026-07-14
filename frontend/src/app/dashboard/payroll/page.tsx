@@ -1,21 +1,35 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
 import { Play, CheckCircle, DollarSign } from 'lucide-react'
-
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
+import { Site, PayrollRun, PayrollLine } from '@/lib/supabase/types'
+import toast from 'react-hot-toast'
+
+interface ExtendedPayrollRun extends PayrollRun {
+  sites?: {
+    name: string
+  } | null
+}
+
+interface ExtendedPayrollLine extends PayrollLine {
+  employees?: {
+    name: string
+    phone: string | null
+  } | null
+}
 
 export default function PayrollPage() {
   const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
   const router = useRouter()
-  const [sites, setSites] = useState<any[]>([])
+  const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
-  const [runs, setRuns] = useState<any[]>([])
-  const [selectedRun, setSelectedRun] = useState<any>(null)
-  const [lines, setLines] = useState<any[]>([])
+  const [runs, setRuns] = useState<ExtendedPayrollRun[]>([])
+  const [selectedRun, setSelectedRun] = useState<ExtendedPayrollRun | null>(null)
+  const [lines, setLines] = useState<ExtendedPayrollLine[]>([])
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [period, setPeriod] = useState(format(startOfMonth(new Date()), 'yyyy-MM'))
@@ -43,13 +57,13 @@ export default function PayrollPage() {
       .order('period_month', { ascending: false })
       .limit(200)
     if (error) {
-      alert(`Error loading payroll runs: ${error.message}`)
+      toast.error(`Error loading payroll runs: ${error.message}`)
     } else {
-      setRuns(data || [])
+      setRuns((data as any) || [])
     }
   }
 
-  const loadLines = async (run: any) => {
+  const loadLines = async (run: ExtendedPayrollRun) => {
     setLoading(true)
     setSelectedRun(run)
     const { data, error } = await supabase
@@ -58,9 +72,9 @@ export default function PayrollPage() {
       .eq('payroll_run_id', run.id)
       .limit(500)
     if (error) {
-      alert(`Error loading payroll lines: ${error.message}`)
+      toast.error(`Error loading payroll lines: ${error.message}`)
     } else {
-      setLines(data || [])
+      setLines((data as any) || [])
     }
     setLoading(false)
   }
@@ -69,7 +83,6 @@ export default function PayrollPage() {
     setGenerating(true)
     const periodDate = period + '-01'
 
-    // Check if run exists (Fix 3: idempotent generate)
     const { data: existingRun, error: checkError } = await supabase
       .from('payroll_runs')
       .select('*')
@@ -78,29 +91,28 @@ export default function PayrollPage() {
       .maybeSingle()
 
     if (checkError) {
-      alert(`Error checking existing payroll: ${checkError.message}`)
+      toast.error(`Error checking existing payroll: ${checkError.message}`)
       setGenerating(false)
       return
     }
 
     if (existingRun) {
       if (existingRun.status === 'finalized') {
-        alert('Payroll has already been finalized for this period and cannot be re-generated.')
+        toast.error('Payroll has already been finalized for this period and cannot be re-generated.')
         setGenerating(false)
         return
       }
       
-      // If it exists in draft, delete the old run's lines first to allow clean overwrite
       if (confirm('A draft payroll run already exists for this period. Overwrite?')) {
         const { error: delLinesError } = await supabase.from('payroll_lines').delete().eq('payroll_run_id', existingRun.id)
         if (delLinesError) {
-          alert(`Error clearing previous payroll lines: ${delLinesError.message}`)
+          toast.error(`Error clearing previous payroll lines: ${delLinesError.message}`)
           setGenerating(false)
           return
         }
         const { error: delRunError } = await supabase.from('payroll_runs').delete().eq('id', existingRun.id)
         if (delRunError) {
-          alert(`Error clearing previous payroll run: ${delRunError.message}`)
+          toast.error(`Error clearing previous payroll run: ${delRunError.message}`)
           setGenerating(false)
           return
         }
@@ -119,7 +131,6 @@ export default function PayrollPage() {
     let activeRun = newRun
     if (insertError) {
       if (insertError.code === '23505') {
-        // Handle concurrent insert race by fetching the concurrently created run
         const { data: retryRun, error: retryError } = await supabase
           .from('payroll_runs')
           .select('*')
@@ -128,29 +139,27 @@ export default function PayrollPage() {
           .single()
 
         if (retryError) {
-          alert(`Failed to resolve concurrent payroll run: ${retryError.message}`)
+          toast.error(`Failed to resolve concurrent payroll run: ${retryError.message}`)
           setGenerating(false)
           return
         }
 
         if (retryRun?.status === 'finalized') {
-          alert('Payroll has already been finalized for this period by another user.')
+          toast.error('Payroll has already been finalized for this period by another user.')
           setGenerating(false)
           return
         }
 
-        // Delete any concurrently generated lines to clean start
         await supabase.from('payroll_lines').delete().eq('payroll_run_id', retryRun.id)
         activeRun = retryRun
       } else {
-        alert(`Failed to create payroll run: ${insertError.message}`)
+        toast.error(`Failed to create payroll run: ${insertError.message}`)
         setGenerating(false)
         return
       }
     }
 
     if (activeRun) {
-      // Get employees & compute
       const periodStart = new Date(periodDate)
       const periodEnd = endOfMonth(periodStart)
       
@@ -158,18 +167,17 @@ export default function PayrollPage() {
         .eq('site_id', selectedSite).eq('active', true).limit(500)
 
       if (empError) {
-        alert(`Error loading employees: ${empError.message}`)
+        toast.error(`Error loading employees: ${empError.message}`)
         setGenerating(false)
         return
       }
 
       if (!employees || employees.length === 0) {
-        alert('No active employees found at this site for this period.')
+        toast.error('No active employees found at this site for this period.')
         setGenerating(false)
         return
       }
 
-      // Batch query attendance for all employees to eliminate N+1 (Fix B5)
       const empIds = employees.map(e => e.id)
       const { data: allAtt, error: attError } = await supabase.from('attendance').select('employee_id, status')
         .in('employee_id', empIds)
@@ -178,19 +186,17 @@ export default function PayrollPage() {
         .limit(20000)
 
       if (attError) {
-        alert(`Error loading attendance records: ${attError.message}`)
+        toast.error(`Error loading attendance records: ${attError.message}`)
         setGenerating(false)
         return
       }
 
-      // Group attendance in-memory
       const attMap: Record<string, string[]> = {}
       for (const att of allAtt || []) {
         if (!attMap[att.employee_id]) attMap[att.employee_id] = []
         attMap[att.employee_id].push(att.status)
       }
 
-      // Calculate lines
       const linesToInsert = []
       for (const emp of employees) {
         const statuses = attMap[emp.id] || []
@@ -199,7 +205,6 @@ export default function PayrollPage() {
         const leave = statuses.filter(s => s === 'leave').length
         const absent = statuses.filter(s => s === 'absent').length
         
-        // Branch on wage_type (Fix 6)
         const wageType = emp.wage_type || 'daily'
         let computed = 0
         if (wageType === 'monthly') {
@@ -222,13 +227,12 @@ export default function PayrollPage() {
         })
       }
 
-      // Batch insert payroll lines with transactional rollback on failure (Fix B5)
       const { error: linesError } = await supabase.from('payroll_lines').insert(linesToInsert)
       if (linesError) {
-        // Rollback run insertion if lines insert fails
         await supabase.from('payroll_runs').delete().eq('id', activeRun.id)
-        alert(`Failed to save payroll lines: ${linesError.message}`)
+        toast.error(`Failed to save payroll lines: ${linesError.message}`)
       } else {
+        toast.success('Payroll run generated successfully')
         loadRuns()
         loadLines(activeRun)
       }
@@ -239,10 +243,11 @@ export default function PayrollPage() {
   const finalizeRun = async (runId: string) => {
     const { error } = await supabase.from('payroll_runs').update({ status: 'finalized' }).eq('id', runId)
     if (error) {
-      alert(`Error finalizing payroll run: ${error.message}`)
+      toast.error(`Error finalizing payroll run: ${error.message}`)
     } else {
+      toast.success('Payroll run finalized')
       loadRuns()
-      if (selectedRun?.id === runId) setSelectedRun((r: any) => r ? { ...r, status: 'finalized' } : r)
+      if (selectedRun?.id === runId) setSelectedRun(r => r ? { ...r, status: 'finalized' } : r)
     }
   }
 
@@ -283,7 +288,7 @@ export default function PayrollPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gap: '1rem' }} className={selectedRun ? '' : ''}>
+      <div style={{ display: 'grid', gap: '1rem' }}>
         {/* Run List */}
         <div>
           <h3 style={{ fontSize: '0.875rem', marginBottom: '0.75rem', color: 'var(--text-muted)' }}>

@@ -1,14 +1,35 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format, subDays, startOfMonth } from 'date-fns'
-import { TrendingUp, TrendingDown, Truck, DollarSign, Calendar } from 'lucide-react'
+import { TrendingUp, TrendingDown, Truck, DollarSign } from 'lucide-react'
+import { Site } from '@/lib/supabase/types'
+import toast from 'react-hot-toast'
+
+interface TrendItem {
+  date: string
+  trips: number
+  net: number
+}
+
+interface StakeholderSiteData {
+  site: Site | null
+  sharePercent: number
+  tripCount: number
+  totalIn: number
+  totalOut: number
+  net: number
+  myShare: number
+  latestBalance: number
+  latestBalanceDate: string | null
+  trend: TrendItem[]
+  byContractor: Record<string, number>
+}
 
 export default function StakeholderDashboardPage() {
   const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState<any>(null)
-  const [sites, setSites] = useState<any[]>([])
+  const [sites, setSites] = useState<StakeholderSiteData[]>([])
   const [period, setPeriod] = useState<'7d' | '30d' | 'month'>('30d')
   const supabase = createClient()
 
@@ -20,22 +41,21 @@ export default function StakeholderDashboardPage() {
     setLoading(true)
     const { data: { user }, error: userError } = await supabase.auth.getUser()
     if (userError) {
-      alert(`Authentication error: ${userError.message}`)
+      toast.error(`Authentication error: ${userError.message}`)
       setLoading(false)
       return
     }
-    setUser(user)
     if (!user) { setLoading(false); return }
 
     // Get stakeholder site access
     const { data: access, error: accessError } = await supabase
       .from('stakeholder_site_access')
-      .select('*, sites(id, name, location)')
+      .select('*, sites(id, name, location, active, created_at, updated_at)')
       .eq('stakeholder_user_id', user.id)
       .limit(100)
 
     if (accessError) {
-      alert(`Error loading stakeholder site access: ${accessError.message}`)
+      toast.error(`Error loading stakeholder site access: ${accessError.message}`)
       setLoading(false)
       return
     }
@@ -92,7 +112,7 @@ export default function StakeholderDashboardPage() {
       if (cbError) console.error(`Error loading latest cash book for site ${siteId}:`, cbError.message)
 
       // Trips per day trend (last 14 rows max)
-      const trend = rows.slice(-14).map((r: any) => ({
+      const trend: TrendItem[] = rows.slice(-14).map((r: any) => ({
         date: r.book_date,
         trips: r.trip_count || 0,
         net: (r.total_in || 0) - (r.total_out || 0),
@@ -117,7 +137,7 @@ export default function StakeholderDashboardPage() {
       }
 
       return {
-        site: a.sites,
+        site: a.sites as Site | null,
         sharePercent: a.share_percent,
         tripCount: tripCount || 0,
         totalIn,
@@ -125,7 +145,7 @@ export default function StakeholderDashboardPage() {
         net,
         myShare,
         latestBalance: latestCb?.closing_balance || 0,
-        latestBalanceDate: latestCb?.book_date,
+        latestBalanceDate: latestCb?.book_date || null,
         trend,
         byContractor,
       }
@@ -282,8 +302,8 @@ export default function StakeholderDashboardPage() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '60px' }}>
                     {(() => {
-                      const max = Math.max(...siteData.trend.map((t: any) => t.trips), 1)
-                      return siteData.trend.map((t: any, i: number) => (
+                      const max = Math.max(...siteData.trend.map((t) => t.trips), 1)
+                      return siteData.trend.map((t, i) => (
                         <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', minWidth: 0 }}>
                           <div style={{
                             width: '100%', borderRadius: '3px 3px 0 0',

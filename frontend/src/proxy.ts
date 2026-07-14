@@ -1,9 +1,8 @@
-﻿import { createServerClient } from '@supabase/ssr'
+import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { Database } from './lib/supabase/database.types'
 
 // Routes that stakeholders are NOT allowed to access
-// (they should only see /dashboard/stakeholder and /dashboard itself)
 const STAKEHOLDER_BLOCKED_PREFIXES = [
   '/dashboard/trips',
   '/dashboard/cash-book',
@@ -16,6 +15,25 @@ const STAKEHOLDER_BLOCKED_PREFIXES = [
   '/dashboard/users',
 ]
 
+// Sliding window rate limiter cache for admin API routes
+const rateLimitCache = new Map<string, { count: number; resetTime: number }>()
+
+function isRateLimited(ip: string, limit: number, windowMs: number): boolean {
+  const now = Date.now()
+  const record = rateLimitCache.get(ip)
+
+  if (!record || now > record.resetTime) {
+    rateLimitCache.set(ip, { count: 1, resetTime: now + windowMs })
+    return false
+  }
+
+  record.count++
+  if (record.count > limit) {
+    return true
+  }
+  return false
+}
+
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
@@ -23,6 +41,18 @@ export async function proxy(request: NextRequest) {
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   if (!url || !key) {
     throw new Error('Supabase configuration error: missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables')
+  }
+
+  // ── Rate Limiting for Admin API routes ─────────────────────────────────
+  if (request.nextUrl.pathname.startsWith('/api/admin/')) {
+    const ip = (request as any).ip || request.headers.get('x-forwarded-for') || '127.0.0.1'
+    // Rate limit: Max 60 requests per 1 minute
+    if (isRateLimited(ip, 60, 60 * 1000)) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429 }
+      )
+    }
   }
 
   const supabase = createServerClient<Database>(
@@ -68,18 +98,22 @@ export async function proxy(request: NextRequest) {
     )
 
     if (isBlockedForStakeholder) {
-      // Fetch role — single lightweight query, only for protected paths
-      const { data: roleRow } = await supabase
+      // Fetch all roles of the user to check priority
+      const { data: roleRows } = await supabase
         .from('user_roles')
         .select('role')
         .eq('user_id', user.id)
-        .order('role') // admin < site_manager < stakeholder alphabetically — will prefer admin
-        .limit(1)
-        .maybeSingle()
 
-      const role = roleRow?.role ?? 'stakeholder'
+      const roles = roleRows?.map(r => r.role) || []
+      
+      // Explicit priority role matching: Admin > Site Manager > Stakeholder
+      const role = roles.includes('admin')
+        ? 'admin'
+        : roles.includes('site_manager')
+        ? 'site_manager'
+        : 'stakeholder'
 
-      // Stakeholders can't access operational pages — send to their dashboard
+      // Stakeholders cannot access operational pages — send to their dashboard
       if (role === 'stakeholder') {
         const redirectUrl = request.nextUrl.clone()
         redirectUrl.pathname = '/dashboard/stakeholder'

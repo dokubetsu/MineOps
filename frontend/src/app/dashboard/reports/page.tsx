@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -6,17 +6,33 @@ import { format, startOfMonth, endOfMonth } from 'date-fns'
 import { Download, FileText, Printer, Calendar } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
+import { Site, Trip, CashBook, CashEntry } from '@/lib/supabase/types'
+import toast from 'react-hot-toast'
+
+interface ExtendedTrip extends Trip {
+  vehicles?: {
+    plate_number: string
+    vehicle_type: '12WH' | '10WH' | '6WH' | 'Other'
+  } | null
+  transport_contractors?: {
+    name: string
+  } | null
+}
+
+interface ExtendedCashEntry extends CashEntry {
+  book_date?: string
+}
 
 export default function ReportsPage() {
   const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
   const router = useRouter()
-  const [sites, setSites] = useState<any[]>([])
+  const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
   const [period, setPeriod] = useState(format(startOfMonth(new Date()), 'yyyy-MM'))
   const [loading, setLoading] = useState(false)
-  const [trips, setTrips] = useState<any[]>([])
-  const [cashEntries, setCashEntries] = useState<any[]>([])
-  const [cashBooks, setCashBooks] = useState<any[]>([])
+  const [trips, setTrips] = useState<ExtendedTrip[]>([])
+  const [cashEntries, setCashEntries] = useState<ExtendedCashEntry[]>([])
+  const [, setCashBooks] = useState<CashBook[]>([])
   const [activeReport, setActiveReport] = useState<'trips' | 'cash' | 'contractor'>('trips')
 
   // Date-range export state
@@ -34,7 +50,7 @@ export default function ReportsPage() {
     }
     supabase.from('sites').select('*').eq('active', true).order('name').limit(200).then(({ data, error }) => {
       if (error) {
-        alert(`Error loading sites: ${error.message}`)
+        toast.error(`Error loading sites: ${error.message}`)
       } else {
         setSites(data || [])
         if (data?.length) setSelectedSite(data[0].id)
@@ -69,12 +85,12 @@ export default function ReportsPage() {
         .limit(1000),
     ])
 
-    if (tripsError) alert(`Error loading report trips: ${tripsError.message}`)
-    if (booksError) alert(`Error loading report cash books: ${booksError.message}`)
+    if (tripsError) toast.error(`Error loading report trips: ${tripsError.message}`)
+    if (booksError) toast.error(`Error loading report cash books: ${booksError.message}`)
 
-    setTrips(tripsData || [])
+    setTrips((tripsData as any) || [])
     setCashBooks(booksData || [])
-    const allEntries = (booksData || []).flatMap((b: any) =>
+    const allEntries: ExtendedCashEntry[] = (booksData || []).flatMap((b: any) =>
       (b.cash_entries || [])
         .filter((e: any) => e.active !== false)
         .map((e: any) => ({ ...e, book_date: b.book_date }))
@@ -83,9 +99,19 @@ export default function ReportsPage() {
     setLoading(false)
   }
 
+  // Sanitizes against CSV formula injection (prevents starting with =, +, -, @)
+  const sanitizeCSVCell = (c: string) => {
+    if (!c) return ''
+    const valStr = String(c)
+    if (['=', '+', '-', '@', '\t', '\r'].some(char => valStr.startsWith(char))) {
+      return `'${valStr}`
+    }
+    return valStr
+  }
+
   // Export to CSV helper
   const exportCSV = (rows: string[][], filename: string) => {
-    const csv = rows.map(r => r.map(c => `"${(c || '').replace(/"/g, '""')}"`).join(',')).join('\n')
+    const csv = rows.map(r => r.map(c => `"${sanitizeCSVCell(c).replace(/"/g, '""')}"`).join(',')).join('\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -116,7 +142,7 @@ export default function ReportsPage() {
     const rows = [
       ['Date', 'Type', 'Category', 'Amount', 'Note'],
       ...cashEntries.map(e => [
-        e.book_date,
+        e.book_date || '',
         e.entry_type,
         e.category,
         String(e.amount),
@@ -130,7 +156,7 @@ export default function ReportsPage() {
   const exportDateRangeCash = async () => {
     if (!selectedSite || !exportFrom || !exportTo) return
     if (exportFrom > exportTo) {
-      alert('Start date must be before end date.')
+      toast.error('Start date must be before end date.')
       return
     }
     setExportLoading(true)
@@ -145,12 +171,12 @@ export default function ReportsPage() {
       .limit(2000)
 
     if (booksError) {
-      alert(`Error fetching data: ${booksError.message}`)
+      toast.error(`Error fetching data: ${booksError.message}`)
       setExportLoading(false)
       return
     }
 
-    const allEntries = (booksData || []).flatMap((b: any) =>
+    const allEntries: ExtendedCashEntry[] = (booksData || []).flatMap((b: any) =>
       (b.cash_entries || [])
         .filter((e: any) => e.active !== false)
         .map((e: any) => ({ ...e, book_date: b.book_date }))
@@ -424,7 +450,7 @@ export default function ReportsPage() {
                       <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No entries in this period</td></tr>
                     ) : cashEntries.map(e => (
                       <tr key={e.id}>
-                        <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{format(new Date(e.book_date), 'd MMM')}</td>
+                        <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{format(new Date(e.book_date || ''), 'd MMM')}</td>
                         <td><span className={`cash-dot ${e.entry_type}`} style={{ display: 'inline-block' }} /></td>
                         <td>{e.category}</td>
                         <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{e.note || '—'}</td>

@@ -1,26 +1,36 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import {
-  Truck, BookOpen, Users, TrendingUp, TrendingDown,
-  Calendar, DollarSign, ChevronRight, Activity, Pickaxe
+  Truck, BookOpen, TrendingUp, TrendingDown,
+  ChevronRight, Activity
 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { Site, CashBook, CashEntry, Trip } from '@/lib/supabase/types'
+
+interface ExtendedTrip extends Trip {
+  vehicles?: {
+    plate_number: string
+    vehicle_type: '12WH' | '10WH' | '6WH' | 'Other'
+  } | null
+  transport_contractors?: {
+    name: string
+  } | null
+}
 
 export default function DashboardPage() {
-  const { userRole, loading: authLoading, isStakeholder } = useAuth()
+  const { loading: authLoading, isStakeholder } = useAuth()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
-  const [sites, setSites] = useState<any[]>([])
+  const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState<string>('')
-  const [summary, setSummary] = useState<any>(null)
-  const [recentTrips, setRecentTrips] = useState<any[]>([])
-  const [cashBook, setCashBook] = useState<any>(null)
-  const [cashEntries, setCashEntries] = useState<any[]>([])
+  const [recentTrips, setRecentTrips] = useState<ExtendedTrip[]>([])
+  const [cashBook, setCashBook] = useState<CashBook | null>(null)
+  const [cashEntries, setCashEntries] = useState<CashEntry[]>([])
   const today = format(new Date(), 'yyyy-MM-dd')
   const supabase = createClient()
 
@@ -39,9 +49,10 @@ export default function DashboardPage() {
 
   const loadSites = async () => {
     const { data } = await supabase.from('sites').select('*').eq('active', true).order('name')
-    if (data && data.length > 0) {
-      setSites(data)
-      setSelectedSite(data[0].id)
+    const loadedSites = data || []
+    setSites(loadedSites)
+    if (loadedSites.length > 0) {
+      setSelectedSite(loadedSites[0].id)
     }
     setLoading(false)
   }
@@ -54,9 +65,10 @@ export default function DashboardPage() {
       .select('*, transport_contractors(name), vehicles(plate_number, vehicle_type)')
       .eq('site_id', selectedSite)
       .eq('trip_date', today)
+      .neq('active', false)
       .order('created_at', { ascending: false })
 
-    setRecentTrips(trips || [])
+    setRecentTrips((trips as any) || [])
 
     // Cash book
     const { data: cb } = await supabase
@@ -64,7 +76,7 @@ export default function DashboardPage() {
       .select('*')
       .eq('site_id', selectedSite)
       .eq('book_date', today)
-      .single()
+      .maybeSingle()
 
     setCashBook(cb || null)
 
@@ -73,9 +85,12 @@ export default function DashboardPage() {
         .from('cash_entries')
         .select('*')
         .eq('cash_book_id', cb.id)
+        .neq('active', false)
         .order('created_at', { ascending: false })
         .limit(5)
       setCashEntries(entries || [])
+    } else {
+      setCashEntries([])
     }
 
     setLoading(false)
@@ -230,7 +245,7 @@ export default function DashboardPage() {
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.875rem' }}>
                 {Object.entries(byContractor).map(([name, count]) => (
                   <span key={name} className="badge badge-amber">
-                    {name}: {count as number}
+                    {name}: {count}
                   </span>
                 ))}
               </div>

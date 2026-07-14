@@ -6,13 +6,36 @@ import { format } from 'date-fns'
 import { Plus, Check, X, Clock } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
+import { Site, Employee } from '@/lib/supabase/types'
+import toast from 'react-hot-toast'
+
+interface LeaveApplication {
+  id: string
+  employee_id: string
+  from_date: string
+  to_date: string
+  reason: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string | null
+  updated_at: string | null
+  employees?: {
+    name: string
+    site_id: string
+  } | null
+}
+
+interface LeaveEmployee {
+  id: string
+  name: string
+  site_id: string | null
+}
 
 export default function LeavePage() {
   const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
   const router = useRouter()
-  const [applications, setApplications] = useState<any[]>([])
-  const [employees, setEmployees] = useState<any[]>([])
-  const [sites, setSites] = useState<any[]>([])
+  const [applications, setApplications] = useState<LeaveApplication[]>([])
+  const [employees, setEmployees] = useState<LeaveEmployee[]>([])
+  const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -32,6 +55,7 @@ export default function LeavePage() {
     }
     loadInitialData()
   }, [authLoading, isAdmin, isSiteManager])
+
   useEffect(() => { if (selectedSite) loadApplications() }, [selectedSite, activeTab])
 
   const loadInitialData = async () => {
@@ -40,8 +64,8 @@ export default function LeavePage() {
       supabase.from('employees').select('id, name, site_id').eq('active', true).order('name').limit(500),
     ])
 
-    if (sitesError) alert(`Error loading sites: ${sitesError.message}`)
-    if (empsError) alert(`Error loading employees: ${empsError.message}`)
+    if (sitesError) toast.error(`Error loading sites: ${sitesError.message}`)
+    if (empsError) toast.error(`Error loading employees: ${empsError.message}`)
 
     setSites(sitesData || [])
     setEmployees(empsData || [])
@@ -67,9 +91,9 @@ export default function LeavePage() {
 
     const { data, error } = await query
     if (error) {
-      alert(`Error loading leave applications: ${error.message}`)
+      toast.error(`Error loading leave applications: ${error.message}`)
     } else {
-      setApplications(data || [])
+      setApplications((data as any) || [])
     }
     setLoading(false)
   }
@@ -86,8 +110,9 @@ export default function LeavePage() {
     })
     
     if (error) {
-      alert(`Error submitting leave: ${error.message}`)
+      toast.error(`Error submitting leave: ${error.message}`)
     } else {
+      toast.success('Leave application submitted')
       setForm({ employee_id: '', from_date: format(new Date(), 'yyyy-MM-dd'), to_date: format(new Date(), 'yyyy-MM-dd'), reason: '' })
       setShowForm(false)
       loadApplications()
@@ -98,7 +123,7 @@ export default function LeavePage() {
   const updateStatus = async (id: string, status: 'approved' | 'rejected') => {
     const { error: updateError } = await supabase.from('leave_applications').update({ status }).eq('id', id)
     if (updateError) {
-      alert(`Error updating status: ${updateError.message}`)
+      toast.error(`Error updating status: ${updateError.message}`)
       return
     }
 
@@ -120,11 +145,12 @@ export default function LeavePage() {
         if (records.length > 0) {
           const { error: upsertError } = await supabase.from('attendance').upsert(records, { onConflict: 'employee_id,att_date' })
           if (upsertError) {
-            alert(`Error auto-marking attendance: ${upsertError.message}`)
+            toast.error(`Error auto-marking attendance: ${upsertError.message}`)
           }
         }
       }
     }
+    toast.success(`Leave application ${status}`)
     loadApplications()
   }
 

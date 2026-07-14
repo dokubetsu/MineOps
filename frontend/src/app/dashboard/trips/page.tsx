@@ -1,29 +1,50 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
-import { Plus, Search, Truck, X, Camera, Image } from 'lucide-react'
+import { Plus, Search, Truck, X, Camera, Image as ImageIcon } from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
+import { Site, Vehicle, TransportContractor, Trip } from '@/lib/supabase/types'
+import toast from 'react-hot-toast'
 
 const VEHICLE_TYPES = ['12WH', '10WH', '6WH', 'Other']
 const OWNERSHIP_TYPES = ['rented', 'owned']
 
-import { useAuth } from '@/lib/auth-context'
-import { useRouter } from 'next/navigation'
+interface ExtendedVehicle extends Vehicle {
+  transport_contractors?: {
+    name: string
+  } | null
+}
+
+interface ExtendedTrip extends Trip {
+  vehicles?: {
+    plate_number: string
+    vehicle_type: '12WH' | '10WH' | '6WH' | 'Other'
+  } | null
+  transport_contractors?: {
+    name: string
+  } | null
+  drivers?: {
+    name: string
+  } | null
+  signed_photo_url?: string | null
+}
 
 export default function TripsPage() {
   const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
   const router = useRouter()
-  const [trips, setTrips] = useState<any[]>([])
-  const [sites, setSites] = useState<any[]>([])
-  const [vehicles, setVehicles] = useState<any[]>([])
-  const [contractors, setContractors] = useState<any[]>([])
+  const [trips, setTrips] = useState<ExtendedTrip[]>([])
+  const [sites, setSites] = useState<Site[]>([])
+  const [vehicles, setVehicles] = useState<ExtendedVehicle[]>([])
+  const [contractors, setContractors] = useState<TransportContractor[]>([])
   const [selectedSite, setSelectedSite] = useState('')
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [vehicleSearch, setVehicleSearch] = useState('')
-  const [filteredVehicles, setFilteredVehicles] = useState<any[]>([])
+  const [filteredVehicles, setFilteredVehicles] = useState<ExtendedVehicle[]>([])
   const [form, setForm] = useState({
     vehicle_id: '', plate_number: '', contractor_id: '',
     ownership: 'rented', vehicle_type: '12WH', dd_number: '',
@@ -42,7 +63,9 @@ export default function TripsPage() {
     }
     loadInitialData()
   }, [authLoading, isAdmin, isSiteManager])
+
   useEffect(() => { if (selectedSite) loadTrips() }, [selectedSite, selectedDate])
+
   useEffect(() => {
     if (vehicleSearch.length > 0) {
       const filtered = vehicles.filter(v =>
@@ -61,7 +84,7 @@ export default function TripsPage() {
       supabase.from('transport_contractors').select('*').eq('active', true).order('name'),
     ])
     setSites(sitesData || [])
-    setVehicles(vehiclesData || [])
+    setVehicles((vehiclesData as any) || [])
     setContractors(contractorsData || [])
     if (sitesData && sitesData.length > 0) setSelectedSite(sitesData[0].id)
     setLoading(false)
@@ -79,11 +102,10 @@ export default function TripsPage() {
       .limit(500)
 
     if (error) {
-      alert(`Error loading trips: ${error.message}`)
+      toast.error(`Error loading trips: ${error.message}`)
       setTrips([])
     } else if (data) {
-      // Map over trips and dynamically generate a 1-hour signed URL for read access (Fix N4)
-      const tripsWithSignedUrls = await Promise.all(data.map(async (trip: any) => {
+      const tripsWithSignedUrls = await Promise.all((data as any).map(async (trip: any) => {
         if (trip.photo_url) {
           let path = trip.photo_url
           if (path.includes('trip-photos/')) {
@@ -104,7 +126,7 @@ export default function TripsPage() {
     setLoading(false)
   }
 
-  const selectVehicle = (vehicle: any) => {
+  const selectVehicle = (vehicle: ExtendedVehicle) => {
     setForm(f => ({
       ...f,
       vehicle_id: vehicle.id,
@@ -115,6 +137,15 @@ export default function TripsPage() {
     }))
     setVehicleSearch(vehicle.plate_number)
     setFilteredVehicles([])
+  }
+
+  const handlePhotoSelect = (file: File) => {
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size exceeds the 5MB limit')
+      return
+    }
+    setPhotoFile(file)
+    setPhotoPreview(URL.createObjectURL(file))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -131,7 +162,7 @@ export default function TripsPage() {
         .maybeSingle()
 
       if (findError) {
-        alert(`Error checking vehicles: ${findError.message}`)
+        toast.error(`Error checking vehicles: ${findError.message}`)
         setSubmitting(false)
         return
       }
@@ -148,7 +179,7 @@ export default function TripsPage() {
         }).select().single()
 
         if (createError) {
-          alert(`Error creating vehicle: ${createError.message}`)
+          toast.error(`Error creating vehicle: ${createError.message}`)
           setSubmitting(false)
           return
         }
@@ -160,13 +191,15 @@ export default function TripsPage() {
     let photoUrl: string | null = null
     if (photoFile) {
       const ext = photoFile.name.split('.').pop() || 'jpg'
-      const path = `${selectedSite}/${selectedDate}/${Date.now()}.${ext}`
+      // Use crypto.randomUUID() to prevent collisions/overwrites
+      const fileUuid = crypto.randomUUID()
+      const path = `${selectedSite}/${selectedDate}/${fileUuid}.${ext}`
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from('trip-photos')
         .upload(path, photoFile, { upsert: true })
       
       if (uploadError) {
-        alert(`Error uploading trip slip photo: ${uploadError.message}`)
+        toast.error(`Error uploading trip slip photo: ${uploadError.message}`)
         setSubmitting(false)
         return
       }
@@ -188,11 +221,13 @@ export default function TripsPage() {
       load_info: form.load_info || null,
       notes: form.notes || null,
       photo_url: photoUrl,
-    })
+      active: true,
+    } as any)
 
     if (insertError) {
-      alert(`Error saving trip details: ${insertError.message}`)
+      toast.error(`Error saving trip details: ${insertError.message}`)
     } else {
+      toast.success('Trip logged successfully')
       setShowForm(false)
       setForm({ vehicle_id: '', plate_number: '', contractor_id: '', ownership: 'rented', vehicle_type: '12WH', dd_number: '', permit_number: '', load_info: '', notes: '' })
       setVehicleSearch('')
@@ -207,8 +242,9 @@ export default function TripsPage() {
     if (!confirm('Delete this trip?')) return
     const { error } = await supabase.from('trips').update({ active: false }).eq('id', id)
     if (error) {
-      alert(`Error deleting trip: ${error.message}`)
+      toast.error(`Error deleting trip: ${error.message}`)
     } else {
+      toast.success('Trip deleted')
       loadTrips()
     }
   }
@@ -219,7 +255,7 @@ export default function TripsPage() {
     if (!acc[name]) acc[name] = []
     acc[name].push(t)
     return acc
-  }, {} as Record<string, any[]>)
+  }, {} as Record<string, ExtendedTrip[]>)
 
   return (
     <div>
@@ -267,7 +303,7 @@ export default function TripsPage() {
       {/* Contractor Summary */}
       {Object.keys(byContractor).length > 0 && (
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-          {(Object.entries(byContractor) as [string, any[]][]).map(([name, trps]) => (
+          {Object.entries(byContractor).map(([name, trps]) => (
             <div key={name} className="badge badge-amber" style={{ padding: '0.3rem 0.8rem', fontSize: '0.8rem' }}>
               {name}: <strong style={{ marginLeft: '0.25rem' }}>{trps.length}</strong>
             </div>
@@ -455,7 +491,7 @@ export default function TripsPage() {
                     <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
                       onChange={e => {
                         const f = e.target.files?.[0]
-                        if (f) { setPhotoFile(f); setPhotoPreview(URL.createObjectURL(f)) }
+                        if (f) handlePhotoSelect(f)
                       }} />
                   </label>
                   <label style={{
@@ -465,11 +501,11 @@ export default function TripsPage() {
                     borderRadius: 'var(--radius)', cursor: 'pointer', fontSize: '0.875rem',
                     color: 'var(--text-muted)', transition: 'all 0.15s',
                   }}>
-                    <Image size={18} /> Gallery
+                    <ImageIcon size={18} /> Gallery
                     <input type="file" accept="image/*" style={{ display: 'none' }}
                       onChange={e => {
                         const f = e.target.files?.[0]
-                        if (f) { setPhotoFile(f); setPhotoPreview(URL.createObjectURL(f)) }
+                        if (f) handlePhotoSelect(f)
                       }} />
                   </label>
                 </div>

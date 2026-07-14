@@ -1,12 +1,19 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 
-/**
- * Fix 11: Create user using service role key on the server.
- * The anon key can only call supabase.auth.signUp() which sends a confirmation
- * email AND can be spoofed by anyone. Only the service role can bypass email
- * confirmation and create users without side effects.
- */
+// Zod schema for validating the incoming request body
+const createUserSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(6, 'Password must be at least 6 characters long'),
+  role: z.enum(['admin', 'site_manager', 'stakeholder']),
+  site_id: z.string().uuid('Invalid site ID format').nullable().optional(),
+  share_percent: z.union([z.number(), z.string()]).transform((val) => {
+    const num = parseFloat(String(val))
+    return isNaN(num) ? 50 : num
+  }).optional(),
+})
+
 export async function POST(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -34,6 +41,7 @@ export async function POST(req: NextRequest) {
   if (callerError || !callerData.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  
   // Check admin role
   const { data: roleData } = await supabase
     .from('user_roles')
@@ -44,10 +52,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: admin only' }, { status: 403 })
   }
 
-  const { email, password, role, site_id, share_percent } = await req.json()
-  if (!email || !password) {
-    return NextResponse.json({ error: 'email and password are required' }, { status: 400 })
+  // Parse and validate req.json() using Zod schema
+  let body: any
+  try {
+    body = await req.json()
+  } catch (e) {
+    return NextResponse.json({ error: 'Invalid JSON request body' }, { status: 400 })
   }
+
+  const result = createUserSchema.safeParse(body)
+  if (!result.success) {
+    return NextResponse.json(
+      { error: result.error.issues.map(err => err.message).join(', ') },
+      { status: 400 }
+    )
+  }
+
+  const { email, password, role, site_id, share_percent } = result.data
 
   // Create the user without sending a confirmation email
   const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
@@ -73,7 +94,7 @@ export async function POST(req: NextRequest) {
     await supabase.from('stakeholder_site_access').insert({
       stakeholder_user_id: newUserId,
       site_id,
-      share_percent: parseFloat(share_percent) || 50,
+      share_percent: share_percent ?? 50,
     })
   }
 

@@ -2,25 +2,44 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, X, Shield, Pencil, Check } from 'lucide-react'
+import { Plus, X, Pencil, Check } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
+import { Site, UserRole } from '@/lib/supabase/types'
+import toast from 'react-hot-toast'
 
 const ROLES = [
   { value: 'admin', label: 'Admin', desc: 'Full access to all sites and data', icon: '🛡️' },
   { value: 'site_manager', label: 'Site Manager', desc: 'Manage trips, cash, attendance for assigned site', icon: '👷' },
   { value: 'stakeholder', label: 'Stakeholder', desc: 'Read-only revenue share dashboard', icon: '📊' },
-]
+] as const
+
+interface ExtendedUserRole extends UserRole {
+  sites?: {
+    name: string
+  } | null
+}
+
+interface GroupedUser {
+  user_id: string
+  email: string
+  role: 'admin' | 'site_manager' | 'stakeholder'
+  rows: ExtendedUserRole[]
+}
+
+interface ListUsersResponse {
+  users: Array<{ id: string; email: string }>
+}
 
 export default function UsersPage() {
   const { isAdmin, loading: authLoading } = useAuth()
   const router = useRouter()
-  const [userRoleRows, setUserRoleRows] = useState<any[]>([])
+  const [userRoleRows, setUserRoleRows] = useState<ExtendedUserRole[]>([])
   const [authUsers, setAuthUsers] = useState<Record<string, string>>({}) // id → email
-  const [sites, setSites] = useState<any[]>([])
+  const [sites, setSites] = useState<Site[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [editingRow, setEditingRow] = useState<any | null>(null) // row being edited
+  const [editingRow, setEditingRow] = useState<ExtendedUserRole | null>(null) // row being edited
   const [form, setForm] = useState({
     email: '', password: '', role: 'site_manager',
     site_id: '', share_percent: '50',
@@ -44,14 +63,14 @@ export default function UsersPage() {
       supabase.from('sites').select('*').eq('active', true).order('name').limit(500),
       fetch('/api/admin/list-users', {
         headers: { Authorization: `Bearer ${token}` },
-      }).then(r => r.json()).catch(() => ({ users: [] })),
+      }).then(r => r.json()).catch(() => ({ users: [] })) as Promise<ListUsersResponse>,
     ])
 
-    if (rolesError) alert(`Error loading user roles: ${rolesError.message}`)
-    if (sitesError) alert(`Error loading sites: ${sitesError.message}`)
+    if (rolesError) toast.error(`Error loading user roles: ${rolesError.message}`)
+    if (sitesError) toast.error(`Error loading sites: ${sitesError.message}`)
 
     setSites(sitesData || [])
-    setUserRoleRows(rolesData || [])
+    setUserRoleRows((rolesData as ExtendedUserRole[]) || [])
 
     // Build id → email map
     const emailMap: Record<string, string> = {}
@@ -70,13 +89,13 @@ export default function UsersPage() {
   }, [authLoading, isAdmin])
 
   // Group role rows by user_id for display
-  const userMap: Record<string, any> = {}
+  const userMap: Record<string, GroupedUser> = {}
   for (const r of userRoleRows) {
     if (!userMap[r.user_id]) {
       userMap[r.user_id] = {
         user_id: r.user_id,
         email: authUsers[r.user_id] || '',
-        role: r.role,
+        role: r.role as 'admin' | 'site_manager' | 'stakeholder',
         rows: [],
       }
     }
@@ -84,7 +103,7 @@ export default function UsersPage() {
     // Highest-privilege role wins for display
     const priority = (role: string) => role === 'admin' ? 1 : role === 'site_manager' ? 2 : 3
     if (priority(r.role) < priority(userMap[r.user_id].role)) {
-      userMap[r.user_id].role = r.role
+      userMap[r.user_id].role = r.role as 'admin' | 'site_manager' | 'stakeholder'
     }
   }
   const users = Object.values(userMap)
@@ -108,11 +127,13 @@ export default function UsersPage() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to create user')
+      toast.success('User created successfully')
       setShowForm(false)
       setForm({ email: '', password: '', role: 'site_manager', site_id: '', share_percent: '50' })
       loadData()
-    } catch (err: any) {
-      setError(err.message || 'Failed to create user')
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Failed to create user'
+      setError(errMsg)
     }
     setSubmitting(false)
   }
@@ -122,8 +143,12 @@ export default function UsersPage() {
     // Delete stakeholder site access first
     await supabase.from('stakeholder_site_access').delete().eq('stakeholder_user_id', userId)
     const { error } = await supabase.from('user_roles').delete().eq('user_id', userId)
-    if (error) alert(`Error: ${error.message}`)
-    else loadData()
+    if (error) {
+      toast.error(`Error: ${error.message}`)
+    } else {
+      toast.success('User access revoked')
+      loadData()
+    }
   }
 
   const revokeRow = async (rowId: string, userId: string, siteId: string | null) => {
@@ -133,11 +158,15 @@ export default function UsersPage() {
         .eq('stakeholder_user_id', userId).eq('site_id', siteId)
     }
     const { error } = await supabase.from('user_roles').delete().eq('id', rowId)
-    if (error) alert(`Error: ${error.message}`)
-    else loadData()
+    if (error) {
+      toast.error(`Error: ${error.message}`)
+    } else {
+      toast.success('Role revoked successfully')
+      loadData()
+    }
   }
 
-  const startEdit = (row: any) => {
+  const startEdit = (row: ExtendedUserRole) => {
     setEditingRow(row)
     setEditForm({
       role: row.role,
@@ -157,7 +186,7 @@ export default function UsersPage() {
       })
       .eq('id', editingRow.id)
     if (error) {
-      alert(`Error updating role: ${error.message}`)
+      toast.error(`Error updating role: ${error.message}`)
     } else {
       // If changing to/from stakeholder update site access
       if (editForm.role === 'stakeholder' && editForm.site_id) {
@@ -167,6 +196,7 @@ export default function UsersPage() {
           share_percent: parseFloat(editForm.share_percent) || 50,
         }, { onConflict: 'stakeholder_user_id,site_id' })
       }
+      toast.success('Role updated successfully')
       setEditingRow(null)
       loadData()
     }
@@ -206,7 +236,7 @@ export default function UsersPage() {
         </div>
       ) : users.length === 0 ? (
         <div className="empty-state">
-          <Shield size={32} style={{ color: 'var(--text-muted)' }} />
+          <div className="empty-icon"><Plus size={28} /></div>
           <div className="empty-title">No users configured</div>
           <div className="empty-desc">Add users to grant them access to MineOps</div>
         </div>
@@ -228,7 +258,7 @@ export default function UsersPage() {
                   <div style={{ fontWeight: 600, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {u.email || <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.75rem' }}>ID: {u.user_id.substring(0, 12)}…</span>}
                   </div>
-                  <span className={`badge ${roleBadge(u.role)}`} style={{ marginTop: '0.2rem', display: 'inline-block' }}>
+                  <span className={`badge ${roleBadge(u.role)}`} style={{ marginTop: '0.2,rem', display: 'inline-block' }}>
                     {u.role.replace('_', ' ')}
                   </span>
                 </div>
@@ -244,7 +274,7 @@ export default function UsersPage() {
 
               {/* Role rows */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
-                {u.rows.map((row: any) => (
+                {u.rows.map((row) => (
                   <div key={row.id} style={{
                     display: 'flex', alignItems: 'center', gap: '0.5rem',
                     padding: '0.5rem 0.625rem',

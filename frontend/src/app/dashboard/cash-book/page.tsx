@@ -1,9 +1,13 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import { Plus, Lock, Unlock, X, ChevronLeft, ChevronRight, Camera, Image as ImageIcon, Receipt } from 'lucide-react'
+import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
+import { Site, CashBook, CashEntry } from '@/lib/supabase/types'
+import toast from 'react-hot-toast'
 
 const CATEGORIES_OUT = [
   'Fuel', 'Maintenance', 'Tiffen', 'Meals', 'Night Meals',
@@ -12,17 +16,14 @@ const CATEGORIES_OUT = [
 ]
 const CATEGORIES_IN = ['DSR', 'VTS', 'Trip Cash', 'Permit Cash', 'Work Bill', 'Other']
 
-import { useAuth } from '@/lib/auth-context'
-import { useRouter } from 'next/navigation'
-
 export default function CashBookPage() {
   const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
   const router = useRouter()
-  const [sites, setSites] = useState<any[]>([])
+  const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
-  const [cashBook, setCashBook] = useState<any>(null)
-  const [entries, setEntries] = useState<any[]>([])
+  const [cashBook, setCashBook] = useState<CashBook | null>(null)
+  const [entries, setEntries] = useState<CashEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [entryType, setEntryType] = useState<'in' | 'out'>('out')
@@ -62,7 +63,7 @@ export default function CashBookPage() {
       .maybeSingle()
 
     if (loadError) {
-      alert(`Error loading cash book: ${loadError.message}`)
+      toast.error(`Error loading cash book: ${loadError.message}`)
       setLoading(false)
       return
     }
@@ -80,7 +81,7 @@ export default function CashBookPage() {
         .maybeSingle()
 
       if (prevError) {
-        alert(`Error loading previous closing balance: ${prevError.message}`)
+        toast.error(`Error loading previous closing balance: ${prevError.message}`)
         setLoading(false)
         return
       }
@@ -104,13 +105,13 @@ export default function CashBookPage() {
             .eq('book_date', selectedDate)
             .single()
           if (retryError) {
-            alert(`Failed to resolve concurrent cash book: ${retryError.message}`)
+            toast.error(`Failed to resolve concurrent cash book: ${retryError.message}`)
             setLoading(false)
             return
           }
           activeCb = retryCb
         } else {
-          alert(`Error creating cash book: ${insertError.message}`)
+          toast.error(`Error creating cash book: ${insertError.message}`)
           setLoading(false)
           return
         }
@@ -131,34 +132,39 @@ export default function CashBookPage() {
         .limit(500)
       
       if (entriesError) {
-        alert(`Error loading cash entries: ${entriesError.message}`)
+        toast.error(`Error loading cash entries: ${entriesError.message}`)
       } else {
         const loadedEntries = e || []
         setEntries(loadedEntries)
-        // Load signed URLs for any receipt images
         loadReceiptUrls(loadedEntries)
       }
     }
     setLoading(false)
   }
 
-  const loadReceiptUrls = async (loadedEntries: any[]) => {
+  const loadReceiptUrls = async (loadedEntries: CashEntry[]) => {
     const entriesWithReceipts = loadedEntries.filter(e => e.receipt_url)
     if (entriesWithReceipts.length === 0) return
 
     const urlMap: Record<string, string> = {}
     await Promise.all(
       entriesWithReceipts.map(async (entry) => {
-        const { data } = await supabase.storage
-          .from('cash-receipts')
-          .createSignedUrl(entry.receipt_url, 3600)
-        if (data?.signedUrl) urlMap[entry.id] = data.signedUrl
+        if (entry.receipt_url) {
+          const { data } = await supabase.storage
+            .from('cash-receipts')
+            .createSignedUrl(entry.receipt_url, 3600)
+          if (data?.signedUrl) urlMap[entry.id] = data.signedUrl
+        }
       })
     )
     setReceiptUrls(urlMap)
   }
 
   const handleReceiptSelect = (file: File) => {
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('File size exceeds the 5MB limit')
+      return
+    }
     setReceiptFile(file)
     const reader = new FileReader()
     reader.onload = (ev) => setReceiptPreview(ev.target?.result as string)
@@ -175,12 +181,14 @@ export default function CashBookPage() {
   const uploadReceipt = async (cashBookId: string): Promise<string | null> => {
     if (!receiptFile) return null
     const ext = receiptFile.name.split('.').pop() || 'jpg'
-    const path = `${cashBookId}/${Date.now()}.${ext}`
+    // Use crypto.randomUUID() to prevent collisions/overwrites
+    const fileUuid = crypto.randomUUID()
+    const path = `${cashBookId}/${fileUuid}.${ext}`
     const { error } = await supabase.storage
       .from('cash-receipts')
       .upload(path, receiptFile, { upsert: false })
     if (error) {
-      alert(`Error uploading receipt: ${error.message}`)
+      toast.error(`Error uploading receipt: ${error.message}`)
       return null
     }
     return path
@@ -190,12 +198,11 @@ export default function CashBookPage() {
     e.preventDefault()
     if (!cashBook || !form.category || !form.amount) return
     if (cashBook.status === 'locked') {
-      alert('This cash book is locked and cannot be modified.')
+      toast.error('This cash book is locked and cannot be modified.')
       return
     }
     setSubmitting(true)
 
-    // Upload receipt if selected
     const receiptPath = await uploadReceipt(cashBook.id)
 
     const { error } = await supabase.from('cash_entries').insert({
@@ -209,8 +216,9 @@ export default function CashBookPage() {
     } as any)
     
     if (error) {
-      alert(`Error saving cash entry: ${error.message}`)
+      toast.error(`Error saving cash entry: ${error.message}`)
     } else {
+      toast.success('Cash entry added successfully')
       setForm({ category: '', amount: '', note: '' })
       clearReceipt()
       setShowForm(false)
@@ -222,14 +230,15 @@ export default function CashBookPage() {
   const deleteEntry = async (id: string) => {
     if (!cashBook) return
     if (cashBook.status === 'locked') {
-      alert('This cash book is locked and entries cannot be deleted.')
+      toast.error('This cash book is locked and entries cannot be deleted.')
       return
     }
     if (!confirm('Delete this entry?')) return
     const { error } = await supabase.from('cash_entries').update({ active: false }).eq('id', id)
     if (error) {
-      alert(`Error deleting cash entry: ${error.message}`)
+      toast.error(`Error deleting cash entry: ${error.message}`)
     } else {
+      toast.success('Cash entry deleted')
       loadCashBook()
     }
   }
@@ -239,15 +248,15 @@ export default function CashBookPage() {
     const newStatus = cashBook.status === 'locked' ? 'draft' : 'locked'
     const { error } = await supabase.from('cash_books').update({ status: newStatus }).eq('id', cashBook.id)
     if (error) {
-      alert(`Error updating cash book lock status: ${error.message}`)
+      toast.error(`Error updating cash book lock status: ${error.message}`)
     } else {
+      toast.success(`Day ${newStatus === 'locked' ? 'locked' : 'unlocked'} successfully`)
       loadCashBook()
     }
   }
 
   const totalIn = entries.filter(e => e.entry_type === 'in').reduce((s, e) => s + e.amount, 0)
   const totalOut = entries.filter(e => e.entry_type === 'out').reduce((s, e) => s + e.amount, 0)
-  // ✅ Fix: Compute closing balance live from state — not from cached DB snapshot
   const computedClosingBalance = (cashBook?.opening_balance || 0) + totalIn - totalOut
 
   const prevDate = () => {
@@ -391,7 +400,6 @@ export default function CashBookPage() {
                   <span className={`cash-dot ${entry.entry_type}`} />
                   <div style={{ minWidth: 0 }}>
                     <span className="cash-category">{entry.category}</span>
-                    {/* Receipt thumbnail */}
                     {entry.receipt_url && (
                       <button
                         onClick={() => setViewingReceipt(receiptUrls[entry.id] || null)}
