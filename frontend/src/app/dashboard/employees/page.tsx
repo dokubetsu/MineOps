@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -7,9 +7,14 @@ import { Plus, X } from 'lucide-react'
 import { Site, Employee } from '@/lib/supabase/types'
 import toast from 'react-hot-toast'
 
+import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
+
 const ROLES = ['worker', 'supervisor', 'driver', 'other']
 
 export default function EmployeesPage() {
+  const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
+  const router = useRouter()
   const [employees, setEmployees] = useState<Employee[]>([])
   const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
@@ -22,7 +27,15 @@ export default function EmployeesPage() {
   const [submitting, setSubmitting] = useState(false)
   const supabase = createClient()
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    if (authLoading) return
+    if (!isAdmin && !isSiteManager) {
+      router.push('/dashboard')
+      return
+    }
+    loadData()
+  }, [authLoading, isAdmin, isSiteManager])
+
   useEffect(() => { if (selectedSite) loadEmployees() }, [selectedSite])
 
   const loadData = async () => {

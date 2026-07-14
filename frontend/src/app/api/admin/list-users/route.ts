@@ -1,4 +1,4 @@
-﻿import { createClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
 /**
@@ -39,10 +39,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: admin only' }, { status: 403 })
   }
 
-  // Fetch all users from auth.users (service key required)
+  // Parse query parameters for pagination
+  const { searchParams } = new URL(req.url)
+  const pageParam = parseInt(searchParams.get('page') || '1')
+  const perPageParam = parseInt(searchParams.get('perPage') || '1000')
+
+  const page = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam
+  const perPage = isNaN(perPageParam) || perPageParam < 1 || perPageParam > 1000 ? 1000 : perPageParam
+
+  // Fetch users from auth.users (service key required)
   const { data: usersData, error: usersError } = await supabase.auth.admin.listUsers({
-    page: 1,
-    perPage: 1000,
+    page,
+    perPage,
   })
   if (usersError) {
     return NextResponse.json({ error: usersError.message }, { status: 500 })
