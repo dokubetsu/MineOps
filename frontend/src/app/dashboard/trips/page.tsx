@@ -99,6 +99,29 @@ export default function TripsPage() {
   }, [selectedSite, selectedDate])
 
   useEffect(() => {
+    if (!selectedSite) return
+    const channel = supabase
+      .channel(`trips-realtime-${selectedSite}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trips',
+          filter: `site_id=eq.${selectedSite}`,
+        },
+        () => {
+          loadTrips(false)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [selectedSite, selectedDate])
+
+  useEffect(() => {
     if (vehicleSearch.length > 0) {
       const filtered = vehicles.filter(v =>
         v.plate_number.toLowerCase().includes(vehicleSearch.toLowerCase())
@@ -180,15 +203,28 @@ export default function TripsPage() {
         }
       }))
 
+      const cacheKey = `cached_trips_${selectedSite}_${selectedDate}`
       if (loadMore) {
-        setTrips(prev => [...prev, ...tripsWithSignedUrls])
+        setTrips(prev => {
+          const nextTrips = [...prev, ...tripsWithSignedUrls]
+          localStorage.setItem(cacheKey, JSON.stringify(nextTrips))
+          return nextTrips
+        })
       } else {
         setTrips(tripsWithSignedUrls)
+        localStorage.setItem(cacheKey, JSON.stringify(tripsWithSignedUrls))
       }
       setHasMore(data.length === PAGE_LIMIT)
     } catch (error: any) {
-      toast.error(`Error loading trips: ${error.message}`)
-      if (!loadMore) setTrips([])
+      const cacheKey = `cached_trips_${selectedSite}_${selectedDate}`
+      const cached = localStorage.getItem(cacheKey)
+      if (cached && !loadMore) {
+        setTrips(JSON.parse(cached))
+        toast('Serving cached trip logs (offline mode)', { icon: '📶' })
+      } else {
+        toast.error(`Error loading trips: ${error.message}`)
+        if (!loadMore) setTrips([])
+      }
     } finally {
       setLoading(false)
       setLoadingMore(false)

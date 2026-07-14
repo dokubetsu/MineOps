@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -41,6 +41,28 @@ export default function AttendancePage() {
     if (selectedSite) loadRoster()
   }, [selectedSite, selectedDate])
 
+  useEffect(() => {
+    if (!selectedSite) return
+    const channel = supabase
+      .channel(`attendance-realtime-${selectedSite}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'attendance',
+        },
+        () => {
+          loadRoster()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [selectedSite, selectedDate])
+
   const loadSites = async () => {
     try {
       const { data } = await supabase.from('sites').select('*').eq('active', true).order('name')
@@ -59,9 +81,18 @@ export default function AttendancePage() {
     try {
       const data = await attendanceRepository.listRoster(supabase, selectedSite, selectedDate)
       setRoster(data)
+      const cacheKey = `cached_roster_${selectedSite}_${selectedDate}`
+      localStorage.setItem(cacheKey, JSON.stringify(data))
     } catch (error: any) {
-      toast.error(`Error loading attendance roster: ${error.message}`)
-      setRoster([])
+      const cacheKey = `cached_roster_${selectedSite}_${selectedDate}`
+      const cached = localStorage.getItem(cacheKey)
+      if (cached) {
+        setRoster(JSON.parse(cached))
+        toast('Serving cached muster roll (offline mode)', { icon: '📶' })
+      } else {
+        toast.error(`Error loading attendance roster: ${error.message}`)
+        setRoster([])
+      }
     } finally {
       setLoading(false)
     }

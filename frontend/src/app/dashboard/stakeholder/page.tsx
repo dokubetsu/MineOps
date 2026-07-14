@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -294,26 +294,58 @@ export default function StakeholderDashboardPage() {
                 </div>
               )}
 
-              {/* Daily Trend Mini Chart */}
+              {/* Daily Trend SVG Sparkline Chart */}
               {siteData.trend.length > 0 && (
                 <div className="card mb-4">
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.875rem', fontWeight: 600 }}>
                     Daily Trip Trend
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: '4px', height: '60px' }}>
+                  <div style={{ position: 'relative', height: '60px', width: '100%' }}>
                     {(() => {
                       const max = Math.max(...siteData.trend.map((t) => t.trips), 1)
-                      return siteData.trend.map((t, i) => (
-                        <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', minWidth: 0 }}>
-                          <div style={{
-                            width: '100%', borderRadius: '3px 3px 0 0',
-                            background: t.trips > 0 ? 'var(--accent)' : 'var(--bg-elevated)',
-                            height: `${Math.max((t.trips / max) * 52, t.trips > 0 ? 4 : 0)}px`,
-                            transition: 'height 0.3s ease',
-                            minHeight: t.trips > 0 ? '4px' : '0',
-                          }} title={`${t.date}: ${t.trips} trips`} />
-                        </div>
-                      ))
+                      const len = siteData.trend.length
+                      const points = siteData.trend.map((t, i) => {
+                        const x = len > 1 ? (i / (len - 1)) * 300 : 150
+                        const y = 55 - (t.trips / max) * 45
+                        return { x, y, label: `${t.date}: ${t.trips} trips` }
+                      })
+
+                      const pathD = len > 1 
+                        ? points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+                        : `M 0 55 L 300 55`
+                      const areaD = len > 1
+                        ? `${pathD} L 300 60 L 0 60 Z`
+                        : `M 0 55 L 300 55 L 300 60 L 0 60 Z`
+
+                      return (
+                        <svg viewBox="0 0 300 60" style={{ width: '100%', height: '60px', overflow: 'visible' }}>
+                          <defs>
+                            <linearGradient id={`grad-${idx}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.3" />
+                              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+                            </linearGradient>
+                          </defs>
+                          {/* Area path */}
+                          <path d={areaD} fill={`url(#grad-${idx})`} />
+                          {/* Line path */}
+                          <path d={pathD} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                          {/* Interactive data dots */}
+                          {points.map((p, i) => (
+                            <circle 
+                              key={i} 
+                              cx={p.x} 
+                              cy={p.y} 
+                              r="3.5" 
+                              fill="var(--bg-card)" 
+                              stroke="var(--accent)" 
+                              strokeWidth="2"
+                              style={{ cursor: 'pointer' }}
+                            >
+                              <title>{p.label}</title>
+                            </circle>
+                          ))}
+                        </svg>
+                      )
                     })()}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.375rem' }}>

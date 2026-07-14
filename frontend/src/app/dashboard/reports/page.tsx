@@ -1,8 +1,8 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { format, startOfMonth, endOfMonth } from 'date-fns'
+import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
 import { Download, FileText, Printer, Calendar } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
@@ -32,8 +32,18 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false)
   const [trips, setTrips] = useState<ExtendedTrip[]>([])
   const [cashEntries, setCashEntries] = useState<ExtendedCashEntry[]>([])
-  const [, setCashBooks] = useState<CashBook[]>([])
+  const [cashBooks, setCashBooks] = useState<CashBook[]>([])
   const [activeReport, setActiveReport] = useState<'trips' | 'cash' | 'contractor'>('trips')
+
+  // MoM Comparison states
+  const [comparison, setComparison] = useState<{
+    prevTripsCount: number
+    tripsDiffPct: number
+    prevTotalIn: number
+    inDiffPct: number
+    prevTotalOut: number
+    outDiffPct: number
+  } | null>(null)
 
   // Date-range export state
   const [exportFrom, setExportFrom] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'))
@@ -65,7 +75,17 @@ export default function ReportsPage() {
     const from = period + '-01'
     const to = format(endOfMonth(new Date(from)), 'yyyy-MM-dd')
 
-    const [{ data: tripsData, error: tripsError }, { data: booksData, error: booksError }] = await Promise.all([
+    // Last month date ranges
+    const prevMonthDate = subMonths(new Date(from), 1)
+    const prevFrom = format(prevMonthDate, 'yyyy-MM-01')
+    const prevTo = format(endOfMonth(prevMonthDate), 'yyyy-MM-dd')
+
+    const [
+      { data: tripsData, error: tripsError },
+      { data: booksData, error: booksError },
+      { data: prevTripsData },
+      { data: prevBooksData }
+    ] = await Promise.all([
       supabase
         .from('trips')
         .select('*, vehicles(plate_number, vehicle_type), transport_contractors(name)')
@@ -83,19 +103,67 @@ export default function ReportsPage() {
         .lte('book_date', to)
         .order('book_date')
         .limit(1000),
+      supabase
+        .from('trips')
+        .select('id')
+        .eq('site_id', selectedSite)
+        .gte('trip_date', prevFrom)
+        .lte('trip_date', prevTo)
+        .neq('active', false)
+        .limit(1000),
+      supabase
+        .from('cash_books')
+        .select('*, cash_entries(*)')
+        .eq('site_id', selectedSite)
+        .gte('book_date', prevFrom)
+        .lte('book_date', prevTo)
+        .limit(1000),
     ])
 
     if (tripsError) toast.error(`Error loading report trips: ${tripsError.message}`)
     if (booksError) toast.error(`Error loading report cash books: ${booksError.message}`)
 
-    setTrips((tripsData as any) || [])
+    const currentTrips = tripsData || []
+    setTrips((currentTrips as any) || [])
     setCashBooks(booksData || [])
+    
     const allEntries: ExtendedCashEntry[] = (booksData || []).flatMap((b: any) =>
       (b.cash_entries || [])
         .filter((e: any) => e.active !== false)
         .map((e: any) => ({ ...e, book_date: b.book_date }))
     )
     setCashEntries(allEntries)
+
+    // MoM variance math
+    const prevTripsCount = prevTripsData?.length || 0
+    const tripsDiff = currentTrips.length - prevTripsCount
+    const tripsDiffPct = prevTripsCount > 0 ? (tripsDiff / prevTripsCount) * 100 : 0
+
+    const currentIn = allEntries.filter(e => e.entry_type === 'in').reduce((s, e) => s + e.amount, 0)
+    const currentOut = allEntries.filter(e => e.entry_type === 'out').reduce((s, e) => s + e.amount, 0)
+
+    const prevEntries = (prevBooksData || []).flatMap((b: any) =>
+      (b.cash_entries || [])
+        .filter((e: any) => e.active !== false)
+    )
+    const prevTotalIn = prevEntries.filter((e: any) => e.entry_type === 'in').reduce((s: number, e: any) => s + e.amount, 0)
+    const prevTotalOut = prevEntries.filter((e: any) => e.entry_type === 'out').reduce((s: number, e: any) => s + e.amount, 0)
+
+    const inDiff = currentIn - prevTotalIn
+    const inDiffPct = prevTotalIn > 0 ? (inDiff / prevTotalIn) * 100 : 0
+
+    const outDiff = currentOut - prevTotalOut
+    const outDiffPct = prevTotalOut > 0 ? (outDiff / prevTotalOut) * 100 : 0
+
+    setComparison({
+      prevTripsCount,
+      tripsDiffPct,
+      prevTotalIn,
+      inDiffPct,
+      prevTotalOut,
+      outDiffPct,
+    })
+
     setLoading(false)
   }
 
@@ -311,6 +379,50 @@ export default function ReportsPage() {
           Exports all cash entries for the selected site between the chosen dates, with a summary of opening/closing balances.
         </div>
       </div>
+
+      {/* Month-over-Month Comparison Cards */}
+      {comparison && (
+        <div className="grid-3 mb-4" style={{ gap: '0.75rem' }}>
+          <div className="card" style={{ padding: '0.875rem 1rem' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>MoM Trips</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.25rem' }}>
+              <span style={{ fontSize: '1.15rem', fontWeight: 700 }}>{trips.length}</span>
+              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: comparison.tripsDiffPct >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                {comparison.tripsDiffPct >= 0 ? '▲' : '▼'} {Math.abs(Math.round(comparison.tripsDiffPct))}%
+              </span>
+            </div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
+              vs {comparison.prevTripsCount} last month
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: '0.875rem 1rem' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>MoM Cash In</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.25rem' }}>
+              <span style={{ fontSize: '1.15rem', fontWeight: 700 }}>₹{totalIn.toLocaleString('en-IN')}</span>
+              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: comparison.inDiffPct >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                {comparison.inDiffPct >= 0 ? '▲' : '▼'} {Math.abs(Math.round(comparison.inDiffPct))}%
+              </span>
+            </div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
+              vs ₹{comparison.prevTotalIn.toLocaleString('en-IN')} last month
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: '0.875rem 1rem' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>MoM Cash Out</span>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.25rem' }}>
+              <span style={{ fontSize: '1.15rem', fontWeight: 700 }}>₹{totalOut.toLocaleString('en-IN')}</span>
+              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: comparison.outDiffPct <= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                {comparison.outDiffPct >= 0 ? '▲' : '▼'} {Math.abs(Math.round(comparison.outDiffPct))}%
+              </span>
+            </div>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
+              vs ₹{comparison.prevTotalOut.toLocaleString('en-IN')} last month
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Report tabs */}
       <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.25rem' }}>

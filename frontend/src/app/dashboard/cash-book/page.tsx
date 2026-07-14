@@ -60,6 +60,28 @@ export default function CashBookPage() {
     if (selectedSite) loadCashBook(false)
   }, [selectedSite, selectedDate])
 
+  useEffect(() => {
+    if (!selectedSite) return
+    const channel = supabase
+      .channel(`cash-realtime-${selectedSite}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'cash_entries',
+        },
+        () => {
+          loadCashBook(false)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [selectedSite, selectedDate])
+
   const loadSites = async () => {
     try {
       const { data } = await supabase.from('sites').select('*').eq('active', true).order('name')
@@ -104,16 +126,36 @@ export default function CashBookPage() {
       
       const offset = loadMore ? entries.length : 0
       const loadedEntries = await cashBookRepository.listEntries(supabase, cb.id, PAGE_LIMIT, offset)
+      const cacheKeyBook = `cached_cashbook_${selectedSite}_${selectedDate}`
+      const cacheKeyEntries = `cached_cashentries_${selectedSite}_${selectedDate}`
+      localStorage.setItem(cacheKeyBook, JSON.stringify(cb))
+
       if (loadMore) {
-        setEntries(prev => [...prev, ...loadedEntries])
+        setEntries(prev => {
+          const nextEntries = [...prev, ...loadedEntries]
+          localStorage.setItem(cacheKeyEntries, JSON.stringify(nextEntries))
+          return nextEntries
+        })
       } else {
         setEntries(loadedEntries)
+        localStorage.setItem(cacheKeyEntries, JSON.stringify(loadedEntries))
       }
       setHasMore(loadedEntries.length === PAGE_LIMIT)
     } catch (error: any) {
-      toast.error(`Error loading cash book: ${error.message}`)
-      setCashBook(null)
-      if (!loadMore) setEntries([])
+      const cacheKeyBook = `cached_cashbook_${selectedSite}_${selectedDate}`
+      const cacheKeyEntries = `cached_cashentries_${selectedSite}_${selectedDate}`
+      const cachedBook = localStorage.getItem(cacheKeyBook)
+      const cachedEntries = localStorage.getItem(cacheKeyEntries)
+
+      if (cachedBook && cachedEntries && !loadMore) {
+        setCashBook(JSON.parse(cachedBook))
+        setEntries(JSON.parse(cachedEntries))
+        toast('Serving cached cash book (offline mode)', { icon: '📶' })
+      } else {
+        toast.error(`Error loading cash book: ${error.message}`)
+        setCashBook(null)
+        if (!loadMore) setEntries([])
+      }
     } finally {
       setLoading(false)
       setLoadingMore(false)
