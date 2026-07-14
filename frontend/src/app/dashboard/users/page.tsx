@@ -50,33 +50,52 @@ export default function UsersPage() {
   const supabase = createClient()
 
   const getAuthToken = async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    return session?.access_token ?? ''
+    const { data: { session }, error } = await supabase.auth.getSession()
+    if (error || !session) {
+      const { data: { session: refreshedSession }, error: refreshError } = await supabase.auth.refreshSession()
+      if (refreshError || !refreshedSession) {
+        throw new Error('Authentication session expired. Please log in again.')
+      }
+      return refreshedSession.access_token
+    }
+    return session.access_token
   }
 
   const loadData = async () => {
     setLoading(true)
-    const token = await getAuthToken()
+    try {
+      const token = await getAuthToken()
 
-    const [{ data: rolesData, error: rolesError }, { data: sitesData, error: sitesError }, authRes] = await Promise.all([
-      supabase.from('user_roles').select('*, sites(name)').order('created_at').limit(500),
-      supabase.from('sites').select('*').eq('active', true).order('name').limit(500),
-      fetch('/api/admin/list-users', {
+      const [{ data: rolesData, error: rolesError }, { data: sitesData, error: sitesError }] = await Promise.all([
+        supabase.from('user_roles').select('*, sites(name)').order('created_at').limit(500),
+        supabase.from('sites').select('*').eq('active', true).order('name').limit(500),
+      ])
+
+      if (rolesError) throw new Error(`User roles: ${rolesError.message}`)
+      if (sitesError) throw new Error(`Sites: ${sitesError.message}`)
+
+      setSites(sitesData || [])
+      setUserRoleRows((rolesData as ExtendedUserRole[]) || [])
+
+      const res = await fetch('/api/admin/list-users', {
         headers: { Authorization: `Bearer ${token}` },
-      }).then(r => r.json()).catch(() => ({ users: [] })) as Promise<ListUsersResponse>,
-    ])
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        throw new Error(`Admin API: ${json.error || 'Failed to list auth users'}`)
+      }
 
-    if (rolesError) toast.error(`Error loading user roles: ${rolesError.message}`)
-    if (sitesError) toast.error(`Error loading sites: ${sitesError.message}`)
-
-    setSites(sitesData || [])
-    setUserRoleRows((rolesData as ExtendedUserRole[]) || [])
-
-    // Build id → email map
-    const emailMap: Record<string, string> = {}
-    for (const u of (authRes.users || [])) emailMap[u.id] = u.email
-    setAuthUsers(emailMap)
-    setLoading(false)
+      // Build id → email map
+      const emailMap: Record<string, string> = {}
+      for (const u of (json.users || [])) {
+        emailMap[u.id] = u.email
+      }
+      setAuthUsers(emailMap)
+    } catch (err: any) {
+      toast.error(`Error loading users data: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
   }
 
   useEffect(() => {

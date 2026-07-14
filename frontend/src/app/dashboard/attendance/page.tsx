@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format, addDays } from 'date-fns'
 import { Save, ChevronLeft, ChevronRight, Camera, Loader2 } from 'lucide-react'
@@ -26,6 +26,13 @@ export default function AttendancePage() {
   const [roster, setRoster] = useState<RosterEmployee[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [isDirty, setIsDirty] = useState(false)
+  const isDirtyRef = useRef(false)
+
+  useEffect(() => {
+    isDirtyRef.current = isDirty
+  }, [isDirty])
+
   const supabase = createClient()
 
   useEffect(() => {
@@ -53,7 +60,9 @@ export default function AttendancePage() {
           table: 'attendance',
         },
         () => {
-          loadRoster()
+          if (!isDirtyRef.current) {
+            loadRoster()
+          }
         }
       )
       .subscribe()
@@ -81,6 +90,7 @@ export default function AttendancePage() {
     try {
       const data = await attendanceRepository.listRoster(supabase, selectedSite, selectedDate)
       setRoster(data)
+      setIsDirty(false)
       const cacheKey = `cached_roster_${selectedSite}_${selectedDate}`
       localStorage.setItem(cacheKey, JSON.stringify(data))
     } catch (error: any) {
@@ -88,6 +98,7 @@ export default function AttendancePage() {
       const cached = localStorage.getItem(cacheKey)
       if (cached) {
         setRoster(JSON.parse(cached))
+        setIsDirty(false)
         toast('Serving cached muster roll (offline mode)', { icon: '📶' })
       } else {
         toast.error(`Error loading attendance roster: ${error.message}`)
@@ -100,6 +111,7 @@ export default function AttendancePage() {
 
   const handleStatusChange = (employeeId: string, status: 'present' | 'absent' | 'half-day' | 'leave') => {
     setRoster(prev => prev.map(emp => emp.id === employeeId ? { ...emp, status } : emp))
+    setIsDirty(true)
   }
 
   const handlePhotoUpload = async (employeeId: string, file: File) => {
@@ -133,6 +145,7 @@ export default function AttendancePage() {
           uploading: false,
         } : emp))
 
+        setIsDirty(true)
         toast.success('Photo uploaded')
       }
     } catch (err: any) {
@@ -153,6 +166,7 @@ export default function AttendancePage() {
 
       await attendanceRepository.saveRoster(supabase, records)
       toast.success('Attendance records saved successfully')
+      setIsDirty(false)
       loadRoster()
     } catch (error: any) {
       toast.error(`Error saving attendance: ${error.message}`)
@@ -170,6 +184,7 @@ export default function AttendancePage() {
   // Quick action: Bulk "Mark all present"
   const markAllPresent = () => {
     setRoster(prev => prev.map(emp => ({ ...emp, status: 'present' })))
+    setIsDirty(true)
     toast.success('All marked Present (don\'t forget to click Save)')
   }
 
