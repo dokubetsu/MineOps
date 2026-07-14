@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
-import { Plus, Lock, Unlock, X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Lock, Unlock, X, ChevronLeft, ChevronRight, Camera, Image as ImageIcon, Receipt } from 'lucide-react'
 
 const CATEGORIES_OUT = [
   'Fuel', 'Maintenance', 'Tiffen', 'Meals', 'Night Meals',
@@ -28,6 +28,12 @@ export default function CashBookPage() {
   const [entryType, setEntryType] = useState<'in' | 'out'>('out')
   const [form, setForm] = useState({ category: '', amount: '', note: '' })
   const [submitting, setSubmitting] = useState(false)
+  const [receiptFile, setReceiptFile] = useState<File | null>(null)
+  const [receiptPreview, setReceiptPreview] = useState<string | null>(null)
+  const [receiptUrls, setReceiptUrls] = useState<Record<string, string>>({})
+  const [viewingReceipt, setViewingReceipt] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const cameraInputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -48,7 +54,6 @@ export default function CashBookPage() {
 
   const loadCashBook = async () => {
     setLoading(true)
-    // Get or create cash book
     const { data: cb, error: loadError } = await supabase
       .from('cash_books')
       .select('*')
@@ -65,7 +70,6 @@ export default function CashBookPage() {
     let activeCb = cb
 
     if (!activeCb) {
-      // Get previous closing balance
       const { data: prev, error: prevError } = await supabase
         .from('cash_books')
         .select('closing_balance')
@@ -129,10 +133,57 @@ export default function CashBookPage() {
       if (entriesError) {
         alert(`Error loading cash entries: ${entriesError.message}`)
       } else {
-        setEntries(e || [])
+        const loadedEntries = e || []
+        setEntries(loadedEntries)
+        // Load signed URLs for any receipt images
+        loadReceiptUrls(loadedEntries)
       }
     }
     setLoading(false)
+  }
+
+  const loadReceiptUrls = async (loadedEntries: any[]) => {
+    const entriesWithReceipts = loadedEntries.filter(e => e.receipt_url)
+    if (entriesWithReceipts.length === 0) return
+
+    const urlMap: Record<string, string> = {}
+    await Promise.all(
+      entriesWithReceipts.map(async (entry) => {
+        const { data } = await supabase.storage
+          .from('cash-receipts')
+          .createSignedUrl(entry.receipt_url, 3600)
+        if (data?.signedUrl) urlMap[entry.id] = data.signedUrl
+      })
+    )
+    setReceiptUrls(urlMap)
+  }
+
+  const handleReceiptSelect = (file: File) => {
+    setReceiptFile(file)
+    const reader = new FileReader()
+    reader.onload = (ev) => setReceiptPreview(ev.target?.result as string)
+    reader.readAsDataURL(file)
+  }
+
+  const clearReceipt = () => {
+    setReceiptFile(null)
+    setReceiptPreview(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (cameraInputRef.current) cameraInputRef.current.value = ''
+  }
+
+  const uploadReceipt = async (cashBookId: string): Promise<string | null> => {
+    if (!receiptFile) return null
+    const ext = receiptFile.name.split('.').pop() || 'jpg'
+    const path = `${cashBookId}/${Date.now()}.${ext}`
+    const { error } = await supabase.storage
+      .from('cash-receipts')
+      .upload(path, receiptFile, { upsert: false })
+    if (error) {
+      alert(`Error uploading receipt: ${error.message}`)
+      return null
+    }
+    return path
   }
 
   const addEntry = async (e: React.FormEvent) => {
@@ -143,6 +194,10 @@ export default function CashBookPage() {
       return
     }
     setSubmitting(true)
+
+    // Upload receipt if selected
+    const receiptPath = await uploadReceipt(cashBook.id)
+
     const { error } = await supabase.from('cash_entries').insert({
       cash_book_id: cashBook.id,
       entry_type: entryType,
@@ -150,12 +205,14 @@ export default function CashBookPage() {
       amount: parseFloat(form.amount),
       note: form.note || null,
       active: true,
-    })
+      receipt_url: receiptPath,
+    } as any)
     
     if (error) {
       alert(`Error saving cash entry: ${error.message}`)
     } else {
       setForm({ category: '', amount: '', note: '' })
+      clearReceipt()
       setShowForm(false)
       loadCashBook()
     }
@@ -190,6 +247,8 @@ export default function CashBookPage() {
 
   const totalIn = entries.filter(e => e.entry_type === 'in').reduce((s, e) => s + e.amount, 0)
   const totalOut = entries.filter(e => e.entry_type === 'out').reduce((s, e) => s + e.amount, 0)
+  // ✅ Fix: Compute closing balance live from state — not from cached DB snapshot
+  const computedClosingBalance = (cashBook?.opening_balance || 0) + totalIn - totalOut
 
   const prevDate = () => {
     const d = new Date(selectedDate)
@@ -264,7 +323,7 @@ export default function CashBookPage() {
           <div className="balance-bar-item">
             <span className="label">Closing</span>
             <span className="value" style={{ color: 'var(--accent)' }}>
-              ₹{(cashBook.closing_balance || 0).toLocaleString('en-IN')}
+              ₹{computedClosingBalance.toLocaleString('en-IN')}
             </span>
           </div>
         </div>
@@ -305,7 +364,7 @@ export default function CashBookPage() {
             {/* Table header */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '1fr auto 80px 40px',
+              gridTemplateColumns: '1fr auto 90px 40px',
               gap: '0.5rem',
               padding: '0.625rem 1rem',
               background: 'var(--bg-elevated)',
@@ -324,13 +383,31 @@ export default function CashBookPage() {
             {entries.map(entry => (
               <div key={entry.id} className="cash-row" style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr auto 80px 40px',
+                gridTemplateColumns: '1fr auto 90px 40px',
                 gap: '0.5rem',
                 alignItems: 'center',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: 0 }}>
                   <span className={`cash-dot ${entry.entry_type}`} />
-                  <span className="cash-category">{entry.category}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <span className="cash-category">{entry.category}</span>
+                    {/* Receipt thumbnail */}
+                    {entry.receipt_url && (
+                      <button
+                        onClick={() => setViewingReceipt(receiptUrls[entry.id] || null)}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                          marginLeft: '0.5rem', padding: '0.1rem 0.35rem',
+                          borderRadius: '4px', border: '1px solid var(--border)',
+                          background: 'var(--bg-elevated)', cursor: 'pointer',
+                          fontSize: '0.65rem', color: 'var(--accent)',
+                        }}
+                        title="View receipt"
+                      >
+                        <Receipt size={10} /> Bill
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <span className="cash-note" style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
                   {entry.note || '—'}
@@ -349,7 +426,7 @@ export default function CashBookPage() {
             {/* Total row */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '1fr auto 80px 40px',
+              gridTemplateColumns: '1fr auto 90px 40px',
               gap: '0.5rem',
               padding: '0.875rem 1rem',
               background: 'var(--bg-elevated)',
@@ -373,10 +450,39 @@ export default function CashBookPage() {
         </button>
       )}
 
+      {/* Receipt Viewer Modal */}
+      {viewingReceipt && (
+        <>
+          <div
+            onClick={() => setViewingReceipt(null)}
+            style={{
+              position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)',
+              zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
+              <button
+                onClick={() => setViewingReceipt(null)}
+                style={{
+                  position: 'absolute', top: '-2rem', right: 0,
+                  background: 'none', border: 'none', color: '#fff',
+                  cursor: 'pointer', fontSize: '1.5rem', lineHeight: 1,
+                }}
+              >×</button>
+              <img
+                src={viewingReceipt}
+                alt="Receipt"
+                style={{ maxWidth: '90vw', maxHeight: '85vh', borderRadius: '8px', objectFit: 'contain' }}
+              />
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Entry Form Sheet */}
       {showForm && (
         <>
-          <div className="sheet-overlay" onClick={() => setShowForm(false)} />
+          <div className="sheet-overlay" onClick={() => { setShowForm(false); clearReceipt() }} />
           <div className="sheet">
             <div className="sheet-handle" />
             <div className="sheet-title">
@@ -450,8 +556,79 @@ export default function CashBookPage() {
                 />
               </div>
 
+              {/* Receipt Image Capture */}
+              <div className="form-group">
+                <label className="form-label">
+                  <Receipt size={13} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '0.3rem' }} />
+                  Bill / Receipt Photo
+                </label>
+
+                {receiptPreview ? (
+                  <div style={{ position: 'relative', display: 'inline-block' }}>
+                    <img
+                      src={receiptPreview}
+                      alt="Receipt preview"
+                      style={{
+                        width: '100%', maxHeight: '180px', objectFit: 'cover',
+                        borderRadius: 'var(--radius)', border: '1px solid var(--border)',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={clearReceipt}
+                      style={{
+                        position: 'absolute', top: '0.4rem', right: '0.4rem',
+                        background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff',
+                        borderRadius: '50%', width: '24px', height: '24px',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    {/* Camera capture (mobile) */}
+                    <button
+                      type="button"
+                      className="btn btn-secondary w-full"
+                      style={{ fontSize: '0.8rem' }}
+                      onClick={() => cameraInputRef.current?.click()}
+                    >
+                      <Camera size={15} /> Camera
+                    </button>
+                    {/* File upload (desktop/gallery) */}
+                    <button
+                      type="button"
+                      className="btn btn-secondary w-full"
+                      style={{ fontSize: '0.8rem' }}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <ImageIcon size={15} /> Gallery
+                    </button>
+                  </div>
+                )}
+
+                {/* Hidden inputs */}
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleReceiptSelect(f) }}
+                />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) handleReceiptSelect(f) }}
+                />
+              </div>
+
               <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.5rem' }}>
-                <button type="button" className="btn btn-secondary w-full" onClick={() => setShowForm(false)}>
+                <button type="button" className="btn btn-secondary w-full" onClick={() => { setShowForm(false); clearReceipt() }}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary w-full" disabled={submitting}>

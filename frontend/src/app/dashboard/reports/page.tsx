@@ -1,9 +1,9 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format, startOfMonth, endOfMonth } from 'date-fns'
-import { Download, FileText, Printer } from 'lucide-react'
+import { Download, FileText, Printer, Calendar } from 'lucide-react'
 
 export default function ReportsPage() {
   const [sites, setSites] = useState<any[]>([])
@@ -14,6 +14,12 @@ export default function ReportsPage() {
   const [cashEntries, setCashEntries] = useState<any[]>([])
   const [cashBooks, setCashBooks] = useState<any[]>([])
   const [activeReport, setActiveReport] = useState<'trips' | 'cash' | 'contractor'>('trips')
+
+  // Date-range export state
+  const [exportFrom, setExportFrom] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'))
+  const [exportTo, setExportTo] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'))
+  const [exportLoading, setExportLoading] = useState(false)
+
   const supabase = createClient()
 
   useEffect(() => {
@@ -68,10 +74,10 @@ export default function ReportsPage() {
     setLoading(false)
   }
 
-  // Export to CSV
+  // Export to CSV helper
   const exportCSV = (rows: string[][], filename: string) => {
     const csv = rows.map(r => r.map(c => `"${(c || '').replace(/"/g, '""')}"`).join(',')).join('\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -109,6 +115,70 @@ export default function ReportsPage() {
       ]),
     ]
     exportCSV(rows, `cashbook_${selectedSite}_${period}.csv`)
+  }
+
+  // ─── Date-range cashflow export ───────────────────────────────────────────
+  const exportDateRangeCash = async () => {
+    if (!selectedSite || !exportFrom || !exportTo) return
+    if (exportFrom > exportTo) {
+      alert('Start date must be before end date.')
+      return
+    }
+    setExportLoading(true)
+
+    const { data: booksData, error: booksError } = await supabase
+      .from('cash_books')
+      .select('book_date, opening_balance, closing_balance, status, cash_entries(*)')
+      .eq('site_id', selectedSite)
+      .gte('book_date', exportFrom)
+      .lte('book_date', exportTo)
+      .order('book_date')
+      .limit(2000)
+
+    if (booksError) {
+      alert(`Error fetching data: ${booksError.message}`)
+      setExportLoading(false)
+      return
+    }
+
+    const allEntries = (booksData || []).flatMap((b: any) =>
+      (b.cash_entries || [])
+        .filter((e: any) => e.active !== false)
+        .map((e: any) => ({ ...e, book_date: b.book_date }))
+    )
+
+    // Summary header rows
+    const totalIn = allEntries.filter((e: any) => e.entry_type === 'in').reduce((s: number, e: any) => s + e.amount, 0)
+    const totalOut = allEntries.filter((e: any) => e.entry_type === 'out').reduce((s: number, e: any) => s + e.amount, 0)
+    const openingBal = (booksData?.[0] as any)?.opening_balance ?? 0
+    const closingBal = openingBal + totalIn - totalOut
+
+    const siteName = sites.find(s => s.id === selectedSite)?.name || selectedSite
+
+    const rows = [
+      ['MineOps Cash Flow Report'],
+      ['Site', siteName],
+      ['Period', `${exportFrom} to ${exportTo}`],
+      ['Generated', format(new Date(), 'dd MMM yyyy HH:mm')],
+      [],
+      ['Opening Balance', String(openingBal)],
+      ['Total Cash In', String(totalIn)],
+      ['Total Cash Out', String(totalOut)],
+      ['Closing Balance', String(closingBal)],
+      [],
+      ['Date', 'Type', 'Category', 'Amount (₹)', 'Note'],
+      ...allEntries.map((e: any) => [
+        format(new Date(e.book_date), 'dd MMM yyyy'),
+        e.entry_type === 'in' ? 'Cash In' : 'Cash Out',
+        e.category,
+        String(e.amount),
+        e.note || '',
+      ]),
+    ]
+
+    const dateLabel = `${exportFrom}_to_${exportTo}`
+    exportCSV(rows, `cashflow_${siteName}_${dateLabel}.csv`)
+    setExportLoading(false)
   }
 
   // Print
@@ -158,6 +228,52 @@ export default function ReportsPage() {
           )}
           <input type="month" className="form-input" style={{ flex: 1, minWidth: '140px' }}
             value={period} onChange={e => setPeriod(e.target.value)} />
+        </div>
+      </div>
+
+      {/* ─── Date-range Cash Flow Export Card ─────────────────────────────── */}
+      <div className="card mb-4" style={{ padding: '1rem' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '0.5rem',
+          marginBottom: '0.875rem',
+        }}>
+          <Calendar size={16} style={{ color: 'var(--accent)' }} />
+          <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Cash Flow Export by Date Range</span>
+        </div>
+        <div style={{ display: 'flex', gap: '0.625rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div style={{ flex: 1, minWidth: '130px' }}>
+            <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+              From
+            </label>
+            <input
+              type="date"
+              className="form-input"
+              value={exportFrom}
+              onChange={e => setExportFrom(e.target.value)}
+            />
+          </div>
+          <div style={{ flex: 1, minWidth: '130px' }}>
+            <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+              To
+            </label>
+            <input
+              type="date"
+              className="form-input"
+              value={exportTo}
+              onChange={e => setExportTo(e.target.value)}
+            />
+          </div>
+          <button
+            className="btn btn-primary"
+            style={{ minWidth: '130px' }}
+            onClick={exportDateRangeCash}
+            disabled={exportLoading || !selectedSite}
+          >
+            {exportLoading ? <span className="spinner" /> : <><Download size={15} /> Export CSV</>}
+          </button>
+        </div>
+        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+          Exports all cash entries for the selected site between the chosen dates, with a summary of opening/closing balances.
         </div>
       </div>
 
