@@ -22,7 +22,7 @@ export default function CashBookPage() {
   const [selectedSite, setSelectedSite] = useState('')
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [cashBook, setCashBook] = useState<CashBook | null>(null)
-  const [entries, setEntries] = useState<CashEntry[]>([])
+  const [entries, setEntries] = useState<(CashEntry & { signed_receipt_url?: string | null })[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({
@@ -39,6 +39,8 @@ export default function CashBookPage() {
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [usersMap, setUsersMap] = useState<Record<string, string>>({}) // uuid -> email
+  const [totalIn, setTotalIn] = useState(0)
+  const [totalOut, setTotalOut] = useState(0)
 
   // ConfirmDialog states
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -61,7 +63,7 @@ export default function CashBookPage() {
   }, [selectedSite, selectedDate])
 
   useEffect(() => {
-    if (!selectedSite) return
+    if (!selectedSite || !cashBook?.id) return
     const channel = supabase
       .channel(`cash-realtime-${selectedSite}`)
       .on(
@@ -70,6 +72,7 @@ export default function CashBookPage() {
           event: '*',
           schema: 'public',
           table: 'cash_entries',
+          filter: `cash_book_id=eq.${cashBook.id}`,
         },
         () => {
           loadCashBook(false)
@@ -80,7 +83,7 @@ export default function CashBookPage() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [selectedSite, selectedDate])
+  }, [selectedSite, selectedDate, cashBook?.id])
 
   const loadSites = async () => {
     try {
@@ -124,32 +127,68 @@ export default function CashBookPage() {
       const cb = await cashBookRepository.getOrCreate(supabase, selectedSite, selectedDate)
       setCashBook(cb)
       
+      const balances = await cashBookRepository.getBalances(supabase, cb.id)
+      setTotalIn(balances.totalIn)
+      setTotalOut(balances.totalOut)
+      
       const offset = loadMore ? entries.length : 0
       const loadedEntries = await cashBookRepository.listEntries(supabase, cb.id, PAGE_LIMIT, offset)
+
+      const entriesWithUrls = await Promise.all(loadedEntries.map(async (entry) => {
+        let signedReceiptUrl = null
+        if (entry.receipt_url) {
+          let path = entry.receipt_url
+          if (path.includes('cash-receipts/')) {
+            path = path.split('cash-receipts/').pop() || path
+          }
+          try {
+            const { data: signed } = await supabase.storage
+              .from('cash-receipts')
+              .createSignedUrl(path, 3600)
+            signedReceiptUrl = signed?.signedUrl || null
+          } catch (e) {
+            console.error(e)
+          }
+        }
+        return {
+          ...entry,
+          signed_receipt_url: signedReceiptUrl
+        }
+      }))
+
       const cacheKeyBook = `cached_cashbook_${selectedSite}_${selectedDate}`
       const cacheKeyEntries = `cached_cashentries_${selectedSite}_${selectedDate}`
+      const cacheKeyBalances = `cached_balances_${selectedSite}_${selectedDate}`
       localStorage.setItem(cacheKeyBook, JSON.stringify(cb))
+      localStorage.setItem(cacheKeyBalances, JSON.stringify(balances))
 
       if (loadMore) {
         setEntries(prev => {
-          const nextEntries = [...prev, ...loadedEntries]
+          const nextEntries = [...prev, ...entriesWithUrls]
           localStorage.setItem(cacheKeyEntries, JSON.stringify(nextEntries))
           return nextEntries
         })
       } else {
-        setEntries(loadedEntries)
-        localStorage.setItem(cacheKeyEntries, JSON.stringify(loadedEntries))
+        setEntries(entriesWithUrls)
+        localStorage.setItem(cacheKeyEntries, JSON.stringify(entriesWithUrls))
       }
       setHasMore(loadedEntries.length === PAGE_LIMIT)
     } catch (error: any) {
       const cacheKeyBook = `cached_cashbook_${selectedSite}_${selectedDate}`
       const cacheKeyEntries = `cached_cashentries_${selectedSite}_${selectedDate}`
+      const cacheKeyBalances = `cached_balances_${selectedSite}_${selectedDate}`
       const cachedBook = localStorage.getItem(cacheKeyBook)
       const cachedEntries = localStorage.getItem(cacheKeyEntries)
+      const cachedBalances = localStorage.getItem(cacheKeyBalances)
 
       if (cachedBook && cachedEntries && !loadMore) {
         setCashBook(JSON.parse(cachedBook))
         setEntries(JSON.parse(cachedEntries))
+        if (cachedBalances) {
+          const parsedBals = JSON.parse(cachedBalances)
+          setTotalIn(parsedBals.totalIn)
+          setTotalOut(parsedBals.totalOut)
+        }
         toast('Serving cached cash book (offline mode)', { icon: '📶' })
       } else {
         toast.error(`Error loading cash book: ${error.message}`)
@@ -253,6 +292,34 @@ export default function CashBookPage() {
     }
   }
 
+  const [uploadingId, setUploadingId] = useState<string | null>(null)
+
+  const handleUpdateReceipt = async (entryId: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !cashBook) return
+
+    setUploadingId(entryId)
+    try {
+      const ext = file.name.split('.').pop() || 'jpg'
+      const fileUuid = crypto.randomUUID()
+      const path = `${selectedSite}/${selectedDate}/${fileUuid}.${ext}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('cash-receipts')
+        .upload(path, file, { upsert: true })
+
+      if (uploadError) throw uploadError
+
+      await cashBookRepository.updateReceiptUrl(supabase, entryId, path)
+      toast.success('Receipt photo updated successfully')
+      loadCashBook()
+    } catch (err: any) {
+      toast.error(`Error updating receipt: ${err.message}`)
+    } finally {
+      setUploadingId(null)
+    }
+  }
+
   const handleEntryTypeChange = (type: 'in' | 'out') => {
     setForm(f => ({
       ...f,
@@ -261,8 +328,6 @@ export default function CashBookPage() {
     }))
   }
 
-  const totalIn = entries.filter(e => e.entry_type === 'in').reduce((s, e) => s + e.amount, 0)
-  const totalOut = entries.filter(e => e.entry_type === 'out').reduce((s, e) => s + e.amount, 0)
   const isLocked = cashBook?.status === 'locked'
 
   return (
@@ -384,10 +449,47 @@ export default function CashBookPage() {
                         </div>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <span className={`cash-amount ${entry.entry_type}`} style={{ fontSize: '0.95rem', fontWeight: 700 }}>
                         {entry.entry_type === 'in' ? '+' : '-'}₹{entry.amount.toLocaleString('en-IN')}
                       </span>
+                      
+                      {entry.entry_type === 'out' && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                          {entry.signed_receipt_url ? (
+                            <a 
+                              href={entry.signed_receipt_url} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="btn btn-ghost btn-icon btn-sm"
+                              title="View receipt image"
+                            >
+                              <ImageIcon size={14} style={{ color: 'var(--accent)' }} />
+                            </a>
+                          ) : null}
+                          {!isLocked && (
+                            <>
+                              <input 
+                                type="file" 
+                                id={`file-${entry.id}`} 
+                                style={{ display: 'none' }} 
+                                accept="image/*"
+                                onChange={(e) => handleUpdateReceipt(entry.id, e)}
+                                disabled={uploadingId === entry.id}
+                              />
+                              <button
+                                className="btn btn-ghost btn-icon btn-sm"
+                                onClick={() => document.getElementById(`file-${entry.id}`)?.click()}
+                                title={entry.receipt_url ? "Update receipt photo" : "Upload receipt photo"}
+                                disabled={uploadingId === entry.id}
+                              >
+                                <Camera size={14} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+
                       {!isLocked && (
                         <button
                           className="btn btn-danger btn-icon btn-sm"

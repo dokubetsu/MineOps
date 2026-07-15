@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -65,7 +65,7 @@ export default function DashboardPage() {
       .select('*, transport_contractors(name), vehicles(plate_number, vehicle_type)')
       .eq('site_id', selectedSite)
       .eq('trip_date', today)
-      .neq('active', false)
+      .eq('active', true)
       .order('created_at', { ascending: false })
 
     setRecentTrips((trips as any) || [])
@@ -85,7 +85,7 @@ export default function DashboardPage() {
         .from('cash_entries')
         .select('*')
         .eq('cash_book_id', cb.id)
-        .neq('active', false)
+        .eq('active', true)
         .order('created_at', { ascending: false })
         .limit(5)
       setCashEntries(entries || [])

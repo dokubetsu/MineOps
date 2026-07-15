@@ -29,14 +29,51 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // Check admin role in DB
-  const { data: roleData } = await supabase
+  // Check user roles in DB
+  const { data: rolesData } = await supabase
     .from('user_roles')
-    .select('role')
+    .select('role, site_id')
     .eq('user_id', callerData.user.id)
-    .eq('role', 'admin')
-  if (!roleData || roleData.length === 0) {
-    return NextResponse.json({ error: 'Forbidden: admin only' }, { status: 403 })
+
+  const roles = rolesData?.map(r => r.role) || []
+  const isAdmin = roles.includes('admin')
+  const isSiteManager = roles.includes('site_manager')
+
+  if (!isAdmin && !isSiteManager) {
+    return NextResponse.json({ error: 'Forbidden: admin or site manager only' }, { status: 403 })
+  }
+
+  // Determine allowed user IDs for site managers
+  const allowedUserIds = new Set<string>()
+  if (isSiteManager && !isAdmin) {
+    const managedSiteIds = rolesData
+      ?.filter(r => r.role === 'site_manager' && r.site_id)
+      .map(r => r.site_id) || []
+
+    if (managedSiteIds.length > 0) {
+      const { data: siteUsers } = await supabase
+        .from('user_roles')
+        .select('user_id')
+        .or(`site_id.in.(${managedSiteIds.join(',')}),role.eq.admin`)
+
+      if (siteUsers) {
+        for (const row of siteUsers) {
+          allowedUserIds.add(row.user_id)
+        }
+      }
+    } else {
+      const { data: siteUsers } = await supabase
+        .from('user_roles')
+        .select('user_id')
+        .eq('role', 'admin')
+
+      if (siteUsers) {
+        for (const row of siteUsers) {
+          allowedUserIds.add(row.user_id)
+        }
+      }
+    }
+    allowedUserIds.add(callerData.user.id)
   }
 
   // Parse query parameters for pagination
@@ -56,11 +93,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: usersError.message }, { status: 500 })
   }
 
-  const users = (usersData?.users || []).map(u => ({
-    id: u.id,
-    email: u.email ?? '',
-    created_at: u.created_at,
-  }))
+  const users = (usersData?.users || [])
+    .filter(u => isAdmin || allowedUserIds.has(u.id))
+    .map(u => ({
+      id: u.id,
+      email: u.email ?? '',
+      created_at: u.created_at,
+    }))
 
   return NextResponse.json({ users }, { status: 200 })
 }

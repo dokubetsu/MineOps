@@ -9,7 +9,7 @@ import { useTheme } from '@/lib/theme-context'
 import {
   LayoutDashboard, Truck, BookOpen, Users, Calendar,
   DollarSign, Settings, LogOut, TrendingUp, FileText,
-  UserCheck, Shield, Sun, Moon
+  UserCheck, Shield, Sun, Moon, Menu
 } from 'lucide-react'
 
 function NavContent() {
@@ -18,6 +18,7 @@ function NavContent() {
   const { user, userRole, isAdmin, isSiteManager, isStakeholder } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const supabase = createClient()
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -55,6 +56,21 @@ function NavContent() {
       (isAdmin && item.roles.includes('admin')) ||
       (isSiteManager && item.roles.includes('site_manager')) ||
       (isStakeholder && item.roles.includes('stakeholder'))
+    )
+  })
+
+  const drawerItems = [
+    { href: '/dashboard/attendance', icon: Calendar, label: 'Attendance', roles: ['admin', 'site_manager'] },
+    { href: '/dashboard/leave', icon: FileText, label: 'Leave', roles: ['admin', 'site_manager'] },
+    { href: '/dashboard/payroll', icon: DollarSign, label: 'Payroll', roles: ['admin', 'site_manager'] },
+    { href: '/dashboard/reports', icon: TrendingUp, label: 'Reports', roles: ['admin', 'site_manager'] },
+    { href: '/dashboard/employees', icon: Users, label: 'Employees', roles: ['admin', 'site_manager'] },
+    { href: '/dashboard/settings', icon: Settings, label: 'Master Data', roles: ['admin'] },
+    { href: '/dashboard/users', icon: Shield, label: 'User Access', roles: ['admin'] },
+  ].filter(item => {
+    return (
+      (isAdmin && item.roles.includes('admin')) ||
+      (isSiteManager && item.roles.includes('site_manager'))
     )
   })
 
@@ -152,24 +168,119 @@ function NavContent() {
         </div>
       </header>
 
-      {/* Mobile Bottom Nav — role-aware */}
+      {/* Mobile More Menu Bottom Sheet */}
+      {showMoreMenu && (
+        <>
+          <div 
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0,0,0,0.5)',
+              zIndex: 999,
+              backdropFilter: 'blur(4px)',
+            }}
+            onClick={() => setShowMoreMenu(false)}
+          />
+          <div 
+            style={{
+              position: 'fixed',
+              bottom: '56px',
+              left: 0,
+              right: 0,
+              background: 'var(--bg-elevated)',
+              borderTopLeftRadius: '16px',
+              borderTopRightRadius: '16px',
+              padding: '1.25rem 1rem',
+              zIndex: 1000,
+              maxHeight: '70vh',
+              overflowY: 'auto',
+              boxShadow: '0 -4px 20px rgba(0,0,0,0.3)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.625rem',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
+              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>More Operations</span>
+              <button 
+                onClick={() => setShowMoreMenu(false)}
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 500 }}
+              >
+                Close
+              </button>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.625rem' }}>
+              {drawerItems.map(item => {
+                const isItemActive = pathname.startsWith(item.href)
+                return (
+                  <Link 
+                    key={item.href} 
+                    href={item.href} 
+                    onClick={() => setShowMoreMenu(false)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.625rem',
+                      padding: '0.75rem',
+                      borderRadius: 'var(--radius)',
+                      background: isItemActive ? 'rgba(245,158,11,0.1)' : 'var(--bg-secondary)',
+                      color: isItemActive ? 'var(--accent)' : 'var(--text-secondary)',
+                      textDecoration: 'none',
+                      fontSize: '0.8rem',
+                      fontWeight: 500,
+                      border: isItemActive ? '1px solid rgba(245,158,11,0.3)' : '1px solid transparent',
+                    }}
+                  >
+                    <item.icon size={16} />
+                    <span>{item.label}</span>
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Mobile Bottom Nav */}
       <nav className="bottom-nav">
-        {visibleOps.slice(0, 5).map(item => {
-          const isActive = item.href === '/dashboard' ? pathname === item.href : pathname.startsWith(item.href)
-          return (
-            <Link key={item.href} href={item.href}
-              className={`bottom-nav-item ${isActive ? 'active' : ''}`}>
-              <item.icon size={22} strokeWidth={isActive ? 2.5 : 2} />
-              <span className="bottom-nav-label">{item.label.split(' ')[0]}</span>
+        {isStakeholder ? (
+          <>
+            <Link href="/dashboard" className={`bottom-nav-item ${pathname === '/dashboard' ? 'active' : ''}`}>
+              <LayoutDashboard size={22} />
+              <span className="bottom-nav-label">Dashboard</span>
             </Link>
-          )
-        })}
-        {isAdmin && (
-          <Link href="/dashboard/settings"
-            className={`bottom-nav-item ${pathname.startsWith('/dashboard/settings') ? 'active' : ''}`}>
-            <Settings size={22} />
-            <span className="bottom-nav-label">Settings</span>
-          </Link>
+            <Link href="/dashboard/stakeholder" className={`bottom-nav-item ${pathname === '/dashboard/stakeholder' ? 'active' : ''}`}>
+              <TrendingUp size={22} />
+              <span className="bottom-nav-label">Summary</span>
+            </Link>
+          </>
+        ) : (
+          <>
+            <Link href="/dashboard" className={`bottom-nav-item ${pathname === '/dashboard' ? 'active' : ''}`}>
+              <LayoutDashboard size={22} />
+              <span className="bottom-nav-label">Dashboard</span>
+            </Link>
+            <Link href="/dashboard/trips" className={`bottom-nav-item ${pathname.startsWith('/dashboard/trips') ? 'active' : ''}`}>
+              <Truck size={22} />
+              <span className="bottom-nav-label">Trips</span>
+            </Link>
+            <Link href="/dashboard/cash-book" className={`bottom-nav-item ${pathname.startsWith('/dashboard/cash-book') ? 'active' : ''}`}>
+              <BookOpen size={22} />
+              <span className="bottom-nav-label">Cash Book</span>
+            </Link>
+            <button 
+              onClick={() => setShowMoreMenu(prev => !prev)} 
+              className={`bottom-nav-item ${showMoreMenu || drawerItems.some(item => pathname.startsWith(item.href)) ? 'active' : ''}`}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            >
+              <Menu size={22} />
+              <span className="bottom-nav-label">More</span>
+            </button>
+          </>
         )}
       </nav>
     </>

@@ -33,22 +33,34 @@ export default function ReportsPage() {
   const [trips, setTrips] = useState<ExtendedTrip[]>([])
   const [cashEntries, setCashEntries] = useState<ExtendedCashEntry[]>([])
   const [cashBooks, setCashBooks] = useState<CashBook[]>([])
-  const [activeReport, setActiveReport] = useState<'trips' | 'cash' | 'contractor'>('trips')
+  const [activeReport, setActiveReport] = useState<'trips' | 'cash' | 'contractor' | 'employee'>('trips')
+
+  // Employee report states
+  const [employees, setEmployees] = useState<any[]>([])
+  const [selectedEmployee, setSelectedEmployee] = useState('')
+  const [employeeData, setEmployeeData] = useState<{
+    attendance: any[]
+    leaves: any[]
+    payroll: any[]
+    details: any | null
+  }>({ attendance: [], leaves: [], payroll: [], details: null })
 
   // MoM Comparison states
   const [comparison, setComparison] = useState<{
     prevTripsCount: number
-    tripsDiffPct: number
+    tripsDiffPct: number | null
     prevTotalIn: number
-    inDiffPct: number
+    inDiffPct: number | null
     prevTotalOut: number
-    outDiffPct: number
+    outDiffPct: number | null
   } | null>(null)
 
   // Date-range export state
   const [exportFrom, setExportFrom] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'))
   const [exportTo, setExportTo] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'))
   const [exportLoading, setExportLoading] = useState(false)
+  const [tripsTruncated, setTripsTruncated] = useState(false)
+  const [cashTruncated, setCashTruncated] = useState(false)
 
   const supabase = createClient()
 
@@ -62,13 +74,64 @@ export default function ReportsPage() {
       if (error) {
         toast.error(`Error loading sites: ${error.message}`)
       } else {
-        setSites(data || [])
-        if (data?.length) setSelectedSite(data[0].id)
+        const loaded = data || []
+        setSites(loaded)
+        if (isAdmin) {
+          setSelectedSite('all')
+        } else if (loaded.length > 0) {
+          setSelectedSite(loaded[0].id)
+        }
       }
     })
   }, [authLoading, isAdmin, isSiteManager])
 
   useEffect(() => { if (selectedSite) loadData() }, [selectedSite, period])
+
+  useEffect(() => {
+    if (!selectedSite) return
+    let query = supabase.from('employees').select('*, sites(name)').eq('active', true).order('name')
+    if (selectedSite !== 'all') {
+      query = query.eq('site_id', selectedSite)
+    }
+    query.then(({ data }) => {
+      setEmployees(data || [])
+      if (data?.length) setSelectedEmployee(data[0].id)
+      else setSelectedEmployee('')
+    })
+  }, [selectedSite])
+
+  const loadEmployeeReport = async () => {
+    if (!selectedEmployee) return
+    setLoading(true)
+    const from = period + '-01'
+    const to = format(endOfMonth(new Date(from)), 'yyyy-MM-dd')
+
+    try {
+      const [attRes, leavesRes, payrollRes, empRes] = await Promise.all([
+        supabase.from('attendance').select('*').eq('employee_id', selectedEmployee).gte('att_date', from).lte('att_date', to).order('att_date'),
+        supabase.from('leave_applications').select('*').eq('employee_id', selectedEmployee).order('from_date', { ascending: false }),
+        supabase.from('payroll_lines').select('*, payroll_runs(period_month, status)').eq('employee_id', selectedEmployee),
+        supabase.from('employees').select('*, sites(name)').eq('id', selectedEmployee).single()
+      ])
+
+      setEmployeeData({
+        attendance: attRes.data || [],
+        leaves: leavesRes.data || [],
+        payroll: payrollRes.data || [],
+        details: empRes.data || null
+      })
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (activeReport === 'employee' && selectedEmployee) {
+      loadEmployeeReport()
+    }
+  }, [selectedEmployee, period, activeReport])
 
   const loadData = async () => {
     setLoading(true)
@@ -80,44 +143,55 @@ export default function ReportsPage() {
     const prevFrom = format(prevMonthDate, 'yyyy-MM-01')
     const prevTo = format(endOfMonth(prevMonthDate), 'yyyy-MM-dd')
 
+    let tripsQuery = supabase
+      .from('trips')
+      .select('*, vehicles(plate_number, vehicle_type), transport_contractors(name)')
+      .gte('trip_date', from)
+      .lte('trip_date', to)
+      .eq('active', true)
+      .order('trip_date')
+      .limit(1000)
+
+    let booksQuery = supabase
+      .from('cash_books')
+      .select('*, cash_entries(*)')
+      .gte('book_date', from)
+      .lte('book_date', to)
+      .order('book_date')
+      .limit(1000)
+
+    let prevTripsQuery = supabase
+      .from('trips')
+      .select('id')
+      .gte('trip_date', prevFrom)
+      .lte('trip_date', prevTo)
+      .eq('active', true)
+      .limit(1000)
+
+    let prevBooksQuery = supabase
+      .from('cash_books')
+      .select('*, cash_entries(*)')
+      .gte('book_date', prevFrom)
+      .lte('book_date', prevTo)
+      .limit(1000)
+
+    if (selectedSite !== 'all') {
+      tripsQuery = tripsQuery.eq('site_id', selectedSite)
+      booksQuery = booksQuery.eq('site_id', selectedSite)
+      prevTripsQuery = prevTripsQuery.eq('site_id', selectedSite)
+      prevBooksQuery = prevBooksQuery.eq('site_id', selectedSite)
+    }
+
     const [
       { data: tripsData, error: tripsError },
       { data: booksData, error: booksError },
       { data: prevTripsData },
       { data: prevBooksData }
     ] = await Promise.all([
-      supabase
-        .from('trips')
-        .select('*, vehicles(plate_number, vehicle_type), transport_contractors(name)')
-        .eq('site_id', selectedSite)
-        .gte('trip_date', from)
-        .lte('trip_date', to)
-        .neq('active', false)
-        .order('trip_date')
-        .limit(1000),
-      supabase
-        .from('cash_books')
-        .select('*, cash_entries(*)')
-        .eq('site_id', selectedSite)
-        .gte('book_date', from)
-        .lte('book_date', to)
-        .order('book_date')
-        .limit(1000),
-      supabase
-        .from('trips')
-        .select('id')
-        .eq('site_id', selectedSite)
-        .gte('trip_date', prevFrom)
-        .lte('trip_date', prevTo)
-        .neq('active', false)
-        .limit(1000),
-      supabase
-        .from('cash_books')
-        .select('*, cash_entries(*)')
-        .eq('site_id', selectedSite)
-        .gte('book_date', prevFrom)
-        .lte('book_date', prevTo)
-        .limit(1000),
+      tripsQuery,
+      booksQuery,
+      prevTripsQuery,
+      prevBooksQuery
     ])
 
     if (tripsError) toast.error(`Error loading report trips: ${tripsError.message}`)
@@ -129,31 +203,34 @@ export default function ReportsPage() {
     
     const allEntries: ExtendedCashEntry[] = (booksData || []).flatMap((b: any) =>
       (b.cash_entries || [])
-        .filter((e: any) => e.active !== false)
+        .filter((e: any) => e.active === true)
         .map((e: any) => ({ ...e, book_date: b.book_date }))
     )
     setCashEntries(allEntries)
 
+    setTripsTruncated(currentTrips.length === 1000)
+    setCashTruncated((booksData || []).length === 1000 || allEntries.length >= 1000)
+
     // MoM variance math
     const prevTripsCount = prevTripsData?.length || 0
     const tripsDiff = currentTrips.length - prevTripsCount
-    const tripsDiffPct = prevTripsCount > 0 ? (tripsDiff / prevTripsCount) * 100 : 0
+    const tripsDiffPct = prevTripsCount > 0 ? (tripsDiff / prevTripsCount) * 100 : (tripsDiff > 0 ? null : 0)
 
     const currentIn = allEntries.filter(e => e.entry_type === 'in').reduce((s, e) => s + e.amount, 0)
     const currentOut = allEntries.filter(e => e.entry_type === 'out').reduce((s, e) => s + e.amount, 0)
 
     const prevEntries = (prevBooksData || []).flatMap((b: any) =>
       (b.cash_entries || [])
-        .filter((e: any) => e.active !== false)
+        .filter((e: any) => e.active === true)
     )
     const prevTotalIn = prevEntries.filter((e: any) => e.entry_type === 'in').reduce((s: number, e: any) => s + e.amount, 0)
     const prevTotalOut = prevEntries.filter((e: any) => e.entry_type === 'out').reduce((s: number, e: any) => s + e.amount, 0)
 
     const inDiff = currentIn - prevTotalIn
-    const inDiffPct = prevTotalIn > 0 ? (inDiff / prevTotalIn) * 100 : 0
+    const inDiffPct = prevTotalIn > 0 ? (inDiff / prevTotalIn) * 100 : (inDiff > 0 ? null : 0)
 
     const outDiff = currentOut - prevTotalOut
-    const outDiffPct = prevTotalOut > 0 ? (outDiff / prevTotalOut) * 100 : 0
+    const outDiffPct = prevTotalOut > 0 ? (outDiff / prevTotalOut) * 100 : (outDiff > 0 ? null : 0)
 
     setComparison({
       prevTripsCount,
@@ -246,7 +323,7 @@ export default function ReportsPage() {
 
     const allEntries: ExtendedCashEntry[] = (booksData || []).flatMap((b: any) =>
       (b.cash_entries || [])
-        .filter((e: any) => e.active !== false)
+        .filter((e: any) => e.active === true)
         .map((e: any) => ({ ...e, book_date: b.book_date }))
     )
 
@@ -254,7 +331,10 @@ export default function ReportsPage() {
     const totalIn = allEntries.filter((e: any) => e.entry_type === 'in').reduce((s: number, e: any) => s + e.amount, 0)
     const totalOut = allEntries.filter((e: any) => e.entry_type === 'out').reduce((s: number, e: any) => s + e.amount, 0)
     const openingBal = (booksData?.[0] as any)?.opening_balance ?? 0
-    const closingBal = openingBal + totalIn - totalOut
+    
+    // Date-range closing balance referencing the actual DB closing balance of the last book
+    const lastBook = booksData && booksData.length > 0 ? booksData[booksData.length - 1] : null
+    const closingBal = lastBook ? (lastBook.closing_balance ?? (openingBal + totalIn - totalOut)) : (openingBal + totalIn - totalOut)
 
     const siteName = sites.find(s => s.id === selectedSite)?.name || selectedSite
 
@@ -323,16 +403,45 @@ export default function ReportsPage() {
       {/* Controls */}
       <div className="card mb-4" style={{ padding: '0.875rem 1rem' }}>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          {sites.length > 1 && (
-            <select className="form-input form-select" style={{ flex: 1, minWidth: '140px' }}
-              value={selectedSite} onChange={e => setSelectedSite(e.target.value)}>
-              {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          )}
+          <select className="form-input form-select" style={{ flex: 1, minWidth: '140px' }}
+            value={selectedSite} onChange={e => setSelectedSite(e.target.value)}>
+            {isAdmin && <option value="all">All Sites (Global)</option>}
+            {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
           <input type="month" className="form-input" style={{ flex: 1, minWidth: '140px' }}
             value={period} onChange={e => setPeriod(e.target.value)} />
         </div>
       </div>
+
+      {/* Warning banner for data limit truncation */}
+      {(tripsTruncated || cashTruncated) && (
+        <div className="card mb-4" style={{ borderLeft: '4px solid var(--warning)', padding: '0.875rem 1rem', background: 'rgba(217, 119, 6, 0.1)' }}>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+            <span style={{ fontSize: '1.2rem' }}>⚠️</span>
+            <div style={{ fontSize: '0.8rem', color: 'var(--warning)', fontWeight: 500 }}>
+              Report data limit reached (1000 rows). Some records may not be visible. Please narrow down the date period/filter.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeReport === 'employee' && (
+        <div className="card mb-4" style={{ padding: '0.875rem 1rem' }}>
+          <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '0.25rem' }}>
+            Select Employee
+          </label>
+          <select 
+            className="form-input form-select" 
+            value={selectedEmployee} 
+            onChange={e => setSelectedEmployee(e.target.value)}
+          >
+            <option value="">-- Choose Employee --</option>
+            {employees.map(emp => (
+              <option key={emp.id} value={emp.id}>{emp.name} ({emp.role})</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* ─── Date-range Cash Flow Export Card ─────────────────────────────── */}
       <div className="card mb-4" style={{ padding: '1rem' }}>
@@ -387,8 +496,8 @@ export default function ReportsPage() {
             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>MoM Trips</span>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.25rem' }}>
               <span style={{ fontSize: '1.15rem', fontWeight: 700 }}>{trips.length}</span>
-              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: comparison.tripsDiffPct >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                {comparison.tripsDiffPct >= 0 ? '▲' : '▼'} {Math.abs(Math.round(comparison.tripsDiffPct))}%
+              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: (comparison.tripsDiffPct === null || comparison.tripsDiffPct >= 0) ? 'var(--success)' : 'var(--danger)' }}>
+                {comparison.tripsDiffPct === null ? 'New' : `${comparison.tripsDiffPct >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(comparison.tripsDiffPct))}%`}
               </span>
             </div>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
@@ -400,8 +509,8 @@ export default function ReportsPage() {
             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>MoM Cash In</span>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.25rem' }}>
               <span style={{ fontSize: '1.15rem', fontWeight: 700 }}>₹{totalIn.toLocaleString('en-IN')}</span>
-              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: comparison.inDiffPct >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                {comparison.inDiffPct >= 0 ? '▲' : '▼'} {Math.abs(Math.round(comparison.inDiffPct))}%
+              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: (comparison.inDiffPct === null || comparison.inDiffPct >= 0) ? 'var(--success)' : 'var(--danger)' }}>
+                {comparison.inDiffPct === null ? 'New' : `${comparison.inDiffPct >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(comparison.inDiffPct))}%`}
               </span>
             </div>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
@@ -413,8 +522,8 @@ export default function ReportsPage() {
             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>MoM Cash Out</span>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.25rem' }}>
               <span style={{ fontSize: '1.15rem', fontWeight: 700 }}>₹{totalOut.toLocaleString('en-IN')}</span>
-              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: comparison.outDiffPct <= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                {comparison.outDiffPct >= 0 ? '▲' : '▼'} {Math.abs(Math.round(comparison.outDiffPct))}%
+              <span style={{ fontSize: '0.72rem', fontWeight: 600, color: (comparison.outDiffPct === null || comparison.outDiffPct <= 0) ? 'var(--success)' : 'var(--danger)' }}>
+                {comparison.outDiffPct === null ? 'New' : `${comparison.outDiffPct >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(comparison.outDiffPct))}%`}
               </span>
             </div>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
@@ -425,21 +534,23 @@ export default function ReportsPage() {
       )}
 
       {/* Report tabs */}
-      <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.25rem' }}>
-        {([
-          { key: 'trips', label: '🚛 Trips', count: trips.length },
-          { key: 'cash', label: '💰 Cash Book', count: cashEntries.length },
-          { key: 'contractor', label: '📊 By Contractor', count: Object.keys(contractorSummary).length },
-        ] as const).map(tab => (
-          <button key={tab.key} onClick={() => setActiveReport(tab.key)}
+      <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.25rem', flexWrap: 'wrap' }}>
+        {[
+          { key: 'trips', label: `🚛 Trips (${trips.length})` },
+          { key: 'cash', label: `💰 Cash Book (${cashEntries.length})` },
+          { key: 'contractor', label: `📊 Contractors (${Object.keys(contractorSummary).length})` },
+          { key: 'employee', label: `👤 Employee (${employees.length})` },
+        ].map(tab => (
+          <button key={tab.key} onClick={() => setActiveReport(tab.key as any)}
             style={{
               flex: 1, padding: '0.5rem', border: 'none', borderRadius: '7px',
               cursor: 'pointer', fontFamily: 'var(--font-sans)', fontSize: '0.8rem', fontWeight: 500,
               background: activeReport === tab.key ? 'var(--accent)' : 'transparent',
               color: activeReport === tab.key ? '#0a0b0f' : 'var(--text-muted)',
               transition: 'all 0.15s',
+              minWidth: '100px',
             }}>
-            {tab.label} ({tab.count})
+            {tab.label}
           </button>
         ))}
       </div>
@@ -516,7 +627,7 @@ export default function ReportsPage() {
                   <div>
                     <div className="stat-label">Net</div>
                     <div className="stat-value" style={{ fontSize: '1.2rem', color: (totalIn - totalOut) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                      ₹{Math.abs(totalIn - totalOut).toLocaleString('en-IN')}
+                      {(totalIn - totalOut) < 0 ? '-' : ''}₹{Math.abs(totalIn - totalOut).toLocaleString('en-IN')}
                     </div>
                   </div>
                 </div>
@@ -616,6 +727,136 @@ export default function ReportsPage() {
                   </tfoot>
                 </table>
               </div>
+            </div>
+          )}
+
+          {/* Employee Summary Report */}
+          {activeReport === 'employee' && (
+            <div>
+              {!selectedEmployee ? (
+                <div className="empty-state">
+                  <div style={{ fontSize: '2.5rem' }}>👤</div>
+                  <div className="empty-title">No employee selected</div>
+                  <div className="empty-desc">Select an employee from the dropdown above to view muster logs, leave history, and payroll data.</div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {/* Profile Card */}
+                  {employeeData.details && (
+                    <div className="card" style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>{employeeData.details.name}</h3>
+                        <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          {employeeData.details.role} · {employeeData.details.phone || 'No phone'}
+                        </p>
+                        <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          Site: {employeeData.details.sites?.name || 'Unassigned'}
+                        </p>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--accent)' }}>
+                          Wage: ₹{Number(employeeData.details.wage_rate).toLocaleString('en-IN')} / {employeeData.details.wage_type}
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>
+                          Entitled Leave Balance: <strong>{employeeData.details.leave_balance ?? 15}</strong> days
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Summary grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.75rem' }}>
+                    <div className="card" style={{ textAlign: 'center', padding: '0.75rem' }}>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Present</div>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--success)', marginTop: '0.25rem' }}>
+                        {employeeData.attendance.filter((a: any) => a.status === 'present').length}
+                      </div>
+                    </div>
+                    <div className="card" style={{ textAlign: 'center', padding: '0.75rem' }}>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Leave</div>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)', marginTop: '0.25rem' }}>
+                        {employeeData.attendance.filter((a: any) => a.status === 'leave').length}
+                      </div>
+                    </div>
+                    <div className="card" style={{ textAlign: 'center', padding: '0.75rem' }}>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Half-Day</div>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--info)', marginTop: '0.25rem' }}>
+                        {employeeData.attendance.filter((a: any) => a.status === 'half-day').length}
+                      </div>
+                    </div>
+                    <div className="card" style={{ textAlign: 'center', padding: '0.75rem' }}>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Absent</div>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--danger)', marginTop: '0.25rem' }}>
+                        {employeeData.attendance.filter((a: any) => a.status === 'absent').length}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Attendance Log Card */}
+                  <div className="card">
+                    <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.75rem' }}>Attendance muster logs for this period</h4>
+                    {employeeData.attendance.length === 0 ? (
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', margin: 0 }}>No attendance records found for this period</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '200px', overflowY: 'auto' }}>
+                        {employeeData.attendance.map((att: any) => (
+                          <div key={att.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.35rem 0.5rem', borderRadius: '5px', background: 'var(--bg-secondary)', fontSize: '0.75rem' }}>
+                            <span>{format(new Date(att.att_date), 'd MMMM yyyy')}</span>
+                            <span style={{
+                              fontWeight: 600,
+                              color: att.status === 'present' ? 'var(--success)' : att.status === 'leave' ? 'var(--accent)' : att.status === 'half-day' ? 'var(--info)' : 'var(--danger)'
+                            }}>{att.status.toUpperCase()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Leave History Card */}
+                  <div className="card">
+                    <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.75rem' }}>Leave requests history</h4>
+                    {employeeData.leaves.length === 0 ? (
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', margin: 0 }}>No leave applications logged</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '180px', overflowY: 'auto' }}>
+                        {employeeData.leaves.map((lv: any) => (
+                          <div key={lv.id} style={{ padding: '0.5rem', borderRadius: '5px', background: 'var(--bg-secondary)', fontSize: '0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 500, marginBottom: '0.15rem' }}>
+                              <span>{format(new Date(lv.from_date), 'd MMM')} → {format(new Date(lv.to_date), 'd MMM yyyy')}</span>
+                              <span style={{
+                                color: lv.status === 'approved' ? 'var(--success)' : lv.status === 'rejected' ? 'var(--danger)' : 'var(--warning)'
+                              }}>{lv.status.toUpperCase()}</span>
+                            </div>
+                            {lv.reason && <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem', fontStyle: 'italic' }}>"{lv.reason}"</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Payroll Summary Card */}
+                  <div className="card">
+                    <h4 style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.75rem' }}>Payroll ledger items</h4>
+                    {employeeData.payroll.length === 0 ? (
+                      <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', margin: 0 }}>No payroll runs found for this employee</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {employeeData.payroll.map((pr: any) => (
+                          <div key={pr.id} style={{ padding: '0.5rem', borderRadius: '5px', background: 'var(--bg-secondary)', fontSize: '0.75rem' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 600, marginBottom: '0.15rem' }}>
+                              <span>Period: {format(new Date(pr.payroll_runs?.period_month), 'MMMM yyyy')}</span>
+                              <span>₹{Number(pr.final_amount).toLocaleString('en-IN')}</span>
+                            </div>
+                            <div style={{ color: 'var(--text-muted)', fontSize: '0.7rem' }}>
+                              Wages: ₹{Number(pr.computed_amount).toLocaleString('en-IN')} (adjustment: ₹{Number(pr.adjustment).toLocaleString('en-IN')})
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </>

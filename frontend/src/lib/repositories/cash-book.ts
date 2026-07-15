@@ -1,4 +1,4 @@
-﻿import { SupabaseClient } from '@supabase/supabase-js'
+import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
 import { CashBook, CashEntry } from '../supabase/types'
 
@@ -61,7 +61,7 @@ export const cashBookRepository = {
       .from('cash_entries')
       .select('*')
       .eq('cash_book_id', cashBookId)
-      .neq('active', false)
+      .eq('active', true)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
@@ -108,5 +108,32 @@ export const cashBookRepository = {
 
     if (error) throw error
     return newStatus
+  },
+
+  async getBalances(supabase: SupabaseClient<Database>, cashBookId: string): Promise<{ totalIn: number; totalOut: number }> {
+    const { data, error } = await supabase
+      .from('cash_entries')
+      .select('entry_type, amount')
+      .eq('cash_book_id', cashBookId)
+      .eq('active', true)
+
+    if (error) throw error
+
+    let totalIn = 0
+    let totalOut = 0
+    for (const e of data || []) {
+      if (e.entry_type === 'in') totalIn += Number(e.amount)
+      else if (e.entry_type === 'out') totalOut += Number(e.amount)
+    }
+    return { totalIn, totalOut }
+  },
+
+  async updateReceiptUrl(supabase: SupabaseClient<Database>, id: string, receiptUrl: string | null): Promise<void> {
+    const { error } = await supabase
+      .from('cash_entries')
+      .update({ receipt_url: receiptUrl })
+      .eq('id', id)
+
+    if (error) throw error
   }
 }

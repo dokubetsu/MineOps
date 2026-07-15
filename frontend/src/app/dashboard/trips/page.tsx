@@ -49,6 +49,9 @@ interface ExtendedTrip {
     name: string
   } | null
   signed_photo_url?: string | null
+  settled: boolean
+  settlement_amount: number
+  settlement_account: string | null
 }
 
 export default function TripsPage() {
@@ -79,8 +82,43 @@ export default function TripsPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [usersMap, setUsersMap] = useState<Record<string, string>>({}) // created_by uuid -> email
 
-  // ConfirmDialog states
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  // Settle trip states
+  const [settleTripId, setSettleTripId] = useState<string | null>(null)
+  const [settleAmount, setSettleAmount] = useState('')
+  const [settleAccount, setSettleAccount] = useState('')
+  const [settleSubmitting, setSettleSubmitting] = useState(false)
+
+  const handleSettleTrip = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!settleTripId) return
+    const amt = parseFloat(settleAmount)
+    if (isNaN(amt) || amt < 0) {
+      toast.error('Please enter a valid amount')
+      return
+    }
+    if (!settleAccount.trim()) {
+      toast.error('Please enter whose account/destination')
+      return
+    }
+    setSettleSubmitting(true)
+    try {
+      await tripsRepository.settle(supabase, settleTripId, {
+        settlement_amount: amt,
+        settlement_account: settleAccount.trim(),
+      })
+      toast.success('Trip settled successfully')
+      setSettleTripId(null)
+      setSettleAmount('')
+      setSettleAccount('')
+      loadTrips()
+    } catch (err: any) {
+      toast.error(`Error settling trip: ${err.message}`)
+    } finally {
+      setSettleSubmitting(false)
+    }
+  }
 
   const supabase = createClient()
   const PAGE_LIMIT = 20
@@ -131,6 +169,15 @@ export default function TripsPage() {
       setFilteredVehicles([])
     }
   }, [vehicleSearch, vehicles])
+
+  // Cleanup object URLs on unmount or when photoPreview changes
+  useEffect(() => {
+    return () => {
+      if (photoPreview) {
+        URL.revokeObjectURL(photoPreview)
+      }
+    }
+  }, [photoPreview])
 
   const loadInitialData = async () => {
     try {
@@ -204,15 +251,19 @@ export default function TripsPage() {
       }))
 
       const cacheKey = `cached_trips_${selectedSite}_${selectedDate}`
+      // Remove signed URLs for cache to prevent broken images on expiration
+      const cacheableTrips = tripsWithSignedUrls.map(t => ({ ...t, signed_photo_url: null }))
+
       if (loadMore) {
         setTrips(prev => {
           const nextTrips = [...prev, ...tripsWithSignedUrls]
-          localStorage.setItem(cacheKey, JSON.stringify(nextTrips))
+          const prevCacheable = prev.map(t => ({...t, signed_photo_url: null}))
+          localStorage.setItem(cacheKey, JSON.stringify([...prevCacheable, ...cacheableTrips]))
           return nextTrips
         })
       } else {
         setTrips(tripsWithSignedUrls)
-        localStorage.setItem(cacheKey, JSON.stringify(tripsWithSignedUrls))
+        localStorage.setItem(cacheKey, JSON.stringify(cacheableTrips))
       }
       setHasMore(data.length === PAGE_LIMIT)
     } catch (error: any) {
@@ -248,6 +299,9 @@ export default function TripsPage() {
     if (file.size > 5 * 1024 * 1024) {
       toast.error('File size exceeds the 5MB limit')
       return
+    }
+    if (photoPreview) {
+      URL.revokeObjectURL(photoPreview)
     }
     setPhotoFile(file)
     setPhotoPreview(URL.createObjectURL(file))
@@ -327,6 +381,9 @@ export default function TripsPage() {
       })
       setVehicleSearch('')
       setPhotoFile(null)
+      if (photoPreview) {
+        URL.revokeObjectURL(photoPreview)
+      }
       setPhotoPreview(null)
       loadTrips()
     } catch (err: any) {
@@ -448,6 +505,25 @@ export default function TripsPage() {
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
                     {trip.created_at ? format(new Date(trip.created_at), 'hh:mm a') : ''}
                     {trip.created_by && usersMap[trip.created_by] ? ` by ${usersMap[trip.created_by]}` : ''}
+                  </div>
+                  <div style={{ marginTop: '0.375rem', display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
+                    {trip.settled ? (
+                      <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.35rem', borderRadius: '5px', background: 'rgba(16,185,129,0.12)', color: 'var(--success)', fontWeight: 600 }}>
+                        Collected: ₹{Number(trip.settlement_amount).toLocaleString('en-IN')} ({trip.settlement_account})
+                      </span>
+                    ) : (
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ padding: '0.15rem 0.5rem', fontSize: '0.7rem', height: 'auto', background: 'rgba(245,158,11,0.1)', color: 'var(--accent)', border: '1px solid rgba(245,158,11,0.3)', minHeight: 'unset', lineHeight: 'normal' }}
+                        onClick={() => {
+                          setSettleTripId(trip.id)
+                          setSettleAmount('')
+                          setSettleAccount('')
+                        }}
+                      >
+                        🪙 Settle Trip
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -652,6 +728,51 @@ export default function TripsPage() {
         onConfirm={executeDeleteTrip}
         onCancel={() => setConfirmDeleteId(null)}
       />
+
+      {/* Settle Trip Modal */}
+      {settleTripId && (
+        <>
+          <div className="sheet-overlay" onClick={() => setSettleTripId(null)} />
+          <div className="sheet">
+            <div className="sheet-handle" />
+            <div className="sheet-title">Settle Trip Money Collection</div>
+            <form onSubmit={handleSettleTrip}>
+              <div className="form-group">
+                <label className="form-label">Amount Collected (₹) *</label>
+                <input
+                  type="number"
+                  className="form-input"
+                  placeholder="e.g. 5000"
+                  value={settleAmount}
+                  onChange={e => setSettleAmount(e.target.value)}
+                  min="0"
+                  step="any"
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Whose Account / Destination *</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. Main Safe, Bank, Driver Account"
+                  value={settleAccount}
+                  onChange={e => setSettleAccount(e.target.value)}
+                  required
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.5rem' }}>
+                <button type="button" className="btn btn-secondary w-full" onClick={() => setSettleTripId(null)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary w-full" disabled={settleSubmitting}>
+                  {settleSubmitting ? <span className="spinner" /> : 'Settle'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </>
+      )}
     </div>
   )
 }

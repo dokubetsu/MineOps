@@ -1,4 +1,4 @@
-﻿import { SupabaseClient } from '@supabase/supabase-js'
+import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
 
 export const tripsRepository = {
@@ -8,7 +8,7 @@ export const tripsRepository = {
       .select('*, vehicles(plate_number, vehicle_type), transport_contractors(name), drivers(name)')
       .eq('site_id', siteId)
       .eq('trip_date', date)
-      .neq('active', false)
+      .eq('active', true)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1)
 
@@ -49,6 +49,26 @@ export const tripsRepository = {
     const { error } = await supabase
       .from('trips')
       .update({ active: false })
+      .eq('id', id)
+
+    if (error) throw error
+  },
+
+  async settle(
+    supabase: SupabaseClient<Database>,
+    id: string,
+    payload: {
+      settlement_amount: number
+      settlement_account: string
+    }
+  ): Promise<void> {
+    const { error } = await supabase
+      .from('trips')
+      .update({
+        settled: true,
+        settlement_amount: payload.settlement_amount,
+        settlement_account: payload.settlement_account,
+      })
       .eq('id', id)
 
     if (error) throw error

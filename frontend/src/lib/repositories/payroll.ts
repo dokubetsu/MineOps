@@ -39,6 +39,18 @@ export const payrollRepository = {
   },
 
   async deleteDraftRun(supabase: SupabaseClient<Database>, runId: string): Promise<void> {
+    const { data: run, error: checkError } = await supabase
+      .from('payroll_runs')
+      .select('status')
+      .eq('id', runId)
+      .maybeSingle()
+
+    if (checkError) throw checkError
+    if (!run) throw new Error('Payroll run not found')
+    if (run.status !== 'draft') {
+      throw new Error('Cannot delete a finalized payroll run')
+    }
+
     const { error: linesError } = await supabase
       .from('payroll_lines')
       .delete()
@@ -71,6 +83,7 @@ export const payrollRepository = {
       .single()
 
     let activeRun = newRun
+    const isNewRun = !insertError
     if (insertError) {
       if (insertError.code === '23505') {
         const { data: retryRun, error: retryError } = await supabase
@@ -85,8 +98,14 @@ export const payrollRepository = {
           throw new Error('Payroll has already been finalized for this period by another user.')
         }
 
-        // Clean slate
-        await supabase.from('payroll_lines').delete().eq('payroll_run_id', retryRun.id)
+        // Clean slate - atomically check status and delete lines using PG lock
+        const { error: regenError } = await supabase.rpc('regenerate_payroll_run', { p_run_id: retryRun.id })
+        if (regenError) {
+          if (regenError.message.includes('finalized')) {
+            throw new Error('Payroll has already been finalized for this period by another user.')
+          }
+          throw regenError
+        }
         activeRun = retryRun
       } else {
         throw insertError
@@ -137,9 +156,10 @@ export const payrollRepository = {
       const wageType = emp.wage_type || 'daily'
       let computed = 0
       if (wageType === 'monthly') {
-        computed = emp.wage_rate
+        const totalDays = Math.round((periodEnd.getTime() - periodStart.getTime()) / 86400000) + 1
+        computed = emp.wage_rate * Math.max(0, 1 - (absent + halfDay * 0.5) / totalDays)
       } else {
-        computed = (present + halfDay * 0.5) * emp.wage_rate
+        computed = (present + halfDay * 0.5 + leave) * emp.wage_rate
       }
       const finalComputed = Math.round((computed + 1e-9) * 100) / 100
 
@@ -162,7 +182,9 @@ export const payrollRepository = {
       .select('*, employees(name, phone)')
 
     if (linesError) {
-      await supabase.from('payroll_runs').delete().eq('id', activeRun.id)
+      if (isNewRun) {
+        await supabase.from('payroll_runs').delete().eq('id', activeRun.id)
+      }
       throw linesError
     }
 

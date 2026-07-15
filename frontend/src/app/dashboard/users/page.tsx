@@ -277,7 +277,7 @@ export default function UsersPage() {
                   <div style={{ fontWeight: 600, fontSize: '0.875rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {u.email || <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-display)', fontSize: '0.75rem' }}>ID: {u.user_id.substring(0, 12)}…</span>}
                   </div>
-                  <span className={`badge ${roleBadge(u.role)}`} style={{ marginTop: '0.2,rem', display: 'inline-block' }}>
+                  <span className={`badge ${roleBadge(u.role)}`} style={{ marginTop: '0.2rem', display: 'inline-block' }}>
                     {u.role.replace('_', ' ')}
                   </span>
                 </div>

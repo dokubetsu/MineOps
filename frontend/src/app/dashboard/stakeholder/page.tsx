@@ -78,7 +78,7 @@ export default function StakeholderDashboardPage() {
         .eq('site_id', siteId)
         .gte('trip_date', fromDate)
         .lte('trip_date', toDate)
-        .neq('active', false)
+        .eq('active', true)
 
       if (countError) console.error(`Error loading trips count for site ${siteId}:`, countError.message)
 
@@ -105,6 +105,7 @@ export default function StakeholderDashboardPage() {
         .from('cash_books')
         .select('closing_balance, book_date')
         .eq('site_id', siteId)
+        .lte('book_date', toDate)
         .order('book_date', { ascending: false })
         .limit(1)
         .maybeSingle()
@@ -125,7 +126,7 @@ export default function StakeholderDashboardPage() {
         .eq('site_id', siteId)
         .gte('trip_date', fromDate)
         .lte('trip_date', toDate)
-        .neq('active', false)
+        .eq('active', true)
         .limit(1000)
 
       if (tripsError) console.error(`Error loading contractor breakdown for site ${siteId}:`, tripsError.message)
@@ -277,7 +278,7 @@ export default function StakeholderDashboardPage() {
                     {Object.entries(siteData.byContractor)
                       .sort(([, a], [, b]) => (b as number) - (a as number))
                       .map(([name, count]) => {
-                        const pct = Math.round(((count as number) / siteData.tripCount) * 100)
+                        const pct = siteData.tripCount > 0 ? Math.round(((count as number) / siteData.tripCount) * 100) : 0
                         return (
                           <div key={name}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>

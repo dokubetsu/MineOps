@@ -101,6 +101,23 @@ export default function LeavePage() {
   const submitLeave = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
+
+    const fromD = new Date(form.from_date)
+    const toD = new Date(form.to_date)
+    
+    if (fromD > toD) {
+      toast.error('From Date must be less than or equal to To Date')
+      setSubmitting(false)
+      return
+    }
+
+    const diffDays = Math.round((toD.getTime() - fromD.getTime()) / 86400000) + 1
+    if (diffDays > 30) {
+      toast.error('Leave duration cannot exceed 30 days per application')
+      setSubmitting(false)
+      return
+    }
+
     const { error } = await supabase.from('leave_applications').insert({
       employee_id: form.employee_id,
       from_date: form.from_date,
@@ -121,33 +138,17 @@ export default function LeavePage() {
   }
 
   const updateStatus = async (id: string, status: 'approved' | 'rejected') => {
-    const { error: updateError } = await supabase.from('leave_applications').update({ status }).eq('id', id)
-    if (updateError) {
-      toast.error(`Error updating status: ${updateError.message}`)
-      return
-    }
-
     if (status === 'approved') {
-      const app = applications.find(a => a.id === id)
-      if (app) {
-        const from = new Date(app.from_date)
-        const to = new Date(app.to_date)
-        const records: { employee_id: string; att_date: string; status: 'present' | 'absent' | 'half-day' | 'leave' }[] = []
-        const cur = new Date(from)
-        while (cur <= to) {
-          records.push({
-            employee_id: app.employee_id,
-            att_date: format(cur, 'yyyy-MM-dd'),
-            status: 'leave',
-          })
-          cur.setDate(cur.getDate() + 1)
-        }
-        if (records.length > 0) {
-          const { error: upsertError } = await supabase.from('attendance').upsert(records, { onConflict: 'employee_id,att_date' })
-          if (upsertError) {
-            toast.error(`Error auto-marking attendance: ${upsertError.message}`)
-          }
-        }
+      const { error: rpcError } = await supabase.rpc('approve_leave_application', { p_application_id: id })
+      if (rpcError) {
+        toast.error(`Error approving leave: ${rpcError.message}`)
+        return
+      }
+    } else {
+      const { error: updateError } = await supabase.from('leave_applications').update({ status }).eq('id', id)
+      if (updateError) {
+        toast.error(`Error updating status: ${updateError.message}`)
+        return
       }
     }
     toast.success(`Leave application ${status}`)

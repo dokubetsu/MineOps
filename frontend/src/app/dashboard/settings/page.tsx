@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -45,15 +45,23 @@ export default function SettingsPage() {
 
   const loadAll = async () => {
     setLoading(true)
-    const [{ data: s }, { data: c }, { data: v }] = await Promise.all([
-      supabase.from('sites').select('*').order('name').limit(200),
-      supabase.from('transport_contractors').select('*').order('name').limit(200),
-      supabase.from('vehicles').select('*, transport_contractors(name)').order('plate_number').limit(1000),
-    ])
-    setSites(s || [])
-    setContractors(c || [])
-    setVehicles((v as any) || [])
-    setLoading(false)
+    try {
+      const [{ data: s, error: sErr }, { data: c, error: cErr }, { data: v, error: vErr }] = await Promise.all([
+        supabase.from('sites').select('*').order('name').limit(200),
+        supabase.from('transport_contractors').select('*').order('name').limit(200),
+        supabase.from('vehicles').select('*, transport_contractors(name)').order('plate_number').limit(1000),
+      ])
+      if (sErr) throw sErr
+      if (cErr) throw cErr
+      if (vErr) throw vErr
+      setSites(s || [])
+      setContractors(c || [])
+      setVehicles((v as any) || [])
+    } catch (err: any) {
+      toast.error(`Error loading configurations: ${err.message}`)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const addSite = async (e: React.FormEvent) => {
@@ -115,6 +123,13 @@ export default function SettingsPage() {
   const toggleActive = async (table: 'sites' | 'transport_contractors' | 'vehicles', id: string, current: boolean) => {
     let errorMsg = ''
     if (table === 'sites') {
+      if (current) { // deactivating
+        const activeSites = sites.filter(s => s.active)
+        if (activeSites.length <= 1) {
+          toast.error('Cannot deactivate the last active site')
+          return
+        }
+      }
       const { error } = await supabase.from('sites').update({ active: !current }).eq('id', id)
       if (error) errorMsg = error.message
     } else if (table === 'transport_contractors') {

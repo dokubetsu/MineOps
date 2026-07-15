@@ -144,6 +144,7 @@ export type Database = {
           join_date: string | null
           created_at: string | null
           updated_at: string | null
+          leave_balance: number
         }
         Insert: {
           id?: string
@@ -157,6 +158,7 @@ export type Database = {
           join_date?: string | null
           created_at?: string | null
           updated_at?: string | null
+          leave_balance?: number
         }
         Update: {
           id?: string
@@ -170,6 +172,7 @@ export type Database = {
           join_date?: string | null
           created_at?: string | null
           updated_at?: string | null
+          leave_balance?: number
         }
         Relationships: [
           {
@@ -200,6 +203,9 @@ export type Database = {
           created_at: string | null
           updated_at: string | null
           active: boolean
+          settled: boolean
+          settlement_amount: number
+          settlement_account: string | null
         }
         Insert: {
           id?: string
@@ -219,6 +225,9 @@ export type Database = {
           created_at?: string | null
           updated_at?: string | null
           active?: boolean
+          settled?: boolean
+          settlement_amount?: number
+          settlement_account?: string | null
         }
         Update: {
           id?: string
@@ -238,6 +247,9 @@ export type Database = {
           created_at?: string | null
           updated_at?: string | null
           active?: boolean
+          settled?: boolean
+          settlement_amount?: number
+          settlement_account?: string | null
         }
         Relationships: [
           {
@@ -323,6 +335,7 @@ export type Database = {
           created_at: string | null
           updated_at: string | null
           active: boolean
+          receipt_url: string | null
         }
         Insert: {
           id?: string
@@ -335,6 +348,7 @@ export type Database = {
           created_at?: string | null
           updated_at?: string | null
           active?: boolean
+          receipt_url?: string | null
         }
         Update: {
           id?: string
@@ -347,6 +361,7 @@ export type Database = {
           created_at?: string | null
           updated_at?: string | null
           active?: boolean
+          receipt_url?: string | null
         }
         Relationships: [
           {
@@ -638,10 +653,27 @@ export type Database = {
         Relationships: []
       }
     }
+
     Functions: {
+      approve_leave_application: {
+        Args: {
+          p_application_id: string
+        }
+        Returns: undefined
+      }
       get_user_role: {
         Args: Record<PropertyKey, never>
         Returns: string
+      }
+      get_user_site_ids: {
+        Args: Record<PropertyKey, never>
+        Returns: string[]
+      }
+      regenerate_payroll_run: {
+        Args: {
+          p_run_id: string
+        }
+        Returns: undefined
       }
     }
     Enums: {

@@ -23,7 +23,7 @@ function computePayrollWage(emp: EmployeeWageConfig, att: AttendanceCounts) {
   if (emp.wage_type === 'monthly') {
     return emp.wage_rate
   }
-  const computed = (att.present + att.halfDay * 0.5) * emp.wage_rate
+  const computed = (att.present + att.halfDay * 0.5 + att.leave) * emp.wage_rate
   return Math.round((computed + 1e-9) * 100) / 100
 }
 
@@ -53,8 +53,8 @@ test.describe('Business Calculations Unit Tests', () => {
     const att: AttendanceCounts = { present: 20, halfDay: 4, leave: 2, absent: 0 }
 
     const wage = computePayrollWage(emp, att)
-    // (20 + 4 * 0.5) * 600 = 22 * 600 = 13200
-    expect(wage).toBe(13200)
+    // (20 + 4 * 0.5 + 2) * 600 = 24 * 600 = 14400
+    expect(wage).toBe(14400)
   })
 
   test('should compute fixed monthly rate for monthly employees regardless of attendance days', () => {
