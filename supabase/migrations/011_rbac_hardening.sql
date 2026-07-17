@@ -1,4 +1,4 @@
-﻿-- Migration 011: RBAC Hardening
+-- Migration 011: RBAC Hardening
 -- 1. Fix get_user_role() — deterministic priority ordering + SECURITY DEFINER
 -- 2. Fix get_user_site_ids() — SECURITY DEFINER + search_path lock
 -- 3. Add last-admin protection trigger

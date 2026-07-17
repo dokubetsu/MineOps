@@ -1,4 +1,4 @@
-﻿-- Migration 012: Site-scoped storage policies & 5MB file size limit validation
+-- Migration 012: Site-scoped storage policies & 5MB file size limit validation
 
 -- ─── 1. Drop existing policies to recreate them cleanly ──────────────────
 DROP POLICY IF EXISTS "Trip photos read access" ON storage.objects;
