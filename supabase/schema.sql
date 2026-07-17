@@ -245,6 +245,7 @@ CREATE TABLE IF NOT EXISTS public.stakeholder_site_access (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   stakeholder_user_id uuid NOT NULL,
   site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE RESTRICT,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   share_percent numeric NOT NULL DEFAULT 50.0 CHECK (share_percent >= 0.0 AND share_percent <= 100.0),
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
@@ -521,13 +522,11 @@ DROP TRIGGER IF EXISTS trg_negotiated_rates_set_org ON public.negotiated_rates;
 CREATE TRIGGER trg_negotiated_rates_set_org BEFORE INSERT ON public.negotiated_rates
 FOR EACH ROW EXECUTE FUNCTION public.set_organization_id();
 
+DROP TRIGGER IF EXISTS trg_stakeholder_access_set_org ON public.stakeholder_site_access;
+CREATE TRIGGER trg_stakeholder_access_set_org BEFORE INSERT ON public.stakeholder_site_access
+FOR EACH ROW EXECUTE FUNCTION public.set_organization_id();
+
 -- Trigger Function: user_roles.site_id must belong to the same organization
-CREATE OR REPLACE FUNCTION public.check_user_roles_org_site_match()
-RETURNS trigger AS $$
-DECLARE
-  v_site_org uuid;
-END;
-$$;
 CREATE OR REPLACE FUNCTION public.check_user_roles_org_site_match()
 RETURNS trigger AS $$
 DECLARE
@@ -547,6 +546,139 @@ DROP TRIGGER IF EXISTS trg_user_roles_org_site_match ON public.user_roles;
 CREATE TRIGGER trg_user_roles_org_site_match
 BEFORE INSERT OR UPDATE ON public.user_roles
 FOR EACH ROW EXECUTE FUNCTION public.check_user_roles_org_site_match();
+
+-- Trigger Function: Enforce single organization per user
+CREATE OR REPLACE FUNCTION public.check_user_single_org()
+RETURNS trigger AS $$
+DECLARE
+  v_existing_org uuid;
+BEGIN
+  SELECT organization_id INTO v_existing_org
+  FROM public.user_roles
+  WHERE user_id = NEW.user_id
+    AND id IS DISTINCT FROM NEW.id
+    AND organization_id IS DISTINCT FROM NEW.organization_id
+  LIMIT 1;
+
+  IF v_existing_org IS NOT NULL THEN
+    RAISE EXCEPTION 'User already belongs to organization %. A user cannot have roles in multiple organizations.'
+      , v_existing_org
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS trg_user_single_org ON public.user_roles;
+CREATE TRIGGER trg_user_single_org
+BEFORE INSERT OR UPDATE ON public.user_roles
+FOR EACH ROW EXECUTE FUNCTION public.check_user_single_org();
+
+-- Trigger Function: Validate stakeholder org matches site org
+CREATE OR REPLACE FUNCTION public.check_stakeholder_org_match()
+RETURNS trigger AS $$
+DECLARE
+  v_site_org uuid;
+  v_stakeholder_org uuid;
+BEGIN
+  SELECT organization_id INTO v_site_org FROM public.sites WHERE id = NEW.site_id;
+  IF v_site_org IS NULL THEN
+    RAISE EXCEPTION 'Site not found' USING ERRCODE = 'foreign_key_violation';
+  END IF;
+
+  SELECT organization_id INTO v_stakeholder_org
+  FROM public.user_roles WHERE user_id = NEW.stakeholder_user_id LIMIT 1;
+
+  IF v_stakeholder_org IS DISTINCT FROM v_site_org THEN
+    RAISE EXCEPTION 'Stakeholder must belong to the same organization as the site'
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF NEW.organization_id IS DISTINCT FROM v_site_org THEN
+    RAISE EXCEPTION 'organization_id must match site organization'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS trg_stakeholder_org_match ON public.stakeholder_site_access;
+CREATE TRIGGER trg_stakeholder_org_match
+BEFORE INSERT OR UPDATE ON public.stakeholder_site_access
+FOR EACH ROW EXECUTE FUNCTION public.check_stakeholder_org_match();
+
+-- Trigger Function: Validate employee user_id org matches employee site org
+CREATE OR REPLACE FUNCTION public.check_employee_user_org_match()
+RETURNS trigger AS $$
+DECLARE
+  v_user_org uuid;
+  v_site_org uuid;
+BEGIN
+  IF NEW.user_id IS NOT NULL THEN
+    SELECT organization_id INTO v_user_org
+    FROM public.user_roles WHERE user_id = NEW.user_id LIMIT 1;
+
+    IF NEW.site_id IS NOT NULL THEN
+      SELECT organization_id INTO v_site_org FROM public.sites WHERE id = NEW.site_id;
+    END IF;
+
+    IF v_user_org IS NOT NULL AND v_site_org IS NOT NULL
+       AND v_user_org IS DISTINCT FROM v_site_org THEN
+      RAISE EXCEPTION 'Employee user_id must belong to the same organization as the employee site'
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS trg_employee_user_org_match ON public.employees;
+CREATE TRIGGER trg_employee_user_org_match
+BEFORE INSERT OR UPDATE OF user_id ON public.employees
+FOR EACH ROW EXECUTE FUNCTION public.check_employee_user_org_match();
+
+-- Trigger Function: Prevent changing site organization_id after creation
+CREATE OR REPLACE FUNCTION public.prevent_site_org_change()
+RETURNS trigger AS $$
+BEGIN
+  IF NEW.organization_id IS DISTINCT FROM OLD.organization_id THEN
+    RAISE EXCEPTION 'Cannot change site organization_id after creation. Delete and recreate the site instead.'
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_prevent_site_org_change ON public.sites;
+CREATE TRIGGER trg_prevent_site_org_change
+BEFORE UPDATE OF organization_id ON public.sites
+FOR EACH ROW EXECUTE FUNCTION public.prevent_site_org_change();
+
+-- RPC: Atomic tenant registration (org + admin role in one transaction)
+CREATE OR REPLACE FUNCTION public.register_tenant(
+  p_company_name text,
+  p_user_id uuid
+)
+RETURNS uuid AS $$
+DECLARE
+  v_org_id uuid;
+BEGIN
+  IF p_company_name IS NULL OR length(trim(p_company_name)) < 2 THEN
+    RAISE EXCEPTION 'Company name must be at least 2 characters' USING ERRCODE = 'check_violation';
+  END IF;
+  IF p_user_id IS NULL THEN
+    RAISE EXCEPTION 'User ID is required' USING ERRCODE = 'check_violation';
+  END IF;
+
+  INSERT INTO public.organizations (name, active) VALUES (trim(p_company_name), true)
+  RETURNING id INTO v_org_id;
+
+  INSERT INTO public.user_roles (user_id, role, site_id, organization_id)
+  VALUES (p_user_id, 'admin', NULL, v_org_id);
+
+  RETURN v_org_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- ------------------------------------------
 -- 4. Database Views
@@ -713,8 +845,8 @@ CREATE POLICY user_roles_self_read ON public.user_roles FOR SELECT TO authentica
 -- Stakeholder Access Policies
 ALTER TABLE public.stakeholder_site_access ENABLE ROW LEVEL SECURITY;
 CREATE POLICY stakeholder_access_admin ON public.stakeholder_site_access TO authenticated
-  USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()))
-  WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()));
+  USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()) AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()) AND organization_id = get_user_organization_id());
 CREATE POLICY stakeholder_access_self_read ON public.stakeholder_site_access FOR SELECT TO authenticated USING (stakeholder_user_id = auth.uid());
 
 -- ------------------------------------------

@@ -63,24 +63,10 @@ export async function POST(req: NextRequest) {
 
   const { companyName, email, password } = result.data
 
-  let orgId = ''
   let userId = ''
 
   try {
-    // 1. Create the organization row
-    const { data: newOrg, error: orgError } = await supabase
-      .from('organizations')
-      .insert({ name: companyName, active: true })
-      .select('id')
-      .single()
-
-    if (orgError || !newOrg) {
-      throw new Error(orgError?.message || 'Failed to create organization')
-    }
-
-    orgId = newOrg.id
-
-    // 2. Create the user inside Supabase Auth
+    // 1. Create the auth user FIRST (before any DB writes)
     const { data: newUser, error: userError } = await supabase.auth.admin.createUser({
       email,
       password,
@@ -93,36 +79,28 @@ export async function POST(req: NextRequest) {
 
     userId = newUser.user.id
 
-    // 3. Insert the admin role row
-    const { error: roleError } = await supabase.from('user_roles').insert({
-      user_id: userId,
-      role: 'admin',
-      site_id: null,
-      organization_id: orgId,
+    // 2. Atomically create org + admin role via RPC (single Postgres transaction)
+    // If either INSERT fails, the entire RPC rolls back — no orphaned orgs possible.
+    const { data: orgId, error: rpcError } = await supabase.rpc('register_tenant', {
+      p_company_name: companyName,
+      p_user_id: userId,
     })
 
-    if (roleError) {
-      throw new Error(`Failed to assign admin role: ${roleError.message}`)
+    if (rpcError || !orgId) {
+      throw new Error(rpcError?.message || 'Failed to create organization')
     }
 
     return NextResponse.json({ success: true, organization_id: orgId, user_id: userId }, { status: 201 })
 
   } catch (error: any) {
-    console.error('Registration transaction failed, rolling back:', error.message)
-    
-    // Clean rollback
+    console.error('Registration failed, rolling back:', error.message)
+
+    // Only need to clean up the auth user — the RPC either fully succeeded or fully rolled back
     if (userId) {
       try {
         await supabase.auth.admin.deleteUser(userId)
       } catch (err) {
         console.error('Rollback failed to delete user:', err)
-      }
-    }
-    if (orgId) {
-      try {
-        await supabase.from('organizations').delete().eq('id', orgId)
-      } catch (err) {
-        console.error('Rollback failed to delete organization:', err)
       }
     }
 

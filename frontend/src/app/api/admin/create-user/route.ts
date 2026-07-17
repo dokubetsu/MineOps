@@ -125,12 +125,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Failed to assign role: ${roleError.message}` }, { status: 500 })
   }
 
-  // If stakeholder with site, add access record
+  // If stakeholder with site, add access record (include organization_id for org-match trigger)
   if (role === 'stakeholder' && site_id) {
     const { error: accessError } = await supabase.from('stakeholder_site_access').insert({
       stakeholder_user_id: newUserId,
       site_id,
       share_percent: share_percent ?? 50,
+      organization_id: callerOrganizationId,
     })
 
     if (accessError) {
@@ -144,6 +145,21 @@ export async function POST(req: NextRequest) {
   // Handle employee linkage/creation
   if ((role === 'employee' || role === 'site_employee') && employee_link_mode && employee_link_mode !== 'none') {
     if (employee_link_mode === 'link' && employee_id) {
+      // Validate the target employee belongs to the caller's organization
+      // before linking, to prevent cross-org employee impersonation.
+      const { data: empData } = await supabase
+        .from('employees')
+        .select('id, site_id, sites!inner(organization_id)')
+        .eq('id', employee_id)
+        .single()
+
+      if (!empData || (empData as any).sites?.organization_id !== callerOrganizationId) {
+        return NextResponse.json(
+          { error: 'Cannot link employee: employee does not belong to your organization', user_id: newUserId },
+          { status: 207 }
+        )
+      }
+
       const { error: linkError } = await supabase
         .from('employees')
         .update({ user_id: newUserId })
