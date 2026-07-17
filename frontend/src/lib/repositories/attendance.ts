@@ -55,6 +55,32 @@ function normalizeStatus(status: string | null | undefined): AttendanceStatus | 
 }
 
 export const attendanceRepository = {
+  /**
+   * True when the site has a finalized payroll run covering the calendar month of `date` (yyyy-MM-dd).
+   * Attendance edits are blocked by DB trigger in that case (Phase 1).
+   */
+  async isMonthFinalized(
+    supabase: SupabaseClient<Database>,
+    siteId: string,
+    date: string
+  ): Promise<boolean> {
+    if (!siteId || !date) return false
+    const ym = date.slice(0, 7)
+    if (!/^\d{4}-\d{2}$/.test(ym)) return false
+    // payroll_runs.period_month is the first day of the month (date)
+    const periodMonth = `${ym}-01`
+
+    const { data, error } = await supabase
+      .from('payroll_runs')
+      .select('id, period_month')
+      .eq('site_id', siteId)
+      .eq('status', 'finalized')
+      .limit(50)
+
+    if (error) throw error
+    return (data || []).some((r) => String(r.period_month || '').slice(0, 7) === ym || r.period_month === periodMonth)
+  },
+
   async listRoster(
     supabase: SupabaseClient<Database>,
     siteId: string,
@@ -187,7 +213,7 @@ export const attendanceRepository = {
       }
       if (/payroll is already finalized/i.test(msg)) {
         throw new Error(
-          'Cannot change attendance: payroll is already finalized for that month. Unlock is not available for finalized runs.'
+          'Cannot change attendance for this date: payroll is already finalized for that month. Open Payroll to view the run — finalized months are read-only (not unlockable).'
         )
       }
       throw error
