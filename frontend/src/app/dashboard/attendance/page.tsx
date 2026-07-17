@@ -164,6 +164,14 @@ export default function AttendancePage() {
   }
 
   const saveAttendance = async () => {
+    if (!selectedSite) {
+      toast.error('Select a site before saving attendance')
+      return
+    }
+    if (roster.length === 0) {
+      toast.error('No employees on the roster to save')
+      return
+    }
     setSaving(true)
     try {
       const records = roster.map(emp => ({
@@ -176,9 +184,11 @@ export default function AttendancePage() {
       await attendanceRepository.saveRoster(supabase, records, selectedSite)
       toast.success('Attendance records saved successfully')
       setIsDirty(false)
-      loadRoster()
-    } catch (error: any) {
-      toast.error(`Error saving attendance: ${error.message}`)
+      await loadRoster()
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      console.error('Attendance save failed:', message)
+      toast.error(`Error saving attendance: ${message}`)
     } finally {
       setSaving(false)
     }

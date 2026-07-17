@@ -5,9 +5,6 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/lib/theme-context'
 import { Sun, Moon } from 'lucide-react'
-import toast from 'react-hot-toast'
-import Link from 'next/link'
-
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -18,34 +15,40 @@ export default function LoginPage() {
   const supabase = createClient()
   const { theme, toggleTheme } = useTheme()
 
+  const resolvePostLoginPath = async (userId: string) => {
+    const { data: platformRow } = await supabase
+      .from('platform_roles')
+      .select('role')
+      .eq('user_id', userId)
+      .eq('role', 'platform_owner')
+      .maybeSingle()
+    return platformRow ? '/platform' : '/dashboard'
+  }
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        router.push('/dashboard')
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session?.user) {
+        const dest = await resolvePostLoginPath(session.user.id)
+        router.push(dest)
       } else {
         setCheckingSession(false)
       }
     })
-
-    // Show toast if redirected from register
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('registered')) {
-      toast.success('Organization registered successfully! Please log in.')
-      router.replace('/')
-    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      console.error('Login error detailed:', error.message)
-      setError(error.message)
+    const { data, error: signError } = await supabase.auth.signInWithPassword({ email, password })
+    if (signError) {
+      console.error('Login error detailed:', signError.message)
+      setError(signError.message)
       setLoading(false)
-    } else {
-      router.push('/dashboard')
+    } else if (data.user) {
+      const dest = await resolvePostLoginPath(data.user.id)
+      router.push(dest)
       router.refresh()
     }
   }
@@ -189,11 +192,8 @@ export default function LoginPage() {
             </button>
           </form>
           
-          <div style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.85rem' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Want to use MineOps for your company? </span>
-            <Link href="/register" style={{ color: 'var(--accent)', fontWeight: 600 }}>
-              Register here
-            </Link>
+          <div style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Need an organization account? Contact your MineOps platform operator.
           </div>
         </div>
 

@@ -57,7 +57,12 @@ For security, production credentials are not stored in source control. Access is
 - Email: `admin@mineops.com`
 - Password: `password123`
 
-Tenant self-registration requires `REGISTRATION_INVITE_CODE` on the server. Without it, `/api/auth/register-tenant` returns 403. The underlying `register_tenant` and `provision_user_access` RPCs are executable only by `service_role`.
+**Multi-tenant model**
+
+- Each mining company is an `organizations` row with its own tenant `admin`.
+- **Platform owner** (`platform_roles.platform_owner`) is a separate control-plane role: create orgs, set first admin passwords, enable/disable modules per org via `/platform`.
+- Public self-registration is **disabled**. Bootstrap the first platform owner (see `docs/platform_owner_bootstrap.md`), then provision customers from the platform console.
+- Tenant `admin` creates site managers / employees inside their org only.
 
 ---
 

@@ -16,7 +16,7 @@ import {
 function NavContent() {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, userRole, isAdmin, isSiteManager, isStakeholder, isSiteEmployee, isEmployee, organizationName } = useAuth()
+  const { user, isAdmin, isSiteManager, isStakeholder, isSiteEmployee, isEmployee, organizationName, hasFeature } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const supabase = createClient()
   const [showMoreMenu, setShowMoreMenu] = useState(false)
@@ -27,56 +27,54 @@ function NavContent() {
     router.push('/')
   }
 
-  // Build nav items based on role
-  const operationsNav = [
+  type NavItem = {
+    href: string
+    icon: typeof LayoutDashboard
+    label: string
+    roles: string[]
+    feature?: Parameters<typeof hasFeature>[0]
+  }
+
+  // Build nav items based on role + org feature entitlements
+  const operationsNav: NavItem[] = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'site_manager', 'stakeholder'] },
     { href: '/dashboard/my-work', icon: LayoutDashboard, label: 'Home', roles: ['employee', 'site_employee'] },
-    { href: '/dashboard/trips', icon: Truck, label: 'Trips', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/cash-book', icon: BookOpen, label: 'Cash Book', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/attendance', icon: Calendar, label: 'Attendance', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/leave', icon: FileText, label: 'Leave', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/payroll', icon: DollarSign, label: 'Payroll', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/reports', icon: TrendingUp, label: 'Reports', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/stakeholder', icon: TrendingUp, label: 'My Dashboard', roles: ['stakeholder'] },
+    { href: '/dashboard/trips', icon: Truck, label: 'Trips', roles: ['admin', 'site_manager'], feature: 'trips' },
+    { href: '/dashboard/cash-book', icon: BookOpen, label: 'Cash Book', roles: ['admin', 'site_manager'], feature: 'cash_book' },
+    { href: '/dashboard/attendance', icon: Calendar, label: 'Attendance', roles: ['admin', 'site_manager'], feature: 'attendance' },
+    { href: '/dashboard/leave', icon: FileText, label: 'Leave', roles: ['admin', 'site_manager'], feature: 'leave' },
+    { href: '/dashboard/payroll', icon: DollarSign, label: 'Payroll', roles: ['admin', 'site_manager'], feature: 'payroll' },
+    { href: '/dashboard/reports', icon: TrendingUp, label: 'Reports', roles: ['admin', 'site_manager'], feature: 'reports' },
+    { href: '/dashboard/stakeholder', icon: TrendingUp, label: 'My Dashboard', roles: ['stakeholder'], feature: 'stakeholder' },
   ]
 
-  const mgmtNav = [
-    { href: '/dashboard/manage-employees', icon: Users, label: 'Employees', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/settings', icon: Settings, label: 'Master Data', roles: ['admin'] },
-    { href: '/dashboard/users', icon: Shield, label: 'User Access', roles: ['admin'] },
+  const mgmtNav: NavItem[] = [
+    { href: '/dashboard/manage-employees', icon: Users, label: 'Employees', roles: ['admin', 'site_manager'], feature: 'manage_employees' },
+    { href: '/dashboard/settings', icon: Settings, label: 'Master Data', roles: ['admin'], feature: 'master_data' },
+    { href: '/dashboard/users', icon: Shield, label: 'User Access', roles: ['admin'], feature: 'users' },
   ]
 
-  const visibleOps = operationsNav.filter(item => {
-    return (
-      (isAdmin && item.roles.includes('admin')) ||
-      (isSiteManager && item.roles.includes('site_manager')) ||
-      (isStakeholder && item.roles.includes('stakeholder')) ||
-      ((isEmployee || isSiteEmployee) && item.roles.some(r => r === 'employee' || r === 'site_employee'))
-    )
-  })
+  const roleAllows = (item: NavItem) =>
+    (isAdmin && item.roles.includes('admin')) ||
+    (isSiteManager && item.roles.includes('site_manager')) ||
+    (isStakeholder && item.roles.includes('stakeholder')) ||
+    ((isEmployee || isSiteEmployee) && item.roles.some((r) => r === 'employee' || r === 'site_employee'))
 
-  const visibleMgmt = mgmtNav.filter(item => {
-    return (
-      (isAdmin && item.roles.includes('admin')) ||
-      (isSiteManager && item.roles.includes('site_manager')) ||
-      (isStakeholder && item.roles.includes('stakeholder'))
-    )
-  })
+  const featureAllows = (item: NavItem) => !item.feature || hasFeature(item.feature)
+
+  const visibleOps = operationsNav.filter((item) => roleAllows(item) && featureAllows(item))
+
+  const visibleMgmt = mgmtNav.filter((item) => roleAllows(item) && featureAllows(item))
 
   const drawerItems = [
-    { href: '/dashboard/attendance', icon: Calendar, label: 'Attendance', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/leave', icon: FileText, label: 'Leave', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/payroll', icon: DollarSign, label: 'Payroll', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/reports', icon: TrendingUp, label: 'Reports', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/manage-employees', icon: Users, label: 'Employees', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/settings', icon: Settings, label: 'Master Data', roles: ['admin'] },
-    { href: '/dashboard/users', icon: Shield, label: 'User Access', roles: ['admin'] },
-  ].filter(item => {
-    return (
-      (isAdmin && item.roles.includes('admin')) ||
-      (isSiteManager && item.roles.includes('site_manager'))
-    )
-  })
+    { href: '/dashboard/attendance', icon: Calendar, label: 'Attendance', roles: ['admin', 'site_manager'], feature: 'attendance' as const },
+    { href: '/dashboard/leave', icon: FileText, label: 'Leave', roles: ['admin', 'site_manager'], feature: 'leave' as const },
+    { href: '/dashboard/payroll', icon: DollarSign, label: 'Payroll', roles: ['admin', 'site_manager'], feature: 'payroll' as const },
+    { href: '/dashboard/reports', icon: TrendingUp, label: 'Reports', roles: ['admin', 'site_manager'], feature: 'reports' as const },
+    { href: '/dashboard/manage-employees', icon: Users, label: 'Employees', roles: ['admin', 'site_manager'], feature: 'manage_employees' as const },
+    { href: '/dashboard/settings', icon: Settings, label: 'Master Data', roles: ['admin'], feature: 'master_data' as const },
+    { href: '/dashboard/users', icon: Shield, label: 'User Access', roles: ['admin'], feature: 'users' as const },
+  ].filter((item) => roleAllows(item) && featureAllows(item))
 
   const roleColor = isAdmin ? 'var(--accent)' : isSiteManager ? 'var(--info)' : (isSiteEmployee || isEmployee) ? 'var(--success)' : 'var(--success)'
   

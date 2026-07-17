@@ -21,6 +21,7 @@ export type Database = {
           employee_id: string
           id: string
           marked_by: string | null
+          organization_id: string
           photo_url: string | null
           status: string
           updated_at: string | null
@@ -31,6 +32,7 @@ export type Database = {
           employee_id: string
           id?: string
           marked_by?: string | null
+          organization_id?: string
           photo_url?: string | null
           status?: string
           updated_at?: string | null
@@ -41,6 +43,7 @@ export type Database = {
           employee_id?: string
           id?: string
           marked_by?: string | null
+          organization_id?: string
           photo_url?: string | null
           status?: string
           updated_at?: string | null
@@ -51,6 +54,13 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -240,6 +250,7 @@ export type Database = {
           join_date: string | null
           leave_balance: number
           name: string
+          organization_id: string
           phone: string | null
           role: string
           site_id: string | null
@@ -255,6 +266,7 @@ export type Database = {
           join_date?: string | null
           leave_balance?: number
           name: string
+          organization_id?: string
           phone?: string | null
           role?: string
           site_id?: string | null
@@ -270,6 +282,7 @@ export type Database = {
           join_date?: string | null
           leave_balance?: number
           name?: string
+          organization_id?: string
           phone?: string | null
           role?: string
           site_id?: string | null
@@ -284,6 +297,13 @@ export type Database = {
             columns: ["site_id"]
             isOneToOne: false
             referencedRelation: "sites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employees_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -364,6 +384,41 @@ export type Database = {
           },
         ]
       }
+      organization_features: {
+        Row: {
+          enabled: boolean
+          feature_key: string
+          id: string
+          organization_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          enabled?: boolean
+          feature_key: string
+          id?: string
+          organization_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          enabled?: boolean
+          feature_key?: string
+          id?: string
+          organization_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "organization_features_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       organizations: {
         Row: {
           active: boolean
@@ -385,6 +440,30 @@ export type Database = {
           id?: string
           name?: string
           updated_at?: string | null
+        }
+        Relationships: []
+      }
+      platform_roles: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          role?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -904,6 +983,11 @@ export type Database = {
       get_user_organization_id: { Args: never; Returns: string }
       get_user_role: { Args: never; Returns: string }
       get_user_site_ids: { Args: never; Returns: string[] }
+      is_platform_owner: { Args: never; Returns: boolean }
+      seed_organization_features: {
+        Args: { p_organization_id: string }
+        Returns: undefined
+      }
       propagate_cash_book_balances: {
         Args: { p_site_id: string; p_start_date: string }
         Returns: undefined

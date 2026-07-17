@@ -1052,7 +1052,7 @@ FROM cash_books cb
 WHERE s.organization_id = get_user_organization_id()
 GROUP BY cb.id, cb.site_id, cb.book_date, cb.opening_balance, cb.closing_balance, s.organization_id;
 
-CREATE OR REPLACE VIEW public.org_users WITH (security_invoker = true) AS
+CREATE OR REPLACE VIEW public.org_users WITH (security_invoker = false) AS
 SELECT 
   u.id,
   u.email,
@@ -1062,6 +1062,9 @@ SELECT
   ur.organization_id
 FROM auth.users u
 JOIN public.user_roles ur ON u.id = ur.user_id;
+
+GRANT SELECT ON public.org_users TO authenticated;
+GRANT SELECT ON public.org_users TO service_role;
 
 -- ------------------------------------------
 -- 5. Row Level Security (RLS) Policies

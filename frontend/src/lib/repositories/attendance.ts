@@ -10,16 +10,28 @@ export interface RosterEmployee extends Employee {
   uploading: boolean
 }
 
+type AttendanceStatus = RosterEmployee['status']
+
+function normalizeStatus(status: string | null | undefined): AttendanceStatus {
+  if (status === 'present' || status === 'absent' || status === 'half-day' || status === 'leave') {
+    return status
+  }
+  return 'present'
+}
+
 export const attendanceRepository = {
   async listRoster(
     supabase: SupabaseClient<Database>,
     siteId: string,
     date: string
   ): Promise<RosterEmployee[]> {
-    // Get employees filtered by siteId
+    if (!siteId) return []
+
     const { data: employees, error: empError } = await supabase
       .from('employees')
-      .select('id, name, role, wage_type, wage_rate, site_id, phone, active, join_date, created_at, updated_at, leave_balance, user_id')
+      .select(
+        'id, name, role, wage_type, wage_rate, site_id, phone, active, join_date, created_at, updated_at, leave_balance, user_id, organization_id'
+      )
       .eq('active', true)
       .eq('site_id', siteId)
       .order('name')
@@ -27,47 +39,46 @@ export const attendanceRepository = {
 
     if (empError) throw empError
 
-    // Get existing attendance
-    const empIds = (employees || []).map(e => e.id)
-    const { data: att, error: attError } = empIds.length > 0
-      ? await supabase
-          .from('attendance')
-          .select('*')
-          .in('employee_id', empIds)
-          .eq('att_date', date)
-          .limit(1000)
-      : { data: [], error: null }
+    const empIds = (employees || []).map((e) => e.id)
+    const { data: att, error: attError } =
+      empIds.length > 0
+        ? await supabase
+            .from('attendance')
+            .select('*')
+            .in('employee_id', empIds)
+            .eq('att_date', date)
+            .limit(1000)
+        : { data: [] as Database['public']['Tables']['attendance']['Row'][], error: null }
 
     if (attError) throw attError
 
-    const attMap = Object.fromEntries((att || []).map(a => [a.employee_id, a]))
+    const attMap = Object.fromEntries((att || []).map((a) => [a.employee_id, a]))
 
-    // Map roster and dynamically generate signed URL
-    const rosterData = await Promise.all((employees || []).map(async (emp) => {
-      const dbRecord = attMap[emp.id]
-      let displayPhotoUrl = null
-      if (dbRecord?.photo_url) {
-        let path = dbRecord.photo_url
-        if (path.includes('attendance-photos/')) {
-          path = path.split('attendance-photos/').pop() || path
+    const rosterData = await Promise.all(
+      (employees || []).map(async (emp) => {
+        const dbRecord = attMap[emp.id]
+        let displayPhotoUrl: string | null = null
+        if (dbRecord?.photo_url) {
+          let path = dbRecord.photo_url
+          if (path.includes('attendance-photos/')) {
+            path = path.split('attendance-photos/').pop() || path
+          }
+          const { data: signedData } = await supabase.storage
+            .from('attendance-photos')
+            .createSignedUrl(path, 3600)
+          displayPhotoUrl = signedData?.signedUrl || null
         }
-        const { data: signedData } = await supabase.storage
-          .from('attendance-photos')
-          .createSignedUrl(path, 3600)
-        displayPhotoUrl = signedData?.signedUrl || dbRecord.photo_url
-      }
 
-      return {
-        ...emp,
-        att_id: dbRecord?.id || null,
-        status: (['present', 'absent', 'half-day', 'leave'].includes(dbRecord?.status || '')
-          ? dbRecord!.status
-          : 'present') as RosterEmployee['status'],
-        photo_url: dbRecord?.photo_url || null,
-        display_photo_url: displayPhotoUrl,
-        uploading: false,
-      }
-    }))
+        return {
+          ...emp,
+          att_id: dbRecord?.id || null,
+          status: normalizeStatus(dbRecord?.status),
+          photo_url: dbRecord?.photo_url || null,
+          display_photo_url: displayPhotoUrl,
+          uploading: false,
+        } as RosterEmployee
+      })
+    )
 
     return rosterData
   },
@@ -77,31 +88,80 @@ export const attendanceRepository = {
     records: Array<{
       employee_id: string
       att_date: string
-      status: 'present' | 'absent' | 'half-day' | 'leave'
+      status: AttendanceStatus
       photo_url: string | null
     }>,
     siteId: string
   ): Promise<void> {
-    const empIds = records.map(r => r.employee_id)
-    if (empIds.length > 0) {
-      // Verify all employee_ids belong to this site before writing
-      const { data: valid, error: validError } = await supabase
-        .from('employees')
-        .select('id')
-        .in('id', empIds)
-        .eq('site_id', siteId)
+    if (!siteId) throw new Error('Site is required to save attendance')
+    if (records.length === 0) return
 
-      if (validError) throw validError
+    // Resolve organization_id from the site — required NOT NULL + RLS WITH CHECK
+    const { data: site, error: siteError } = await supabase
+      .from('sites')
+      .select('id, organization_id')
+      .eq('id', siteId)
+      .maybeSingle()
 
-      const validIds = new Set((valid || []).map(e => e.id))
-      const safeRecords = records.filter(r => validIds.has(r.employee_id))
-
-      if (safeRecords.length > 0) {
-        const { error } = await supabase
-          .from('attendance')
-          .upsert(safeRecords, { onConflict: 'employee_id,att_date' })
-        if (error) throw error
-      }
+    if (siteError) throw siteError
+    if (!site?.organization_id) {
+      throw new Error('Site is missing organization_id — cannot save attendance')
     }
-  }
+
+    const empIds = records.map((r) => r.employee_id)
+    const { data: valid, error: validError } = await supabase
+      .from('employees')
+      .select('id, organization_id, site_id')
+      .in('id', empIds)
+      .eq('site_id', siteId)
+
+    if (validError) throw validError
+
+    const validById = new Map((valid || []).map((e) => [e.id, e]))
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    const safeRecords = records
+      .filter((r) => validById.has(r.employee_id))
+      .map((r) => {
+        const emp = validById.get(r.employee_id)!
+        return {
+          employee_id: r.employee_id,
+          att_date: r.att_date,
+          status: r.status,
+          photo_url: r.photo_url,
+          // Explicit org stamp so RLS WITH CHECK (organization_id = get_user_organization_id())
+          // succeeds even if the BEFORE INSERT trigger is missing on a partial migrate.
+          organization_id: emp.organization_id || site.organization_id,
+          marked_by: user?.id ?? null,
+        }
+      })
+
+    if (safeRecords.length === 0) {
+      throw new Error('No valid employees at this site to save attendance for')
+    }
+
+    // Upsert on unique (employee_id, att_date). Prefer explicit columns only.
+    const { error } = await supabase.from('attendance').upsert(safeRecords, {
+      onConflict: 'employee_id,att_date',
+      ignoreDuplicates: false,
+    })
+
+    if (error) {
+      // Surface common production failures clearly
+      const msg = error.message || 'Unknown database error'
+      if (msg.includes('row-level security') || msg.includes('RLS') || error.code === '42501') {
+        throw new Error(
+          `Permission denied saving attendance (RLS). Ensure your role is admin/site_manager for this site and organization_id is set. Details: ${msg}`
+        )
+      }
+      if (msg.includes('organization_id') || error.code === '23502') {
+        throw new Error(
+          `Attendance save failed: organization_id required. Re-run migrations 031+ or ensure employees/sites have organization_id. Details: ${msg}`
+        )
+      }
+      throw error
+    }
+  },
 }
