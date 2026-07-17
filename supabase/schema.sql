@@ -700,6 +700,151 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
+REVOKE ALL ON FUNCTION public.register_tenant(text, uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.register_tenant(text, uuid) FROM anon;
+REVOKE ALL ON FUNCTION public.register_tenant(text, uuid) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.register_tenant(text, uuid) TO service_role;
+
+-- RPC: Atomic user provisioning (role + stakeholder + employee) after Auth create
+CREATE OR REPLACE FUNCTION public.provision_user_access(
+  p_user_id uuid,
+  p_role text,
+  p_organization_id uuid,
+  p_site_id uuid DEFAULT NULL,
+  p_share_percent numeric DEFAULT 50,
+  p_employee_link_mode text DEFAULT 'none',
+  p_employee_id uuid DEFAULT NULL,
+  p_employee_name text DEFAULT NULL,
+  p_employee_phone text DEFAULT NULL,
+  p_employee_wage_type text DEFAULT 'monthly',
+  p_employee_wage_rate numeric DEFAULT 0
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_site_org uuid;
+  v_emp_org uuid;
+BEGIN
+  IF p_user_id IS NULL THEN
+    RAISE EXCEPTION 'User ID is required' USING ERRCODE = 'check_violation';
+  END IF;
+  IF p_organization_id IS NULL THEN
+    RAISE EXCEPTION 'Organization ID is required' USING ERRCODE = 'check_violation';
+  END IF;
+  IF p_role IS NULL OR p_role NOT IN ('admin', 'site_manager', 'stakeholder', 'employee', 'site_employee') THEN
+    RAISE EXCEPTION 'Invalid role: %', p_role USING ERRCODE = 'check_violation';
+  END IF;
+  IF p_role <> 'admin' AND p_site_id IS NULL THEN
+    RAISE EXCEPTION 'A site is required for non-admin roles' USING ERRCODE = 'check_violation';
+  END IF;
+
+  IF p_site_id IS NOT NULL THEN
+    SELECT organization_id INTO v_site_org FROM public.sites WHERE id = p_site_id;
+    IF v_site_org IS NULL OR v_site_org IS DISTINCT FROM p_organization_id THEN
+      RAISE EXCEPTION 'Site does not belong to the organization' USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+
+  INSERT INTO public.user_roles (user_id, role, site_id, organization_id)
+  VALUES (p_user_id, p_role, p_site_id, p_organization_id);
+
+  IF p_role = 'stakeholder' AND p_site_id IS NOT NULL THEN
+    INSERT INTO public.stakeholder_site_access (stakeholder_user_id, site_id, share_percent, organization_id)
+    VALUES (p_user_id, p_site_id, COALESCE(p_share_percent, 50), p_organization_id);
+  END IF;
+
+  IF p_role IN ('employee', 'site_employee')
+     AND p_employee_link_mode IS NOT NULL
+     AND p_employee_link_mode <> 'none' THEN
+    IF p_employee_link_mode = 'link' THEN
+      IF p_employee_id IS NULL THEN
+        RAISE EXCEPTION 'employee_id is required when linking an employee' USING ERRCODE = 'check_violation';
+      END IF;
+      SELECT organization_id INTO v_emp_org FROM public.employees WHERE id = p_employee_id;
+      IF v_emp_org IS NULL OR v_emp_org IS DISTINCT FROM p_organization_id THEN
+        RAISE EXCEPTION 'Cannot link employee: employee does not belong to your organization' USING ERRCODE = 'check_violation';
+      END IF;
+      UPDATE public.employees SET user_id = p_user_id WHERE id = p_employee_id;
+    ELSIF p_employee_link_mode = 'create' THEN
+      IF p_employee_name IS NULL OR length(trim(p_employee_name)) < 1 OR p_site_id IS NULL THEN
+        RAISE EXCEPTION 'employee_name and site_id are required when creating an employee' USING ERRCODE = 'check_violation';
+      END IF;
+      INSERT INTO public.employees (
+        name, phone, role, site_id, wage_type, wage_rate, user_id, active, leave_balance, organization_id
+      ) VALUES (
+        trim(p_employee_name),
+        NULLIF(trim(COALESCE(p_employee_phone, '')), ''),
+        'Site Employee',
+        p_site_id,
+        COALESCE(NULLIF(p_employee_wage_type, ''), 'monthly'),
+        COALESCE(p_employee_wage_rate, 0),
+        p_user_id,
+        true,
+        0,
+        p_organization_id
+      );
+    ELSE
+      RAISE EXCEPTION 'Invalid employee_link_mode: %', p_employee_link_mode USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.provision_user_access(
+  uuid, text, uuid, uuid, numeric, text, uuid, text, text, text, numeric
+) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.provision_user_access(
+  uuid, text, uuid, uuid, numeric, text, uuid, text, text, text, numeric
+) FROM anon;
+REVOKE ALL ON FUNCTION public.provision_user_access(
+  uuid, text, uuid, uuid, numeric, text, uuid, text, text, text, numeric
+) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.provision_user_access(
+  uuid, text, uuid, uuid, numeric, text, uuid, text, text, text, numeric
+) TO service_role;
+
+-- Atomic payroll finalization (see migration 034)
+CREATE OR REPLACE FUNCTION public.finalize_payroll_run(p_run_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_status text;
+  v_site_id uuid;
+  v_org_id uuid;
+  v_role text;
+BEGIN
+  SELECT status, site_id, organization_id INTO v_status, v_site_id, v_org_id
+  FROM public.payroll_runs WHERE id = p_run_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Payroll run not found'; END IF;
+  IF v_status = 'finalized' THEN RAISE EXCEPTION 'Payroll has already been finalized'; END IF;
+  IF v_status IS DISTINCT FROM 'draft' THEN RAISE EXCEPTION 'Only draft payroll runs can be finalized'; END IF;
+  v_role := public.get_user_role();
+  IF v_role = 'admin' THEN
+    IF v_org_id IS DISTINCT FROM public.get_user_organization_id() THEN
+      RAISE EXCEPTION 'Forbidden: payroll run is outside your organization';
+    END IF;
+  ELSIF v_role = 'site_manager' THEN
+    IF NOT (v_site_id = ANY (public.get_user_site_ids())) THEN
+      RAISE EXCEPTION 'Forbidden: payroll run is outside your site scope';
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'Forbidden: only admin or site_manager can finalize payroll';
+  END IF;
+  UPDATE public.payroll_runs SET status = 'finalized', updated_at = now()
+  WHERE id = p_run_id AND status = 'draft';
+  IF NOT FOUND THEN RAISE EXCEPTION 'Failed to finalize payroll run (race lost)'; END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.finalize_payroll_run(uuid) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.finalize_payroll_run(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.finalize_payroll_run(uuid) TO service_role;
+
 -- Trigger Function: Auto-populate child organization_id based on parent relations
 CREATE OR REPLACE FUNCTION public.set_child_organization_id()
 RETURNS trigger AS $$
@@ -1102,3 +1247,6 @@ CREATE INDEX IF NOT EXISTS idx_attendance_org ON public.attendance (organization
 CREATE INDEX IF NOT EXISTS idx_leave_applications_org ON public.leave_applications (organization_id);
 CREATE INDEX IF NOT EXISTS idx_payroll_runs_org ON public.payroll_runs (organization_id);
 CREATE INDEX IF NOT EXISTS idx_payroll_lines_org ON public.payroll_lines (organization_id);
+
+-- See migrations/034_atomic_finalize_and_leave_balance.sql for finalize_payroll_run + updated approve_leave_application
+

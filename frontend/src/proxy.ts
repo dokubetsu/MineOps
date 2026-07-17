@@ -2,22 +2,9 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { Database } from './lib/supabase/database.types'
 
-// Routes that stakeholders are NOT allowed to access
-const STAKEHOLDER_BLOCKED_PREFIXES = [
-  '/dashboard/trips',
-  '/dashboard/cash-book',
-  '/dashboard/attendance',
-  '/dashboard/leave',
-  '/dashboard/payroll',
-  '/dashboard/reports',
-  '/dashboard/manage-employees',
-  '/dashboard/settings',
-  '/dashboard/users',
-]
-
-// NOTE: This is an in-memory Map rate limiter for admin API routes. 
-// On Vercel or other serverless runtimes, state is not shared across instances 
-// and will reset on cold starts. For production hardening, use Supabase Auth 
+// NOTE: This is an in-memory Map rate limiter for admin API routes.
+// On Vercel or other serverless runtimes, state is not shared across instances
+// and will reset on cold starts. For production hardening, use Supabase Auth
 // built-in rate limits and/or Cloudflare/WAF level rate limiters.
 const rateLimitCache = new Map<string, { count: number; resetTime: number }>()
 
@@ -37,7 +24,15 @@ function isRateLimited(ip: string, limit: number, windowMs: number): boolean {
   return false
 }
 
-export async function middleware(request: NextRequest) {
+function clientIp(request: NextRequest): string {
+  return (
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    request.headers.get('x-real-ip') ||
+    '127.0.0.1'
+  )
+}
+
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -48,7 +43,7 @@ export async function middleware(request: NextRequest) {
 
   // ── Rate Limiting for Admin and Registration API routes ─────────────────────────────────
   if (request.nextUrl.pathname.startsWith('/api/admin/') || request.nextUrl.pathname === '/api/auth/register-tenant') {
-    const ip = (request as any).ip || request.headers.get('x-forwarded-for') || '127.0.0.1'
+    const ip = clientIp(request)
     // Rate limit: Max 60 requests per 1 minute
     if (isRateLimited(ip, 60, 60 * 1000)) {
       return NextResponse.json(
@@ -93,17 +88,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl)
   }
 
-
-
   // ── 3. Role-based route guard for authenticated users ───────────────────
+  // Trust JWT app_metadata first (synced by DB trigger). Fall back to a DB
+  // lookup. NEVER trust a client-settable cookie for authorization.
   if (user && request.nextUrl.pathname.startsWith('/dashboard')) {
     const pathname = request.nextUrl.pathname
 
-    // Attempt to get user role from app_metadata (JWT claims), falling back to cookie
-    let role = (user.app_metadata?.role as string) || request.cookies.get('user-role')?.value || null
+    let role = (user.app_metadata?.role as string) || null
 
     if (!role) {
-      // Fallback: Fetch all roles of the user from DB to check priority
       const { data: roleRows } = await supabase
         .from('user_roles')
         .select('role')

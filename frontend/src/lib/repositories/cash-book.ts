@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
 import { CashBook, CashEntry } from '../supabase/types'
+import { calculateClosingBalance } from '../calculations'
 
 export const cashBookRepository = {
   async getOrCreate(supabase: SupabaseClient<Database>, siteId: string, date: string): Promise<CashBook> {
@@ -110,10 +111,10 @@ export const cashBookRepository = {
     return newStatus
   },
 
-  async getBalances(supabase: SupabaseClient<Database>, cashBookId: string): Promise<{ totalIn: number; totalOut: number }> {
+  async getBalances(supabase: SupabaseClient<Database>, cashBookId: string): Promise<{ totalIn: number; totalOut: number; closing: number }> {
     const { data, error } = await supabase
       .from('cash_entries')
-      .select('entry_type, amount')
+      .select('entry_type, amount, active')
       .eq('cash_book_id', cashBookId)
       .eq('active', true)
 
@@ -125,7 +126,25 @@ export const cashBookRepository = {
       if (e.entry_type === 'in') totalIn += Number(e.amount)
       else if (e.entry_type === 'out') totalOut += Number(e.amount)
     }
-    return { totalIn, totalOut }
+
+    // Opening balance from parent cash book (for offline parity with calculateClosingBalance)
+    const { data: book } = await supabase
+      .from('cash_books')
+      .select('opening_balance')
+      .eq('id', cashBookId)
+      .maybeSingle()
+
+    const opening = Number(book?.opening_balance) || 0
+    const closing = calculateClosingBalance(
+      opening,
+      (data || []).map((e) => ({
+        entry_type: e.entry_type as 'in' | 'out',
+        amount: Number(e.amount),
+        active: e.active !== false,
+      }))
+    )
+
+    return { totalIn, totalOut, closing }
   },
 
   async updateReceiptUrl(supabase: SupabaseClient<Database>, id: string, receiptUrl: string | null): Promise<void> {

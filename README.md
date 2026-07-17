@@ -4,96 +4,124 @@ A mobile-first full-stack PWA web application designed to digitize manual mine r
 
 ---
 
-## 🛠️ Architecture & Technology Stack
+## Architecture & Technology Stack
 
-MineOps has transitioned to a streamlined architecture (Option A: client-to-database backend-less model) to reduce duplicate logic and technical debt:
+MineOps uses a streamlined architecture (Option A: client-to-database backend-less model) to reduce duplicate logic and technical debt:
 
 | Component | Technology | Purpose / Role |
 |---|---|---|
 | **Frontend & Server Routes** | Next.js 16 (App Router) + TypeScript + CSS Modules | Mobile-first responsive UI, PWA features, offline readiness, and server routes for secure admin actions |
-| **Database & Calculations** | PostgreSQL (via Supabase) | Persistent storage, relational constraints, triggers, and views |
+| **Database & Calculations** | PostgreSQL (via Supabase) | Persistent storage, relational constraints, triggers, views, and SECURITY DEFINER RPCs |
 | **Auth** | Supabase Auth | Session tracking and secure JWT-based verification |
-| **Storage** | Supabase Storage | Image buckets for trip slips and worker photo evidence |
-| **Styling** | Vanilla CSS (Dark & Light modes supported) | Sleek, modern theme with native UI elements |
+| **Storage** | Supabase Storage | Private image buckets for trip slips, cash receipts, and attendance evidence |
+| **Styling** | Vanilla CSS (Dark & Light modes supported) | Theme with native UI elements |
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 ├── frontend/              # Next.js 16 React application
 │   ├── src/
-│   │   ├── app/           # App router page folders and API route handlers
-│   │   └── lib/           
+│   │   ├── app/           # App router pages and API route handlers
+│   │   └── lib/
+│   │       ├── calculations.ts   # Pure business math (payroll, cash, shares)
+│   │       ├── offline-cache.ts  # TTL + org/user-scoped offline cache
 │   │       └── supabase/
-│   │           └── database.types.ts  # Supabase typed schemas
-│   ├── tests/e2e/         # Playwright integration flows
-│   ├── playwright.config.ts # Playwright settings
-│   ├── vercel.json        # Vercel deployment configurations
-│   └── package.json       # Node dependencies and scripts
+│   │           └── database.types.ts
+│   ├── tests/e2e/         # Playwright unit + integration flows
+│   ├── playwright.config.ts
+│   └── package.json
 │
-└── .github/               # CI/CD Workflows
-    └── workflows/ci.yml   # GitHub Actions validation check
+├── supabase/
+│   ├── migrations/        # Ordered SQL migrations (000–033+)
+│   ├── seed.sql           # Local demo org, sites, employees, admin user
+│   └── config.toml
+│
+└── .github/workflows/ci.yml
 ```
 
 ---
 
-## 🔑 Application Authentication & Users
+## Application Authentication & Users
 
-For security, login credentials are not stored in source control. Access controls are managed dynamically:
-- **Admin**: Configure an admin account via Supabase Auth and map it to `role = 'admin'` in the `user_roles` table.
-- **Site Manager**: Configure accounts mapped to `role = 'site_manager'` with specific `site_id` scopes.
-- **Stakeholder**: Configure read-only stakeholder accounts with specific revenue share allocations mapped via `stakeholder_site_access`.
+For security, production credentials are not stored in source control. Access is managed via Supabase Auth + `user_roles`:
+
+- **Admin**: `role = 'admin'` in `user_roles` (full tenant control)
+- **Site Manager**: `role = 'site_manager'` with `site_id` scope
+- **Stakeholder**: read-only revenue views via `stakeholder_site_access`
+- **Employee / Site Employee**: workforce self-service surfaces
+
+**Local / E2E demo admin** (seeded + Playwright global-setup):
+
+- Email: `admin@mineops.com`
+- Password: `password123`
+
+Tenant self-registration requires `REGISTRATION_INVITE_CODE` on the server. Without it, `/api/auth/register-tenant` returns 403. The underlying `register_tenant` and `provision_user_access` RPCs are executable only by `service_role`.
 
 ---
 
-## 🏗️ Getting Started
+## Getting Started
 
 ### 1. Database Setup
-Ensure that the Supabase SQL database schema is initialized. Nine database migrations have been successfully applied covering:
-1. **Master Tables**: `sites`, `transport_contractors`, `vehicles`, `drivers`, `employees`.
-2. **Operations**: `trips`, `cash_books`, `cash_entries` (with 16 category triggers).
-3. **Workforce**: `attendance`, `leave_applications`, `payroll_runs` + `payroll_lines`.
-4. **Access Rights**: `user_roles`, `stakeholder_site_access`, and views like `stakeholder_daily_summary`.
-5. **Storage buckets**: `trip-photos` and `attendance-photos` buckets for evidence files.
-6. **Robust Triggers & Constraints**: Unique constraints, check constraints, audit triggers, and performance indexes.
-7. **Storage Buckets Security**: Configuring private storage buckets and blocking delete operations on finalized payroll runs.
-8. **Schema Pruning & Cascades**: Dropping dead columns/tables and enforcing referential integrity (ON DELETE CASCADE/SET NULL) constraints.
-9. **Site Delete Restrictions**: Protecting database records against accidental deletion cascades via ON DELETE RESTRICT on site foreign keys.
 
-### 2. Run the Frontend (Next.js)
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
-2. Copy the environment variables template and configure your values (ensure `SUPABASE_SERVICE_ROLE_KEY` is set for server-side user provision):
-   ```bash
-   cp .env.example .env.local
-   ```
-3. Install dependencies:
-   ```bash
-   npm install
-   ```
-4. Start the local server:
-   ```bash
-   npm run dev
-   # → Accessible on http://localhost:3000
-   ```
+Apply all Supabase migrations (currently through **`034_atomic_finalize_and_leave_balance.sql`**, covering master tables, multi-tenant RLS, storage, payroll locks, JWT claim sync, register/provision lockdown, atomic payroll finalize, leave balance deduction, and more):
 
----
-
-## 🧪 Running Tests
-
-### Frontend Checks
-Run linter and TypeScript compiler validation:
 ```bash
-cd frontend
-npm run test
+# From repo root — requires Docker + Supabase CLI
+supabase start
+# or against a linked project:
+supabase db push
 ```
 
+Local seed (`supabase/seed.sql`) creates a demo organization, sites, employees, vehicles, and the E2E admin user.
+
+### 2. Run the Frontend (Next.js)
+
+```bash
+cd frontend
+cp .env.example .env.local   # set Supabase URL, anon key, service role key
+npm install
+npm run dev
+# → http://localhost:3000
+```
+
+Recommended env for local:
+
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser client key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only admin routes / E2E setup |
+| `REGISTRATION_INVITE_CODE` | Required to enable tenant registration |
+| `REGISTRATION_DISABLED` | Set `true` to force-disable registration |
+
 ---
 
-## 🚀 CI/CD & Deployments
+## Running Tests
 
-- **CI/CD Checks**: Run automatically via GitHub Actions on push or pull request to the `main` branch.
-- **Frontend Hosting**: Optimized to deploy seamlessly to **Vercel** out-of-the-box (using Root Directory `frontend` inside the Vercel Dashboard).
+```bash
+cd frontend
+npm run lint          # ESLint (generated PWA assets excluded)
+npm run test          # TypeScript --noEmit
+npm run audit:prod    # npm audit --omit=dev
+npm run build
+npm run test:e2e      # Playwright (global-setup seeds admin via service role)
+```
+
+Calculation unit cases import `src/lib/calculations.ts` so tests track production payroll proration and cash-balance math.
+
+---
+
+## CI/CD & Deployments
+
+- **CI**: GitHub Actions on push/PR to `main` — lint, production audit, typecheck, build, Playwright e2e against local Supabase.
+- **Frontend Hosting**: Vercel (root directory `frontend`). See `docs/vercel_deployment_guide.md`.
+
+---
+
+## Security notes
+
+- Admin user creation is atomic: Auth user + `provision_user_access` RPC; Auth is rolled back on any failure (no partial 207 users).
+- Offline cache is user/org namespaced with TTL; signed URLs are never stored; cache is purged on logout.
+- Production CSP drops `unsafe-eval` and localhost Supabase endpoints; development keeps them for local stacks.

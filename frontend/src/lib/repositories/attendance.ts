@@ -60,7 +60,9 @@ export const attendanceRepository = {
       return {
         ...emp,
         att_id: dbRecord?.id || null,
-        status: (dbRecord?.status as any) || 'present',
+        status: (['present', 'absent', 'half-day', 'leave'].includes(dbRecord?.status || '')
+          ? dbRecord!.status
+          : 'present') as RosterEmployee['status'],
         photo_url: dbRecord?.photo_url || null,
         display_photo_url: displayPhotoUrl,
         uploading: false,

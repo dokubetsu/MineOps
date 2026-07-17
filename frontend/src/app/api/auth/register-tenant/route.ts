@@ -10,10 +10,19 @@ const registerTenantSchema = z.object({
 })
 
 export async function POST(req: NextRequest) {
-  // Check if registration is explicitly disabled
+  // Public registration is disabled unless an invite code is configured.
+  // Optionally force-disable even when an invite is set.
   if (process.env.REGISTRATION_DISABLED === 'true') {
     return NextResponse.json(
       { error: 'Public registration is currently disabled.' },
+      { status: 403 }
+    )
+  }
+
+  const requiredInviteCode = process.env.REGISTRATION_INVITE_CODE?.trim()
+  if (!requiredInviteCode) {
+    return NextResponse.json(
+      { error: 'Public registration is disabled. An invite code must be configured.' },
       { status: 403 }
     )
   }
@@ -35,22 +44,23 @@ export async function POST(req: NextRequest) {
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
-  let body: any
+  let body: unknown
   try {
     body = await req.json()
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Invalid JSON request body' }, { status: 400 })
   }
 
-  // Verify invite code if required by the environment
-  const requiredInviteCode = process.env.REGISTRATION_INVITE_CODE
-  if (requiredInviteCode && requiredInviteCode.trim() !== '') {
-    if (!body?.inviteCode || body.inviteCode !== requiredInviteCode) {
-      return NextResponse.json(
-        { error: 'A valid registration invite code is required.' },
-        { status: 403 }
-      )
-    }
+  const inviteFromBody =
+    body && typeof body === 'object' && 'inviteCode' in body
+      ? String((body as { inviteCode?: unknown }).inviteCode ?? '')
+      : ''
+
+  if (inviteFromBody !== requiredInviteCode) {
+    return NextResponse.json(
+      { error: 'A valid registration invite code is required.' },
+      { status: 403 }
+    )
   }
 
   const result = registerTenantSchema.safeParse(body)
@@ -92,8 +102,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, organization_id: orgId, user_id: userId }, { status: 201 })
 
-  } catch (error: any) {
-    console.error('Registration failed, rolling back:', error.message)
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Registration failed'
+    console.error('Registration failed, rolling back:', message)
 
     // Only need to clean up the auth user — the RPC either fully succeeded or fully rolled back
     if (userId) {
@@ -104,6 +115,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

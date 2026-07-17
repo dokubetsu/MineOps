@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { AuthProvider, useAuth } from '@/lib/auth-context'
 import { useTheme } from '@/lib/theme-context'
+import { clearOfflineCache } from '@/lib/offline-cache'
 import {
   LayoutDashboard, Truck, BookOpen, Users, Calendar,
   DollarSign, Settings, LogOut, TrendingUp, FileText,
@@ -21,6 +22,7 @@ function NavContent() {
   const [showMoreMenu, setShowMoreMenu] = useState(false)
 
   const handleLogout = async () => {
+    clearOfflineCache()
     await supabase.auth.signOut()
     router.push('/')
   }

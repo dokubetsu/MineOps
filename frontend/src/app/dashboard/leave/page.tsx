@@ -6,7 +6,8 @@ import { format } from 'date-fns'
 import { Plus, Check, X, Clock } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
-import { Site, Employee } from '@/lib/supabase/types'
+import { Site } from '@/lib/supabase/types'
+import { leaveDaysBetween } from '@/lib/calculations'
 import toast from 'react-hot-toast'
 
 interface LeaveApplication {
@@ -102,16 +103,12 @@ export default function LeavePage() {
     e.preventDefault()
     setSubmitting(true)
 
-    const fromD = new Date(form.from_date)
-    const toD = new Date(form.to_date)
-    
-    if (fromD > toD) {
+    const diffDays = leaveDaysBetween(form.from_date, form.to_date)
+    if (diffDays < 1) {
       toast.error('From Date must be less than or equal to To Date')
       setSubmitting(false)
       return
     }
-
-    const diffDays = Math.round((toD.getTime() - fromD.getTime()) / 86400000) + 1
     if (diffDays > 30) {
       toast.error('Leave duration cannot exceed 30 days per application')
       setSubmitting(false)

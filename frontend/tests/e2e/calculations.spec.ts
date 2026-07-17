@@ -1,39 +1,16 @@
 import { test, expect } from '@playwright/test'
+import {
+  calculateClosingBalance,
+  computePayrollWage,
+  calculateStakeholderShare,
+  calendarDaysInRange,
+  leaveDaysBetween,
+  applyLeaveBalance,
+  computeTripWorthFromRate,
+  computeTripWorth,
+} from '../../src/lib/calculations'
 
-// 1. Closing Balance calculation logic test
-function calculateClosingBalance(openingBalance: number, entries: Array<{ entry_type: 'in' | 'out'; amount: number; active: boolean }>) {
-  const activeEntries = entries.filter(e => e.active !== false)
-  const totalIn = activeEntries.filter(e => e.entry_type === 'in').reduce((sum, e) => sum + e.amount, 0)
-  const totalOut = activeEntries.filter(e => e.entry_type === 'out').reduce((sum, e) => sum + e.amount, 0)
-  return openingBalance + totalIn - totalOut
-}
-
-// 2. Payroll Wage computation logic test
-interface EmployeeWageConfig {
-  wage_type: 'daily' | 'monthly'
-  wage_rate: number
-}
-interface AttendanceCounts {
-  present: number
-  halfDay: number
-  leave: number
-  absent: number
-}
-function computePayrollWage(emp: EmployeeWageConfig, att: AttendanceCounts) {
-  if (emp.wage_type === 'monthly') {
-    return emp.wage_rate
-  }
-  const computed = (att.present + att.halfDay * 0.5 + att.leave) * emp.wage_rate
-  return Math.round((computed + 1e-9) * 100) / 100
-}
-
-// 3. Stakeholder Share calculation logic test
-function calculateStakeholderShare(net: number, sharePercent: number) {
-  return Math.round((net * sharePercent) / 100)
-}
-
-test.describe('Business Calculations Unit Tests', () => {
-  
+test.describe('Business Calculations (shared module)', () => {
   test('should accurately calculate daily cash book closing balance including soft-deletes filtering', () => {
     const openingBalance = 10000
     const entries = [
@@ -49,20 +26,32 @@ test.describe('Business Calculations Unit Tests', () => {
   })
 
   test('should accurately compute payroll wages for daily employees', () => {
-    const emp: EmployeeWageConfig = { wage_type: 'daily', wage_rate: 600 }
-    const att: AttendanceCounts = { present: 20, halfDay: 4, leave: 2, absent: 0 }
+    const emp = { wage_type: 'daily' as const, wage_rate: 600 }
+    const att = { present: 20, halfDay: 4, leave: 2, absent: 0 }
 
     const wage = computePayrollWage(emp, att)
     // (20 + 4 * 0.5 + 2) * 600 = 24 * 600 = 14400
     expect(wage).toBe(14400)
   })
 
-  test('should compute fixed monthly rate for monthly employees regardless of attendance days', () => {
-    const emp: EmployeeWageConfig = { wage_type: 'monthly', wage_rate: 25000 }
-    const att: AttendanceCounts = { present: 10, halfDay: 2, leave: 10, absent: 5 }
+  test('should prorate monthly employees for absences and half-days', () => {
+    const emp = { wage_type: 'monthly' as const, wage_rate: 25000 }
+    const att = { present: 10, halfDay: 2, leave: 10, absent: 5 }
+    // 30-day period: 1 - (5 + 1) / 30 = 24/30 → 20000
+    const wage = computePayrollWage(emp, att, 30)
+    expect(wage).toBe(20000)
+  })
 
-    const wage = computePayrollWage(emp, att)
-    expect(wage).toBe(25000)
+  test('should use calendar days in period for monthly proration', () => {
+    const periodStart = new Date(2026, 1, 1) // Feb 2026 (non-leap)
+    const periodEnd = new Date(2026, 1, 28)
+    const days = calendarDaysInRange(periodStart, periodEnd)
+    expect(days).toBe(28)
+
+    const emp = { wage_type: 'monthly' as const, wage_rate: 28000 }
+    const att = { present: 20, halfDay: 0, leave: 0, absent: 2 }
+    // 1 - 2/28 = 26/28 → 26000
+    expect(computePayrollWage(emp, att, days)).toBe(26000)
   })
 
   test('should accurately calculate stakeholder revenue share rounded to nearest rupee', () => {
@@ -75,11 +64,23 @@ test.describe('Business Calculations Unit Tests', () => {
   })
 
   test('should handle decimal precision correctly during Daily Wage computations', () => {
-    const emp: EmployeeWageConfig = { wage_type: 'daily', wage_rate: 555.55 }
-    const att: AttendanceCounts = { present: 5, halfDay: 1, leave: 0, absent: 0 }
+    const emp = { wage_type: 'daily' as const, wage_rate: 555.55 }
+    const att = { present: 5, halfDay: 1, leave: 0, absent: 0 }
 
     const wage = computePayrollWage(emp, att)
     // (5 + 0.5) * 555.55 = 5.5 * 555.55 = 3055.525 -> rounds to 3055.53
     expect(wage).toBe(3055.53)
+  })
+
+  test('should compute leave duration and remaining balance', () => {
+    expect(leaveDaysBetween('2026-07-01', '2026-07-03')).toBe(3)
+    expect(leaveDaysBetween('2026-07-05', '2026-07-01')).toBe(0)
+    expect(applyLeaveBalance(15, 3)).toBe(12)
+    expect(applyLeaveBalance(2, 5)).toBe(0)
+  })
+
+  test('should compute trip worth from rate × capacity', () => {
+    expect(computeTripWorthFromRate(20, 150)).toBe(3000)
+    expect(computeTripWorth({ tripWorth: 2500.555 })).toBe(2500.56)
   })
 })

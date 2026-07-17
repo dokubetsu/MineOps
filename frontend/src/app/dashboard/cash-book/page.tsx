@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site, CashBook, CashEntry } from '@/lib/supabase/types'
 import { cashBookRepository } from '@/lib/repositories/cash-book'
+import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
@@ -16,7 +17,7 @@ const ENTRY_CATEGORIES_IN = ['Cash received from main office', 'Other incoming']
 const ENTRY_CATEGORIES_OUT = ['Fuel/Diesel Purchase', 'Driver Wage payment', 'Supervisor payment', 'Meal & Food expense', 'Repair & Spares', 'Other outgoing']
 
 export default function CashBookPage() {
-  const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
+  const { isAdmin, isSiteManager, loading: authLoading, user, organizationId } = useAuth()
   const router = useRouter()
   const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
@@ -134,6 +135,7 @@ export default function CashBookPage() {
       const offset = loadMore ? entries.length : 0
       const loadedEntries = await cashBookRepository.listEntries(supabase, cb.id, PAGE_LIMIT, offset)
 
+      // Signed receipt URLs are for display only — never written to offline cache
       const entriesWithUrls = await Promise.all(loadedEntries.map(async (entry) => {
         let signedReceiptUrl = null
         if (entry.receipt_url) {
@@ -156,42 +158,46 @@ export default function CashBookPage() {
         }
       }))
 
-      const cacheKeyBook = `cached_cashbook_${selectedSite}_${selectedDate}`
-      const cacheKeyEntries = `cached_cashentries_${selectedSite}_${selectedDate}`
-      const cacheKeyBalances = `cached_balances_${selectedSite}_${selectedDate}`
-      localStorage.setItem(cacheKeyBook, JSON.stringify(cb))
-      localStorage.setItem(cacheKeyBalances, JSON.stringify(balances))
+      const cacheKey = `cashbook_${selectedSite}_${selectedDate}`
+      // Persist book + balances + entry rows without signed URLs
+      const cacheableEntries = entriesWithUrls.map(({ signed_receipt_url: _s, ...rest }) => rest)
 
       if (loadMore) {
         setEntries(prev => {
           const nextEntries = [...prev, ...entriesWithUrls]
-          localStorage.setItem(cacheKeyEntries, JSON.stringify(nextEntries))
+          const cacheable = nextEntries.map(({ signed_receipt_url: _s, ...rest }) => rest)
+          setOfflineCache(user?.id, organizationId, cacheKey, {
+            book: cb,
+            balances: { totalIn: balances.totalIn, totalOut: balances.totalOut },
+            entries: cacheable,
+          })
           return nextEntries
         })
       } else {
         setEntries(entriesWithUrls)
-        localStorage.setItem(cacheKeyEntries, JSON.stringify(entriesWithUrls))
+        setOfflineCache(user?.id, organizationId, cacheKey, {
+          book: cb,
+          balances: { totalIn: balances.totalIn, totalOut: balances.totalOut },
+          entries: cacheableEntries,
+        })
       }
       setHasMore(loadedEntries.length === PAGE_LIMIT)
-    } catch (error: any) {
-      const cacheKeyBook = `cached_cashbook_${selectedSite}_${selectedDate}`
-      const cacheKeyEntries = `cached_cashentries_${selectedSite}_${selectedDate}`
-      const cacheKeyBalances = `cached_balances_${selectedSite}_${selectedDate}`
-      const cachedBook = localStorage.getItem(cacheKeyBook)
-      const cachedEntries = localStorage.getItem(cacheKeyEntries)
-      const cachedBalances = localStorage.getItem(cacheKeyBalances)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      const cached = getOfflineCache<{
+        book: CashBook
+        balances: { totalIn: number; totalOut: number }
+        entries: CashEntry[]
+      }>(user?.id, organizationId, `cashbook_${selectedSite}_${selectedDate}`)
 
-      if (cachedBook && cachedEntries && !loadMore) {
-        setCashBook(JSON.parse(cachedBook))
-        setEntries(JSON.parse(cachedEntries))
-        if (cachedBalances) {
-          const parsedBals = JSON.parse(cachedBalances)
-          setTotalIn(parsedBals.totalIn)
-          setTotalOut(parsedBals.totalOut)
-        }
+      if (cached && !loadMore) {
+        setCashBook(cached.book)
+        setEntries(cached.entries)
+        setTotalIn(cached.balances.totalIn)
+        setTotalOut(cached.balances.totalOut)
         toast('Serving cached cash book (offline mode)', { icon: '📶' })
       } else {
-        toast.error(`Error loading cash book: ${error.message}`)
+        toast.error(`Error loading cash book: ${message}`)
         setCashBook(null)
         if (!loadMore) setEntries([])
       }

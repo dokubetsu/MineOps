@@ -1,10 +1,26 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
+import { computeTripWorth } from '../calculations'
 
 export type TripInsert = Database['public']['Tables']['trips']['Insert']
+export type TripRow = Database['public']['Tables']['trips']['Row']
+
+export type TripListItem = TripRow & {
+  vehicles?: { plate_number: string; vehicle_type: string } | null
+  transport_contractors?: { name: string } | null
+  drivers?: { name: string } | null
+  customers?: { name: string } | null
+  trip_photos?: Array<{ photo_url: string }> | null
+}
 
 export const tripsRepository = {
-  async list(supabase: SupabaseClient<Database>, siteId: string, date: string, limit = 50, offset = 0): Promise<any[]> {
+  async list(
+    supabase: SupabaseClient<Database>,
+    siteId: string,
+    date: string,
+    limit = 50,
+    offset = 0
+  ): Promise<TripListItem[]> {
     const { data, error } = await supabase
       .from('trips')
       .select('*, vehicles(plate_number, vehicle_type), transport_contractors(name), drivers(name), customers(name), trip_photos(photo_url)')
@@ -15,17 +31,26 @@ export const tripsRepository = {
       .range(offset, offset + limit - 1)
 
     if (error) throw error
-    return data || []
+    return (data as TripListItem[]) || []
   },
 
   async create(
     supabase: SupabaseClient<Database>,
     payload: Omit<TripInsert, 'id' | 'created_at' | 'updated_at' | 'entry_time' | 'active'>
-  ): Promise<any> {
+  ): Promise<TripRow> {
+    // Normalize worth via shared module when rate/capacity provided without explicit worth
+    const normalized: typeof payload = {
+      ...payload,
+      trip_worth:
+        payload.trip_worth != null
+          ? computeTripWorth({ tripWorth: payload.trip_worth })
+          : payload.trip_worth,
+    }
+
     const { data, error } = await supabase
       .from('trips')
       .insert({
-        ...payload,
+        ...normalized,
         entry_time: new Date().toISOString(),
         active: true,
       })

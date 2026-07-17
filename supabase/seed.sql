@@ -37,7 +37,7 @@ INSERT INTO auth.users (
   'authenticated',
   'authenticated',
   'admin@mineops.com',
-  '$2b$10$k9w6pk2UNlP4LCek3i57N.t8fFGCANArlAHjGgYUDgumh8vpmsBOC', -- verified bcrypt hash for password123
+  '$2b$10$JiePxFoho6oUAiA2KRIQYub1rY0xXpjWOa9g8rqIkO2Veon5GK1KW', -- bcrypt hash for password123
   now(),
   null,
   null,
@@ -123,7 +123,15 @@ VALUES
 ON CONFLICT (id) DO NOTHING;
 
 -- Seed initial cash book (today)
-INSERT INTO public.cash_books (id, site_id, book_date, opening_balance, closing_balance, status)
+INSERT INTO public.cash_books (id, site_id, book_date, opening_balance, closing_balance, status, organization_id)
 VALUES 
-  ('00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000001', CURRENT_DATE, 50000.0, 50000.0, 'draft')
+  ('00000000-0000-0000-0000-000000000601', '00000000-0000-0000-0000-000000000001', CURRENT_DATE, 50000.0, 50000.0, 'draft', '00000000-0000-0000-0000-000000000000')
 ON CONFLICT (id) DO NOTHING;
+
+-- Seed negotiated rates for trip worth auto-calc (E2E)
+INSERT INTO public.negotiated_rates (id, vehicle_type, rate_per_cubic, organization_id)
+VALUES
+  ('00000000-0000-0000-0000-000000000701', '12WH', 150.0, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000702', '10WH', 120.0, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000703', '6WH', 90.0, '00000000-0000-0000-0000-000000000000')
+ON CONFLICT (organization_id, vehicle_type) DO NOTHING;

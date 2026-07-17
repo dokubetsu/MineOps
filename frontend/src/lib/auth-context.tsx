@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect, createContext, useContext } from 'react'
+import type { User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
+import { clearOfflineCache } from '@/lib/offline-cache'
 
 interface UserRole {
   user_id: string
@@ -11,7 +13,7 @@ interface UserRole {
 }
 
 interface AuthContextType {
-  user: any | null
+  user: User | null
   userRole: UserRole | null
   loading: boolean
   isAdmin: boolean
@@ -39,7 +41,7 @@ const AuthContext = createContext<AuthContextType>({
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
   const [organizationName, setOrganizationName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -49,9 +51,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!userId) {
       setUserRoles([])
       setOrganizationName(null)
-      if (typeof document !== 'undefined') {
-        document.cookie = 'user-role=; path=/; max-age=0; SameSite=Lax'
-      }
+      // Clear sensitive offline cache when session ends
+      clearOfflineCache()
       return
     }
 
@@ -59,30 +60,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .from('user_roles')
       .select('*')
       .eq('user_id', userId)
-    
-    const loadedRoles = (data as any) || []
+
+    const loadedRoles = (data as UserRole[] | null) || []
     setUserRoles(loadedRoles)
 
-    // Set cookie for middleware caching
-    if (typeof document !== 'undefined') {
-      const roles = loadedRoles.map((r: any) => r.role)
-      const priority = roles.includes('admin')
-        ? 'admin'
-        : roles.includes('site_manager')
-        ? 'site_manager'
-        : roles.includes('stakeholder')
-        ? 'stakeholder'
-        : roles.includes('employee')
-        ? 'employee'
-        : roles.includes('site_employee')
-        ? 'site_employee'
-        : ''
-      if (priority) {
-        document.cookie = `user-role=${priority}; path=/; max-age=86400; SameSite=Lax`
-      } else {
-        document.cookie = 'user-role=; path=/; max-age=0; SameSite=Lax'
-      }
-    }
+    // Do NOT set a role cookie — middleware must not trust client-writable cookies.
+    // JWT app_metadata is synced by the DB trigger; middleware falls back to DB lookup.
 
     const { data: org } = await supabase.from('organizations').select('name').maybeSingle()
     setOrganizationName(org?.name ?? null)
@@ -90,14 +73,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
-      if (user) {
-        await loadRoles(user.id)
+      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      setUser(currentUser)
+      if (currentUser) {
+        await loadRoles(currentUser.id)
       }
       setLoading(false)
     }
-    init()
+    void init()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       const currentUser = session?.user ?? null
@@ -107,10 +90,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setUserRoles([])
         setOrganizationName(null)
+        clearOfflineCache()
       }
       setLoading(false)
     })
     return () => subscription.unsubscribe()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- single init
   }, [])
 
   const isAdmin = userRoles.some(r => r.role === 'admin')

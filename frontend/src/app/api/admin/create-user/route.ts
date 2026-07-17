@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 
@@ -25,6 +25,24 @@ const createUserSchema = z.object({
   (data) => data.role === 'admin' || !!data.site_id,
   { message: 'A site is required for non-admin roles', path: ['site_id'] }
 )
+
+/** Best-effort cleanup when Auth user was created but DB provisioning failed. */
+async function rollbackAuthUser(supabase: SupabaseClient, userId: string): Promise<void> {
+  try {
+    await supabase.from('stakeholder_site_access').delete().eq('stakeholder_user_id', userId)
+  } catch { /* ignore */ }
+  try {
+    await supabase.from('employees').update({ user_id: null }).eq('user_id', userId)
+  } catch { /* ignore */ }
+  try {
+    await supabase.from('user_roles').delete().eq('user_id', userId)
+  } catch { /* ignore */ }
+  try {
+    await supabase.auth.admin.deleteUser(userId)
+  } catch (err) {
+    console.error('Failed to roll back auth user after provisioning failure:', err)
+  }
+}
 
 export async function POST(req: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -53,7 +71,7 @@ export async function POST(req: NextRequest) {
   if (callerError || !callerData.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  
+
   // Check admin role, and capture the caller's own organization — the new
   // user is always created inside the caller's org, never a client-supplied
   // one (the request body has no organization_id field at all).
@@ -67,11 +85,10 @@ export async function POST(req: NextRequest) {
   }
   const callerOrganizationId = roleData[0].organization_id
 
-  // Parse and validate req.json() using Zod schema
-  let body: any
+  let body: unknown
   try {
     body = await req.json()
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: 'Invalid JSON request body' }, { status: 400 })
   }
 
@@ -83,11 +100,11 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const { 
-    email, 
-    password, 
-    role, 
-    site_id, 
+  const {
+    email,
+    password,
+    role,
+    site_id,
     share_percent,
     employee_link_mode,
     employee_id,
@@ -97,7 +114,7 @@ export async function POST(req: NextRequest) {
     employee_wage_rate
   } = result.data
 
-  // Explicitly validate site_id belongs to the caller's organization before user creation
+  // Pre-validate site belongs to caller's org (also re-checked inside RPC)
   if (site_id) {
     const { data: siteData, error: siteError } = await supabase
       .from('sites')
@@ -113,7 +130,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Create the user without sending a confirmation email
+  // 1) Create Auth user
   const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
     email,
     password,
@@ -125,87 +142,30 @@ export async function POST(req: NextRequest) {
 
   const newUserId = newUser.user.id
 
-  // Assign role, scoped to the caller's own organization
-  const { error: roleError } = await supabase.from('user_roles').insert({
-    user_id: newUserId,
-    role,
-    site_id: site_id || null,
-    organization_id: callerOrganizationId,
+  // 2) Atomic DB provisioning (role + stakeholder + employee) via SECURITY DEFINER RPC
+  const { error: provisionError } = await supabase.rpc('provision_user_access', {
+    p_user_id: newUserId,
+    p_role: role,
+    p_organization_id: callerOrganizationId,
+    p_site_id: site_id || null,
+    p_share_percent: share_percent ?? 50,
+    p_employee_link_mode: employee_link_mode || 'none',
+    p_employee_id: employee_id || null,
+    p_employee_name: employee_name || null,
+    p_employee_phone: employee_phone || null,
+    p_employee_wage_type: employee_wage_type || 'monthly',
+    p_employee_wage_rate: employee_wage_rate ?? 0,
   })
 
-  if (roleError) {
-    // Role assignment failed — don't leave behind an auth user with no role,
-    // since that produces a login that "succeeds" but has no permissions
-    // anywhere in the app (empty nav, RLS blocks every table).
-    await supabase.auth.admin.deleteUser(newUserId)
-    return NextResponse.json({ error: `Failed to assign role: ${roleError.message}` }, { status: 500 })
+  if (provisionError) {
+    await rollbackAuthUser(supabase, newUserId)
+    return NextResponse.json(
+      { error: `Failed to provision user access: ${provisionError.message}` },
+      { status: 500 }
+    )
   }
 
-  // If stakeholder with site, add access record (include organization_id for org-match trigger)
-  if (role === 'stakeholder' && site_id) {
-    const { error: accessError } = await supabase.from('stakeholder_site_access').insert({
-      stakeholder_user_id: newUserId,
-      site_id,
-      share_percent: share_percent ?? 50,
-      organization_id: callerOrganizationId,
-    })
-
-    if (accessError) {
-      return NextResponse.json(
-        { error: `User created with role, but failed to grant site access: ${accessError.message}`, user_id: newUserId },
-        { status: 207 }
-      )
-    }
-  }
-
-  // Handle employee linkage/creation
-  if ((role === 'employee' || role === 'site_employee') && employee_link_mode && employee_link_mode !== 'none') {
-    if (employee_link_mode === 'link' && employee_id) {
-      // Validate the target employee belongs to the caller's organization
-      // before linking, to prevent cross-org employee impersonation.
-      const { data: empData } = await supabase
-        .from('employees')
-        .select('id, site_id, sites!inner(organization_id)')
-        .eq('id', employee_id)
-        .single()
-
-      if (!empData || (empData as any).sites?.organization_id !== callerOrganizationId) {
-        return NextResponse.json(
-          { error: 'Cannot link employee: employee does not belong to your organization', user_id: newUserId },
-          { status: 207 }
-        )
-      }
-
-      const { error: linkError } = await supabase
-        .from('employees')
-        .update({ user_id: newUserId })
-        .eq('id', employee_id)
-      
-      if (linkError) {
-        console.error('Failed to link employee:', linkError)
-      }
-    } else if (employee_link_mode === 'create' && employee_name) {
-      const { error: createEmpError } = await supabase
-        .from('employees')
-        .insert({
-          name: employee_name,
-          phone: employee_phone || null,
-          role: 'Site Employee',
-          site_id: site_id,
-          wage_type: employee_wage_type || 'monthly',
-          wage_rate: employee_wage_rate ?? 0,
-          user_id: newUserId,
-          active: true,
-          leave_balance: 0
-        })
-
-      if (createEmpError) {
-        console.error('Failed to create employee profile:', createEmpError)
-      }
-    }
-  }
-
-  // Create audit log for user creation
+  // 3) Audit log (non-fatal — user is already fully provisioned)
   const { error: auditError } = await supabase.from('audit_logs').insert({
     organization_id: callerOrganizationId,
     actor_user_id: callerData.user.id,

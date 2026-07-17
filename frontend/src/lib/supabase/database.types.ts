@@ -908,7 +908,28 @@ export type Database = {
         Args: { p_site_id: string; p_start_date: string }
         Returns: undefined
       }
+      provision_user_access: {
+        Args: {
+          p_user_id: string
+          p_role: string
+          p_organization_id: string
+          p_site_id?: string | null
+          p_share_percent?: number | null
+          p_employee_link_mode?: string | null
+          p_employee_id?: string | null
+          p_employee_name?: string | null
+          p_employee_phone?: string | null
+          p_employee_wage_type?: string | null
+          p_employee_wage_rate?: number | null
+        }
+        Returns: undefined
+      }
+      register_tenant: {
+        Args: { p_company_name: string; p_user_id: string }
+        Returns: string
+      }
       regenerate_payroll_run: { Args: { p_run_id: string }; Returns: undefined }
+      finalize_payroll_run: { Args: { p_run_id: string }; Returns: undefined }
     }
     Enums: {
       [_ in never]: never

@@ -94,6 +94,16 @@ jobs:
           echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=$ANON_KEY" >> $GITHUB_ENV
           echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_KEY" >> $GITHUB_ENV
 
+      - name: Lint
+        run: |
+          cd frontend
+          npm run lint
+
+      - name: Production dependency audit
+        run: |
+          cd frontend
+          npm run audit:prod
+
       - name: Type Check & Verify
         run: |
           cd frontend
@@ -113,6 +123,12 @@ jobs:
         run: |
           cd frontend
           npm run test:e2e
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+          E2E_ADMIN_EMAIL: admin@mineops.com
+          E2E_ADMIN_PASSWORD: password123
 
 
 

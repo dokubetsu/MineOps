@@ -8,6 +8,8 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site, Vehicle, TransportContractor, Trip, Customer, TripPhoto } from '@/lib/supabase/types'
 import { tripsRepository } from '@/lib/repositories/trips'
+import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
+import { computeTripWorthFromRate } from '@/lib/calculations'
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
@@ -167,9 +169,10 @@ export default function TripsPage() {
     if (isNaN(cap) || cap <= 0) return
 
     const rateRow = rates.find(r => r.vehicle_type === form.vehicle_type)
-    const rate = rateRow ? rateRow.rate_per_cubic : 0
+    const rate = rateRow ? Number(rateRow.rate_per_cubic) : 0
     if (rate > 0) {
-      setForm(f => ({ ...f, trip_worth: String(cap * rate) }))
+      const worth = computeTripWorthFromRate(cap, rate)
+      setForm(f => ({ ...f, trip_worth: String(worth) }))
     }
   }, [form.vehicle_type, form.cubic_capacity, rates])
 
@@ -255,29 +258,30 @@ export default function TripsPage() {
         }
       }))
 
-      const cacheKey = `cached_trips_${selectedSite}_${selectedDate}`
-      const cacheableTrips = tripsWithSignedUrls.map(t => ({ ...t, signed_photo_urls: null }))
+      const cacheKey = `trips_${selectedSite}_${selectedDate}`
+      // Never persist signed photo URLs
+      const cacheableTrips = tripsWithSignedUrls.map(({ signed_photo_urls: _s, ...rest }) => rest)
 
       if (loadMore) {
         setTrips(prev => {
           const nextTrips = [...prev, ...tripsWithSignedUrls]
-          const prevCacheable = prev.map(t => ({...t, signed_photo_urls: null}))
-          localStorage.setItem(cacheKey, JSON.stringify([...prevCacheable, ...cacheableTrips]))
+          const cacheable = nextTrips.map(({ signed_photo_urls: _s, ...rest }) => rest)
+          setOfflineCache(user?.id, organizationId, cacheKey, cacheable)
           return nextTrips
         })
       } else {
         setTrips(tripsWithSignedUrls)
-        localStorage.setItem(cacheKey, JSON.stringify(cacheableTrips))
+        setOfflineCache(user?.id, organizationId, cacheKey, cacheableTrips)
       }
       setHasMore(data.length === PAGE_LIMIT)
-    } catch (error: any) {
-      const cacheKey = `cached_trips_${selectedSite}_${selectedDate}`
-      const cached = localStorage.getItem(cacheKey)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      const cached = getOfflineCache<ExtendedTrip[]>(user?.id, organizationId, `trips_${selectedSite}_${selectedDate}`)
       if (cached && !loadMore) {
-        setTrips(JSON.parse(cached))
+        setTrips(cached)
         toast('Serving cached trip logs (offline mode)', { icon: '📶' })
       } else {
-        toast.error(`Error loading trips: ${error.message}`)
+        toast.error(`Error loading trips: ${message}`)
         if (!loadMore) setTrips([])
       }
     } finally {

@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { format, subDays } from 'date-fns'
 import { Plus, Image as ImageIcon, Check, X, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import { computeTripWorthFromRate } from '@/lib/calculations'
 import BottomSheet from '@/components/BottomSheet'
 import toast from 'react-hot-toast'
 
@@ -102,9 +103,8 @@ export default function EmployeePage() {
 
   // Calculate shipment cost on tripForm changes
   useEffect(() => {
-    const capacity = parseFloat(tripForm.cubic_capacity) || 0
     const rate = negotiatedRates.find(r => r.vehicle_type === tripForm.vehicle_type)?.rate_per_cubic || 0
-    const worth = capacity * rate
+    const worth = computeTripWorthFromRate(tripForm.cubic_capacity, rate)
     setTripForm(f => ({
       ...f,
       total_shipment_cost: f.total_shipment_cost === '' || f.total_shipment_cost === '0' ? String(worth) : f.total_shipment_cost
@@ -113,9 +113,8 @@ export default function EmployeePage() {
 
   // Calculate shipment cost on editForm changes
   useEffect(() => {
-    const capacity = parseFloat(editForm.cubic_capacity) || 0
     const rate = negotiatedRates.find(r => r.vehicle_type === editForm.vehicle_type)?.rate_per_cubic || 0
-    const worth = capacity * rate
+    const worth = computeTripWorthFromRate(editForm.cubic_capacity, rate)
     setEditForm(f => ({
       ...f,
       total_shipment_cost: f.total_shipment_cost === '' || f.total_shipment_cost === '0' ? String(worth) : f.total_shipment_cost
@@ -123,6 +122,10 @@ export default function EmployeePage() {
   }, [editForm.cubic_capacity, editForm.vehicle_type, negotiatedRates])
 
   const loadInitialData = async () => {
+    if (!user) {
+      setLoading(false)
+      return
+    }
     try {
       setLoading(true)
       // 1. Fetch employee profile
@@ -201,7 +204,7 @@ export default function EmployeePage() {
   }
 
   const markAttendance = async (status: 'present' | 'absent' | 'half-day') => {
-    if (!employee) return
+    if (!employee || !user) return
     try {
       const { error } = await supabase
         .from('attendance')
@@ -261,7 +264,7 @@ export default function EmployeePage() {
 
   const handleTripSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!employee) return
+    if (!employee || !user) return
     if (tripPhotos.length > 10) {
       toast.error('You can upload a maximum of 10 photos per trip')
       return
@@ -297,10 +300,10 @@ export default function EmployeePage() {
       // Upload photos
       const uploadedUrls = await uploadPhotos(tripPhotos, employee.site_id)
 
-      // Get calculated negotiated rate
-      const capacity = parseFloat(tripForm.cubic_capacity) || 0
+      // Get calculated negotiated rate (shared module)
       const rate = negotiatedRates.find(r => r.vehicle_type === tripForm.vehicle_type)?.rate_per_cubic || 0
-      const worth = capacity * rate
+      const capacity = parseFloat(tripForm.cubic_capacity) || 0
+      const worth = computeTripWorthFromRate(capacity, rate)
 
       // Create trip record
       const { error } = await supabase
@@ -383,7 +386,7 @@ export default function EmployeePage() {
 
   const handleEditSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!editingTrip || !employee) return
+    if (!editingTrip || !employee || !user) return
     const totalPhotos = editPhotoUrls.length + editPhotos.length
     if (totalPhotos > 10) {
       toast.error('You can upload a maximum of 10 photos per trip')
@@ -422,10 +425,10 @@ export default function EmployeePage() {
       const newPhotoUrls = await uploadPhotos(editPhotos, employee.site_id)
       const updatedPhotoUrls = [...editPhotoUrls, ...newPhotoUrls]
 
-      // Calculate shipment rates
+      // Calculate shipment rates (shared module)
       const capacity = parseFloat(editForm.cubic_capacity) || 0
       const rate = negotiatedRates.find(r => r.vehicle_type === editForm.vehicle_type)?.rate_per_cubic || 0
-      const worth = capacity * rate
+      const worth = computeTripWorthFromRate(capacity, rate)
 
       const { error } = await supabase
         .from('trips')
@@ -467,6 +470,7 @@ export default function EmployeePage() {
       toast.error('Please enter a transaction reference number')
       return
     }
+    if (!user) return
     try {
       const { error } = await supabase
         .from('trips')

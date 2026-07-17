@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { format, subDays, startOfMonth } from 'date-fns'
 import { TrendingUp, TrendingDown, Truck, DollarSign } from 'lucide-react'
 import { Site } from '@/lib/supabase/types'
+import { calculateStakeholderShare } from '@/lib/calculations'
 import toast from 'react-hot-toast'
 
 interface TrendItem {
@@ -95,10 +96,10 @@ export default function StakeholderDashboardPage() {
       if (summaryError) console.error(`Error loading daily summaries for site ${siteId}:`, summaryError.message)
 
       const rows = summary || []
-      const totalIn = rows.reduce((s: number, r: any) => s + (r.total_in || 0), 0)
-      const totalOut = rows.reduce((s: number, r: any) => s + (r.total_out || 0), 0)
+      const totalIn = rows.reduce((s: number, r: { total_in?: number | null }) => s + (r.total_in || 0), 0)
+      const totalOut = rows.reduce((s: number, r: { total_out?: number | null }) => s + (r.total_out || 0), 0)
       const net = totalIn - totalOut
-      const myShare = Math.round((net * a.share_percent) / 100)
+      const myShare = calculateStakeholderShare(net, Number(a.share_percent) || 0)
 
       // Latest cash book for current balance
       const { data: latestCb, error: cbError } = await supabase

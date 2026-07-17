@@ -1,9 +1,21 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
 import { endOfMonth, format } from 'date-fns'
+import { calendarDaysInRange, computePayrollWage } from '../calculations'
+
+type PayrollRunRow = Database['public']['Tables']['payroll_runs']['Row']
+type PayrollLineRow = Database['public']['Tables']['payroll_lines']['Row']
+
+export type PayrollRunWithSite = PayrollRunRow & {
+  sites?: { name: string } | null
+}
+
+export type PayrollLineWithEmployee = PayrollLineRow & {
+  employees?: { name: string; phone: string | null } | null
+}
 
 export const payrollRepository = {
-  async listRuns(supabase: SupabaseClient<Database>, siteId: string): Promise<any[]> {
+  async listRuns(supabase: SupabaseClient<Database>, siteId: string): Promise<PayrollRunWithSite[]> {
     const { data, error } = await supabase
       .from('payroll_runs')
       .select('*, sites(name)')
@@ -12,10 +24,10 @@ export const payrollRepository = {
       .limit(200)
 
     if (error) throw error
-    return data || []
+    return (data as PayrollRunWithSite[]) || []
   },
 
-  async listLines(supabase: SupabaseClient<Database>, runId: string): Promise<any[]> {
+  async listLines(supabase: SupabaseClient<Database>, runId: string): Promise<PayrollLineWithEmployee[]> {
     const { data, error } = await supabase
       .from('payroll_lines')
       .select('*, employees(name, phone)')
@@ -23,10 +35,14 @@ export const payrollRepository = {
       .limit(500)
 
     if (error) throw error
-    return data || []
+    return (data as PayrollLineWithEmployee[]) || []
   },
 
-  async checkExistingRun(supabase: SupabaseClient<Database>, siteId: string, periodDate: string): Promise<any> {
+  async checkExistingRun(
+    supabase: SupabaseClient<Database>,
+    siteId: string,
+    periodDate: string
+  ): Promise<PayrollRunRow | null> {
     const { data, error } = await supabase
       .from('payroll_runs')
       .select('*')
@@ -66,7 +82,11 @@ export const payrollRepository = {
     if (runError) throw runError
   },
 
-  async generate(supabase: SupabaseClient<Database>, siteId: string, periodMonth: string): Promise<{ run: any; lines: any[] }> {
+  async generate(
+    supabase: SupabaseClient<Database>,
+    siteId: string,
+    periodMonth: string
+  ): Promise<{ run: PayrollRunRow; lines: PayrollLineWithEmployee[] }> {
     const periodDate = periodMonth + '-01'
     const periodStart = new Date(periodDate)
     const periodEnd = endOfMonth(periodStart)
@@ -82,7 +102,7 @@ export const payrollRepository = {
       .select()
       .single()
 
-    let activeRun = newRun
+    let activeRun: PayrollRunRow | null = newRun
     const isNewRun = !insertError
     if (insertError) {
       if (insertError.code === '23505') {
@@ -145,6 +165,7 @@ export const payrollRepository = {
       attMap[att.employee_id].push(att.status)
     }
 
+    const periodDays = calendarDaysInRange(periodStart, periodEnd)
     const linesToInsert = []
     for (const emp of employees) {
       const statuses = attMap[emp.id] || []
@@ -152,18 +173,13 @@ export const payrollRepository = {
       const halfDay = statuses.filter(s => s === 'half-day').length
       const leave = statuses.filter(s => s === 'leave').length
       const absent = statuses.filter(s => s === 'absent').length
-      
+
       const wageType = emp.wage_type || 'daily'
-      let computed = 0
-      if (wageType === 'monthly') {
-        const totalDays = Math.round((periodEnd.getTime() - periodStart.getTime()) / 86400000) + 1
-        // Monthly workers are prorated for absences and half-days
-        computed = emp.wage_rate * Math.max(0, 1 - (absent + halfDay * 0.5) / totalDays)
-      } else {
-        // Daily workers get paid for present days, half-days, and leave days
-        computed = (present + halfDay * 0.5 + leave) * emp.wage_rate
-      }
-      const finalComputed = Math.round((computed + 1e-9) * 100) / 100
+      const finalComputed = computePayrollWage(
+        { wage_type: wageType, wage_rate: emp.wage_rate },
+        { present, halfDay, leave, absent },
+        periodDays
+      )
 
       linesToInsert.push({
         payroll_run_id: activeRun.id,
@@ -192,16 +208,13 @@ export const payrollRepository = {
 
     return {
       run: activeRun,
-      lines: insertedLines || [],
+      lines: (insertedLines as PayrollLineWithEmployee[]) || [],
     }
   },
 
   async finalize(supabase: SupabaseClient<Database>, runId: string): Promise<void> {
-    const { error } = await supabase
-      .from('payroll_runs')
-      .update({ status: 'finalized' })
-      .eq('id', runId)
-
+    // Atomic draft → finalized with row lock + role checks inside the RPC
+    const { error } = await supabase.rpc('finalize_payroll_run', { p_run_id: runId })
     if (error) throw error
   }
 }

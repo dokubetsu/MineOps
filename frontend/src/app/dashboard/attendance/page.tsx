@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site } from '@/lib/supabase/types'
 import { attendanceRepository, RosterEmployee } from '@/lib/repositories/attendance'
+import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
 import toast from 'react-hot-toast'
 
 const STATUSES = [
@@ -18,7 +19,7 @@ const STATUSES = [
 ] as const
 
 export default function AttendancePage() {
-  const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
+  const { isAdmin, isSiteManager, loading: authLoading, user, organizationId } = useAuth()
   const router = useRouter()
   const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
@@ -28,12 +29,54 @@ export default function AttendancePage() {
   const [saving, setSaving] = useState(false)
   const [isDirty, setIsDirty] = useState(false)
   const isDirtyRef = useRef(false)
+  const supabase = createClient()
+
+  const loadSites = async () => {
+    try {
+      const { data } = await supabase.from('sites').select('*').eq('active', true).order('name')
+      const loadedSites = data || []
+      setSites(loadedSites)
+      if (loadedSites.length > 0) {
+        setSelectedSite(loadedSites[0].id)
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      toast.error(`Error loading sites: ${message}`)
+    }
+  }
+
+  const loadRoster = async () => {
+    setLoading(true)
+    try {
+      const data = await attendanceRepository.listRoster(supabase, selectedSite, selectedDate)
+      setRoster(data)
+      setIsDirty(false)
+      // Do not cache signed display photo URLs
+      const cacheable = data.map(({ display_photo_url: _u, uploading: _up, ...rest }) => rest)
+      setOfflineCache(user?.id, organizationId, `roster_${selectedSite}_${selectedDate}`, cacheable)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      const cached = getOfflineCache<RosterEmployee[]>(
+        user?.id,
+        organizationId,
+        `roster_${selectedSite}_${selectedDate}`
+      )
+      if (cached) {
+        setRoster(cached)
+        setIsDirty(false)
+        toast('Serving cached muster roll (offline mode)', { icon: '📶' })
+      } else {
+        toast.error(`Error loading attendance roster: ${message}`)
+        setRoster([])
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     isDirtyRef.current = isDirty
   }, [isDirty])
-
-  const supabase = createClient()
 
   useEffect(() => {
     if (authLoading) return
@@ -41,11 +84,13 @@ export default function AttendancePage() {
       router.push('/dashboard')
       return
     }
-    loadSites()
+    void loadSites()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional mount/auth gate
   }, [authLoading, isAdmin, isSiteManager])
 
   useEffect(() => {
-    if (selectedSite) loadRoster()
+    if (selectedSite) void loadRoster()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSite, selectedDate])
 
   useEffect(() => {
@@ -61,7 +106,7 @@ export default function AttendancePage() {
         },
         () => {
           if (!isDirtyRef.current) {
-            loadRoster()
+            void loadRoster()
           }
         }
       )
@@ -70,44 +115,8 @@ export default function AttendancePage() {
     return () => {
       supabase.removeChannel(channel)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSite, selectedDate])
-
-  const loadSites = async () => {
-    try {
-      const { data } = await supabase.from('sites').select('*').eq('active', true).order('name')
-      const loadedSites = data || []
-      setSites(loadedSites)
-      if (loadedSites.length > 0) {
-        setSelectedSite(loadedSites[0].id)
-      }
-    } catch (err: any) {
-      toast.error(`Error loading sites: ${err.message}`)
-    }
-  }
-
-  const loadRoster = async () => {
-    setLoading(true)
-    try {
-      const data = await attendanceRepository.listRoster(supabase, selectedSite, selectedDate)
-      setRoster(data)
-      setIsDirty(false)
-      const cacheKey = `cached_roster_${selectedSite}_${selectedDate}`
-      localStorage.setItem(cacheKey, JSON.stringify(data))
-    } catch (error: any) {
-      const cacheKey = `cached_roster_${selectedSite}_${selectedDate}`
-      const cached = localStorage.getItem(cacheKey)
-      if (cached) {
-        setRoster(JSON.parse(cached))
-        setIsDirty(false)
-        toast('Serving cached muster roll (offline mode)', { icon: '📶' })
-      } else {
-        toast.error(`Error loading attendance roster: ${error.message}`)
-        setRoster([])
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleStatusChange = (employeeId: string, status: 'present' | 'absent' | 'half-day' | 'leave') => {
     setRoster(prev => prev.map(emp => emp.id === employeeId ? { ...emp, status } : emp))
