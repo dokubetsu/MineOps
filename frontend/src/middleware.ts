@@ -10,12 +10,15 @@ const STAKEHOLDER_BLOCKED_PREFIXES = [
   '/dashboard/leave',
   '/dashboard/payroll',
   '/dashboard/reports',
-  '/dashboard/employees',
+  '/dashboard/manage-employees',
   '/dashboard/settings',
   '/dashboard/users',
 ]
 
-// Sliding window rate limiter cache for admin API routes
+// NOTE: This is an in-memory Map rate limiter for admin API routes. 
+// On Vercel or other serverless runtimes, state is not shared across instances 
+// and will reset on cold starts. For production hardening, use Supabase Auth 
+// built-in rate limits and/or Cloudflare/WAF level rate limiters.
 const rateLimitCache = new Map<string, { count: number; resetTime: number }>()
 
 function isRateLimited(ip: string, limit: number, windowMs: number): boolean {
@@ -43,8 +46,8 @@ export async function middleware(request: NextRequest) {
     throw new Error('Supabase configuration error: missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables')
   }
 
-  // ── Rate Limiting for Admin API routes ─────────────────────────────────
-  if (request.nextUrl.pathname.startsWith('/api/admin/')) {
+  // ── Rate Limiting for Admin and Registration API routes ─────────────────────────────────
+  if (request.nextUrl.pathname.startsWith('/api/admin/') || request.nextUrl.pathname === '/api/auth/register-tenant') {
     const ip = (request as any).ip || request.headers.get('x-forwarded-for') || '127.0.0.1'
     // Rate limit: Max 60 requests per 1 minute
     if (isRateLimited(ip, 60, 60 * 1000)) {
@@ -96,26 +99,33 @@ export async function middleware(request: NextRequest) {
   if (user && request.nextUrl.pathname.startsWith('/dashboard')) {
     const pathname = request.nextUrl.pathname
 
-    // Fetch all roles of the user to check priority
-    const { data: roleRows } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
+    // Attempt to get user role from cached cookie to prevent DB round-trip latency
+    let role = request.cookies.get('user-role')?.value || null
 
-    const roles = roleRows?.map(r => r.role) || []
-    const role = roles.includes('admin')
-      ? 'admin'
-      : roles.includes('site_manager')
-      ? 'site_manager'
-      : roles.includes('stakeholder')
-      ? 'stakeholder'
-      : roles.includes('employee')
-      ? 'employee'
-      : null
+    if (!role) {
+      // Fallback: Fetch all roles of the user from DB to check priority
+      const { data: roleRows } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
 
-    if (role === 'employee' && pathname !== '/dashboard/employee') {
+      const roles = roleRows?.map(r => r.role) || []
+      role = roles.includes('admin')
+        ? 'admin'
+        : roles.includes('site_manager')
+        ? 'site_manager'
+        : roles.includes('stakeholder')
+        ? 'stakeholder'
+        : roles.includes('employee')
+        ? 'employee'
+        : roles.includes('site_employee')
+        ? 'site_employee'
+        : null
+    }
+
+    if ((role === 'employee' || role === 'site_employee') && pathname !== '/dashboard/my-work') {
       const redirectUrl = request.nextUrl.clone()
-      redirectUrl.pathname = '/dashboard/employee'
+      redirectUrl.pathname = '/dashboard/my-work'
       return NextResponse.redirect(redirectUrl)
     }
 

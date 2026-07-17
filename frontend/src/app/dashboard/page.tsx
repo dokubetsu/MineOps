@@ -37,7 +37,7 @@ export default function DashboardPage() {
   useEffect(() => {
     if (authLoading) return
     if (isSiteEmployee || isEmployee) {
-      router.push('/dashboard/employee')
+      router.push('/dashboard/my-work')
       return
     }
     if (isStakeholder) {

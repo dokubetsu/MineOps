@@ -49,6 +49,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!userId) {
       setUserRoles([])
       setOrganizationName(null)
+      if (typeof document !== 'undefined') {
+        document.cookie = 'user-role=; path=/; max-age=0; SameSite=Lax'
+      }
       return
     }
 
@@ -56,9 +59,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .from('user_roles')
       .select('*')
       .eq('user_id', userId)
-    setUserRoles((data as any) || [])
-    // (organizations_self_read: id = get_user_organization_id()), so no
-    // client-side filtering is needed here.
+    
+    const loadedRoles = (data as any) || []
+    setUserRoles(loadedRoles)
+
+    // Set cookie for middleware caching
+    if (typeof document !== 'undefined') {
+      const roles = loadedRoles.map((r: any) => r.role)
+      const priority = roles.includes('admin')
+        ? 'admin'
+        : roles.includes('site_manager')
+        ? 'site_manager'
+        : roles.includes('stakeholder')
+        ? 'stakeholder'
+        : roles.includes('employee')
+        ? 'employee'
+        : roles.includes('site_employee')
+        ? 'site_employee'
+        : ''
+      if (priority) {
+        document.cookie = `user-role=${priority}; path=/; max-age=86400; SameSite=Lax`
+      } else {
+        document.cookie = 'user-role=; path=/; max-age=0; SameSite=Lax'
+      }
+    }
+
     const { data: org } = await supabase.from('organizations').select('name').maybeSingle()
     setOrganizationName(org?.name ?? null)
   }

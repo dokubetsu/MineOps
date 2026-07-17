@@ -38,8 +38,8 @@ On the configuration page, adjust the following settings:
 
 ### 3. Build & Development Settings
 - Keep the default settings (Vercel will run the script from `package.json` which automatically includes the required `--webpack` compiler flag):
-  - **Build Command**: `npm run build` (runs `next build --webpack`)
-  - **Install Command**: `npm install`
+  - **Build Command**: Keep default `npm run build` (which runs `next build --webpack` defined in `package.json`)
+  - **Install Command**: Keep default `npm install`
 
 ---
 

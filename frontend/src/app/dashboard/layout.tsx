@@ -28,7 +28,7 @@ function NavContent() {
   // Build nav items based on role
   const operationsNav = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'site_manager', 'stakeholder'] },
-    { href: '/dashboard/employee', icon: LayoutDashboard, label: 'Home', roles: ['employee', 'site_employee'] },
+    { href: '/dashboard/my-work', icon: LayoutDashboard, label: 'Home', roles: ['employee', 'site_employee'] },
     { href: '/dashboard/trips', icon: Truck, label: 'Trips', roles: ['admin', 'site_manager'] },
     { href: '/dashboard/cash-book', icon: BookOpen, label: 'Cash Book', roles: ['admin', 'site_manager'] },
     { href: '/dashboard/attendance', icon: Calendar, label: 'Attendance', roles: ['admin', 'site_manager'] },
@@ -39,7 +39,7 @@ function NavContent() {
   ]
 
   const mgmtNav = [
-    { href: '/dashboard/employees', icon: Users, label: 'Employees', roles: ['admin', 'site_manager'] },
+    { href: '/dashboard/manage-employees', icon: Users, label: 'Employees', roles: ['admin', 'site_manager'] },
     { href: '/dashboard/settings', icon: Settings, label: 'Master Data', roles: ['admin'] },
     { href: '/dashboard/users', icon: Shield, label: 'User Access', roles: ['admin'] },
   ]
@@ -66,7 +66,7 @@ function NavContent() {
     { href: '/dashboard/leave', icon: FileText, label: 'Leave', roles: ['admin', 'site_manager'] },
     { href: '/dashboard/payroll', icon: DollarSign, label: 'Payroll', roles: ['admin', 'site_manager'] },
     { href: '/dashboard/reports', icon: TrendingUp, label: 'Reports', roles: ['admin', 'site_manager'] },
-    { href: '/dashboard/employees', icon: Users, label: 'Employees', roles: ['admin', 'site_manager'] },
+    { href: '/dashboard/manage-employees', icon: Users, label: 'Employees', roles: ['admin', 'site_manager'] },
     { href: '/dashboard/settings', icon: Settings, label: 'Master Data', roles: ['admin'] },
     { href: '/dashboard/users', icon: Shield, label: 'User Access', roles: ['admin'] },
   ].filter(item => {
@@ -266,7 +266,7 @@ function NavContent() {
           </>
         ) : (isSiteEmployee || isEmployee) ? (
           <>
-            <Link href="/dashboard/employee" className={`bottom-nav-item ${pathname === '/dashboard/employee' ? 'active' : ''}`}>
+            <Link href="/dashboard/my-work" className={`bottom-nav-item ${pathname === '/dashboard/my-work' ? 'active' : ''}`}>
               <LayoutDashboard size={22} />
               <span className="bottom-nav-label">Home</span>
             </Link>
