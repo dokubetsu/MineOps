@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test'
-import { clickNav, loginAsAdmin, toastLocator, waitForSaveIdle } from './helpers'
+import {
+  clickNav,
+  confirmDialogIfOpen,
+  loginAsAdmin,
+  toastLocator,
+  waitForSaveIdle,
+} from './helpers'
 
 /**
  * Phase 5 critical browser paths (desktop chromium + mobile Pixel 5 project).
@@ -72,12 +78,10 @@ test.describe('Phase 5 critical flows', () => {
     const label = await lockBtn.innerText()
     if (/Lock Book/i.test(label)) {
       await lockBtn.click()
-      const confirm = page.locator('button').filter({ hasText: /Confirm|Lock|Yes/i }).last()
-      if (await confirm.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await confirm.click()
-      }
+      // Dialog Confirm only — do not re-match "Lock Book"
+      await confirmDialogIfOpen(page, /Lock Ledger|Unlock Ledger|lock today|unlock this/i, 3000)
       await expect(
-        page.locator('button').filter({ hasText: /Unlock Book/i }).first()
+        page.locator('button').filter({ hasText: /Unlock Book/i }).filter({ visible: true }).first()
       ).toBeVisible({ timeout: 15000 })
     }
   })

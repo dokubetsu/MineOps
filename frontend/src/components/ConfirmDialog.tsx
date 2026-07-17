@@ -137,6 +137,7 @@ export default function ConfirmDialog({
           <button
             ref={confirmRef}
             type="button"
+            data-testid="confirm-dialog-confirm"
             className={danger ? 'btn btn-danger' : 'btn btn-primary'}
             onClick={onConfirm}
             style={{ flex: 1 }}

@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test'
-import { clickNav, loginAsAdmin, toastLocator, waitForSaveIdle } from './helpers'
+import {
+  clickNav,
+  confirmDialogIfOpen,
+  loginAsAdmin,
+  toastLocator,
+  visibleDashboardShell,
+  waitForSaveIdle,
+} from './helpers'
 
 /**
  * MineOps End-to-End Business Flow
@@ -10,6 +17,9 @@ import { clickNav, loginAsAdmin, toastLocator, waitForSaveIdle } from './helpers
  */
 test.describe('MineOps End-to-End Business Flow', () => {
   test('login, log trip, attendance, generate and finalize payroll', async ({ page }) => {
+    // Full path: login → trip → attendance → payroll (confirm dialogs + network)
+    test.setTimeout(90_000)
+
     page.on('console', (msg) => {
       if (msg.type() === 'error') console.log('PAGE ERROR LOG:', msg.text())
     })
@@ -22,7 +32,6 @@ test.describe('MineOps End-to-End Business Flow', () => {
 
     await page.locator('button:has-text("Log Trip")').first().click()
 
-    // Prefer stable test id; fallbacks for older builds
     const vehicleInput = page
       .locator(
         '[data-testid="trip-vehicle-input"], input[aria-label="Vehicle Number"], input[placeholder*="KA" i]'
@@ -75,9 +84,9 @@ test.describe('MineOps End-to-End Business Flow', () => {
       })
     } else {
       await presentBtn.click()
-      const saveBtn = page.locator(
-        '[data-testid="attendance-save"], button.btn-primary:has-text("Save")'
-      ).first()
+      const saveBtn = page
+        .locator('[data-testid="attendance-save"], button.btn-primary:has-text("Save")')
+        .first()
       await expect(saveBtn).toBeEnabled({ timeout: 5000 })
       await saveBtn.click()
       await expect(
@@ -89,45 +98,64 @@ test.describe('MineOps End-to-End Business Flow', () => {
     // ── Payroll generate + finalize ─────────────────────────────────────
     await clickNav(page, '/dashboard/payroll')
 
-    const generateBtn = page.locator('button').filter({ hasText: /Generate/i }).first()
+    // Prefer a fresh period so we usually skip the re-generate confirm dialog
+    const periodInput = page.locator('input[type="month"]').first()
+    if (await periodInput.isVisible({ timeout: 5000 }).catch(() => false)) {
+      // Use previous calendar month when possible (still valid yyyy-MM)
+      const d = new Date()
+      d.setDate(1)
+      d.setMonth(d.getMonth() - 1)
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      await periodInput.fill(ym)
+    }
+
+    const generateBtn = page.getByRole('button', { name: /^Generate$/i })
     await expect(generateBtn).toBeVisible({ timeout: 15000 })
+    await expect(generateBtn).toBeEnabled({ timeout: 10000 })
     await generateBtn.click()
 
-    const confirmGenerate = page.locator('button').filter({ hasText: /Confirm|Generate|Yes/i }).last()
-    if (await confirmGenerate.isVisible({ timeout: 3000 }).catch(() => false)) {
-      await confirmGenerate.click()
+    // Optional overwrite dialog only — never re-click page "Generate"
+    await confirmDialogIfOpen(page, /Re-generate|overwrite|already exists/i, 3000)
+
+    // Success toast, run row, or "already finalized" notice
+    const outcome = await Promise.race([
+      toastLocator(page, /generated successfully|already been finalized|Payroll/i)
+        .waitFor({ state: 'visible', timeout: 30000 })
+        .then(() => 'toast')
+        .catch(() => null),
+      page
+        .locator('.trip-card, .card, .badge, span')
+        .filter({ hasText: /draft|finalized/i })
+        .first()
+        .waitFor({ state: 'visible', timeout: 30000 })
+        .then(() => 'run')
+        .catch(() => null),
+    ])
+    expect(outcome).toBeTruthy()
+
+    // Open a draft run if listed (detail view shows Finalize)
+    const draftRun = page
+      .locator('.trip-card')
+      .filter({ hasText: /draft/i })
+      .first()
+    if (await draftRun.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await draftRun.click()
     }
 
-    const draftOrRun = page
-      .locator('text=/draft|finalized|generated successfully|already been finalized|Run/i')
+    const finalizeBtn = page
+      .locator('button')
+      .filter({ hasText: /Finalize Wages|Finalize/i })
       .first()
-    await expect(draftOrRun).toBeVisible({ timeout: 25000 })
-
-    const openRun = page
-      .locator('.card, tr, button, a')
-      .filter({ hasText: /draft|2026|2025|Run/i })
-      .first()
-    if (await openRun.isVisible().catch(() => false)) {
-      await openRun.click()
-    }
-
-    const finalizeBtn = page.locator('button').filter({ hasText: /Finalize/ }).first()
     if (await finalizeBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await finalizeBtn.click()
-      const confirmFinalize = page
-        .locator('button')
-        .filter({ hasText: /Confirm|Yes|Finalize/i })
-        .last()
-      if (await confirmFinalize.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await confirmFinalize.click()
-      }
-      await expect(page.locator('text=/finalized|Payroll finalized/i').first()).toBeVisible({
-        timeout: 20000,
-      })
+      await confirmDialogIfOpen(page, /Finalize Payroll|finalize this payroll/i, 3000)
+      await expect(
+        page.locator('text=/finalized|Payroll finalized/i').first()
+      ).toBeVisible({ timeout: 20000 })
     }
 
-    await page.locator('a[href="/dashboard"]').first().click()
+    await page.goto('/dashboard')
     await expect(page).toHaveURL(/\/dashboard/)
-    await expect(page.locator('.sidebar-logo-text, .mobile-header-brand').first()).toBeVisible()
+    await expect(visibleDashboardShell(page)).toBeVisible({ timeout: 15000 })
   })
 })
