@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -204,10 +204,6 @@ export default function PayrollPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
               {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: '64px', borderRadius: 'var(--radius)' }} />)}
             </div>
-          ) : lines.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-desc">No lines associated with this run.</div>
-            </div>
           ) : (
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
               {lines.map(line => (
@@ -230,7 +226,7 @@ export default function PayrollPage() {
                     </div>
                   </div>
                   <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-                    ₹{line.final_amount.toLocaleString('en-IN')}
+                    ₹{(line.final_amount ?? 0).toLocaleString('en-IN')}
                   </div>
                 </div>
               ))}

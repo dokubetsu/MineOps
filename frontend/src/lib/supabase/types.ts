@@ -1,4 +1,4 @@
-﻿import { Database } from './database.types'
+import { Database } from './database.types'
 
 export type Site = Database['public']['Tables']['sites']['Row']
 export type TransportContractor = Database['public']['Tables']['transport_contractors']['Row']
@@ -13,3 +13,5 @@ export type PayrollRun = Database['public']['Tables']['payroll_runs']['Row']
 export type PayrollLine = Database['public']['Tables']['payroll_lines']['Row']
 export type UserRole = Database['public']['Tables']['user_roles']['Row']
 export type StakeholderSiteAccess = Database['public']['Tables']['stakeholder_site_access']['Row']
+export type Customer = Database['public']['Tables']['customers']['Row']
+export type TripPhoto = Database['public']['Tables']['trip_photos']['Row']

@@ -17,6 +17,8 @@ export default function EmployeesPage() {
   const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
   const router = useRouter()
   const [employees, setEmployees] = useState<Employee[]>([])
+  const [usersList, setUsersList] = useState<Array<{ id: string; email: string }>>([])
+  const [usersMap, setUsersMap] = useState<Record<string, string>>({})
   const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
   const [loading, setLoading] = useState(true)
@@ -24,6 +26,7 @@ export default function EmployeesPage() {
   const [form, setForm] = useState({
     name: '', phone: '', role: 'worker', site_id: '',
     wage_type: 'daily', wage_rate: '', join_date: format(new Date(), 'yyyy-MM-dd'),
+    user_id: '',
   })
   const [submitting, setSubmitting] = useState(false)
 
@@ -39,6 +42,7 @@ export default function EmployeesPage() {
     wage_type: 'daily',
     wage_rate: '',
     leave_balance: '15',
+    user_id: '',
   })
   const [editSubmitting, setEditSubmitting] = useState(false)
 
@@ -67,6 +71,28 @@ export default function EmployeesPage() {
       if (loadedSites.length > 0) {
         setSelectedSite(loadedSites[0].id)
         setForm(f => ({ ...f, site_id: loadedSites[0].id }))
+      }
+
+      // Load users to link accounts
+      const { data: { session } } = await supabase.auth.getSession()
+      let token = session?.access_token
+      if (!token) {
+        const { data: { session: refreshed } } = await supabase.auth.refreshSession()
+        token = refreshed?.access_token
+      }
+      if (token) {
+        const res = await fetch('/api/admin/list-users', {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (res.ok) {
+          const json = await res.json()
+          setUsersList(json.users || [])
+          const mapping: Record<string, string> = {}
+          for (const u of (json.users || [])) {
+            mapping[u.id] = u.email
+          }
+          setUsersMap(mapping)
+        }
       }
     } catch (err: any) {
       toast.error(`Error loading sites: ${err.message}`)
@@ -120,6 +146,7 @@ export default function EmployeesPage() {
         wage_rate: rate,
         join_date: form.join_date,
         active: true,
+        user_id: form.user_id || null,
       })
 
       if (error) throw error
@@ -129,6 +156,7 @@ export default function EmployeesPage() {
       setForm({
         name: '', phone: '', role: 'worker', site_id: newSiteId,
         wage_type: 'daily', wage_rate: '', join_date: format(new Date(), 'yyyy-MM-dd'),
+        user_id: '',
       })
       if (newSiteId !== selectedSite) {
         setSelectedSite(newSiteId) // This will trigger loadEmployees via useEffect
@@ -218,6 +246,7 @@ export default function EmployeesPage() {
           wage_type: editForm.wage_type as 'daily' | 'monthly',
           wage_rate: rate,
           leave_balance: leaves,
+          user_id: editForm.user_id || null,
         })
          .eq('id', editingEmp.id)
 
@@ -292,6 +321,11 @@ export default function EmployeesPage() {
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '0.125rem' }}>
                   Leave Balance: <strong>{emp.leave_balance ?? 15}</strong> days
                 </div>
+                {emp.user_id && (
+                  <div style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '0.125rem' }}>
+                    Linked login: <strong>{usersMap[emp.user_id] || 'Loading...'}</strong>
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                 <span className="badge badge-gray">{emp.role}</span>
@@ -309,6 +343,7 @@ export default function EmployeesPage() {
                           wage_type: emp.wage_type,
                           wage_rate: String(emp.wage_rate),
                           leave_balance: String(emp.leave_balance ?? 15),
+                          user_id: emp.user_id || '',
                         })
                         setShowEditForm(true)
                       }} 
@@ -393,6 +428,14 @@ export default function EmployeesPage() {
             <input className="form-input" type="date" value={form.join_date}
               onChange={e => setForm(f => ({ ...f, join_date: e.target.value }))} />
           </div>
+          <div className="form-group">
+            <label className="form-label">Link User Account (Optional)</label>
+            <select className="form-input form-select" value={form.user_id}
+              onChange={e => setForm(f => ({ ...f, user_id: e.target.value }))}>
+              <option value="">Unlinked / Select Account</option>
+              {usersList.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
+            </select>
+          </div>
           <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.5rem' }}>
             <button type="button" className="btn btn-secondary w-full" onClick={() => setShowForm(false)}>
               Cancel
@@ -471,6 +514,14 @@ export default function EmployeesPage() {
             <label className="form-label">Leave Balance (Entitled Days) *</label>
             <input className="form-input" type="number" placeholder="15" value={editForm.leave_balance}
               onChange={e => setEditForm(f => ({ ...f, leave_balance: e.target.value }))} required />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Link User Account (Optional)</label>
+            <select className="form-input form-select" value={editForm.user_id}
+              onChange={e => setEditForm(f => ({ ...f, user_id: e.target.value }))}>
+              <option value="">Unlinked / Select Account</option>
+              {usersList.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
+            </select>
           </div>
           <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.5rem' }}>
             <button type="button" className="btn btn-secondary w-full" onClick={() => setShowEditForm(false)}>

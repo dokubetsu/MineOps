@@ -12,6 +12,7 @@ const ROLES = [
   { value: 'admin', label: 'Admin', desc: 'Full access to all sites and data', icon: '🛡️' },
   { value: 'site_manager', label: 'Site Manager', desc: 'Manage trips, cash, attendance for assigned site', icon: '👷' },
   { value: 'stakeholder', label: 'Stakeholder', desc: 'Read-only revenue share dashboard', icon: '📊' },
+  { value: 'site_employee', label: 'Site Employee', desc: 'Log trips, expenses, and track attendance', icon: '🚛' },
 ] as const
 
 interface ExtendedUserRole extends UserRole {
@@ -23,7 +24,7 @@ interface ExtendedUserRole extends UserRole {
 interface GroupedUser {
   user_id: string
   email: string
-  role: 'admin' | 'site_manager' | 'stakeholder'
+  role: 'admin' | 'site_manager' | 'stakeholder' | 'employee' | 'site_employee'
   rows: ExtendedUserRole[]
 }
 
@@ -37,12 +38,19 @@ export default function UsersPage() {
   const [userRoleRows, setUserRoleRows] = useState<ExtendedUserRole[]>([])
   const [authUsers, setAuthUsers] = useState<Record<string, string>>({}) // id → email
   const [sites, setSites] = useState<Site[]>([])
+  const [employees, setEmployees] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingRow, setEditingRow] = useState<ExtendedUserRole | null>(null) // row being edited
   const [form, setForm] = useState({
     email: '', password: '', role: 'site_manager',
     site_id: '', share_percent: '50',
+    employee_link_mode: 'create', // 'link' | 'create'
+    employee_id: '',
+    employee_name: '',
+    employee_phone: '',
+    employee_wage_type: 'monthly',
+    employee_wage_rate: '0',
   })
   const [editForm, setEditForm] = useState({ role: '', site_id: '', share_percent: '' })
   const [submitting, setSubmitting] = useState(false)
@@ -66,15 +74,18 @@ export default function UsersPage() {
     try {
       const token = await getAuthToken()
 
-      const [{ data: rolesData, error: rolesError }, { data: sitesData, error: sitesError }] = await Promise.all([
+      const [{ data: rolesData, error: rolesError }, { data: sitesData, error: sitesError }, { data: employeesData, error: employeesError }] = await Promise.all([
         supabase.from('user_roles').select('*, sites(name)').order('created_at').limit(500),
         supabase.from('sites').select('*').eq('active', true).order('name').limit(500),
+        supabase.from('employees').select('*').eq('active', true).is('user_id', null).limit(1000)
       ])
 
       if (rolesError) throw new Error(`User roles: ${rolesError.message}`)
       if (sitesError) throw new Error(`Sites: ${sitesError.message}`)
+      if (employeesError) throw new Error(`Employees: ${employeesError.message}`)
 
       setSites(sitesData || [])
+      setEmployees(employeesData || [])
       setUserRoleRows((rolesData as ExtendedUserRole[]) || [])
 
       const res = await fetch('/api/admin/list-users', {
@@ -113,16 +124,16 @@ export default function UsersPage() {
     if (!userMap[r.user_id]) {
       userMap[r.user_id] = {
         user_id: r.user_id,
-        email: authUsers[r.user_id] || '',
-        role: r.role as 'admin' | 'site_manager' | 'stakeholder',
+        email: authUsers[r.user_id] || 'unregistered@mineops.com',
+        role: r.role as 'admin' | 'site_manager' | 'stakeholder' | 'employee' | 'site_employee',
         rows: [],
       }
     }
     userMap[r.user_id].rows.push(r)
     // Highest-privilege role wins for display
-    const priority = (role: string) => role === 'admin' ? 1 : role === 'site_manager' ? 2 : 3
+    const priority = (role: string) => role === 'admin' ? 1 : role === 'site_manager' ? 2 : (role === 'employee' || role === 'site_employee') ? 3 : 4
     if (priority(r.role) < priority(userMap[r.user_id].role)) {
-      userMap[r.user_id].role = r.role as 'admin' | 'site_manager' | 'stakeholder'
+      userMap[r.user_id].role = r.role as any
     }
   }
   const users = Object.values(userMap)
@@ -142,13 +153,23 @@ export default function UsersPage() {
           role: form.role,
           site_id: form.site_id || null,
           share_percent: form.share_percent,
+          employee_link_mode: (form.role === 'site_employee' || form.role === 'employee') ? form.employee_link_mode : 'none',
+          employee_id: form.employee_id || null,
+          employee_name: form.employee_name || null,
+          employee_phone: form.employee_phone || null,
+          employee_wage_type: form.employee_wage_type || null,
+          employee_wage_rate: form.employee_wage_rate || null,
         }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to create user')
       toast.success('User created successfully')
       setShowForm(false)
-      setForm({ email: '', password: '', role: 'site_manager', site_id: '', share_percent: '50' })
+      setForm({
+        email: '', password: '', role: 'site_manager', site_id: '', share_percent: '50',
+        employee_link_mode: 'create', employee_id: '', employee_name: '', employee_phone: '',
+        employee_wage_type: 'monthly', employee_wage_rate: '0'
+      })
       loadData()
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : 'Failed to create user'
@@ -170,9 +191,9 @@ export default function UsersPage() {
     }
   }
 
-  const revokeRow = async (rowId: string, userId: string, siteId: string | null) => {
+  const revokeRow = async (rowId: string, userId: string, role: string, siteId: string | null) => {
     if (!confirm('Revoke this specific role/site access?')) return
-    if (siteId) {
+    if (role === 'stakeholder' && siteId) {
       await supabase.from('stakeholder_site_access').delete()
         .eq('stakeholder_user_id', userId).eq('site_id', siteId)
     }
@@ -200,13 +221,22 @@ export default function UsersPage() {
     const { error } = await supabase
       .from('user_roles')
       .update({
-        role: editForm.role as 'admin' | 'site_manager' | 'stakeholder',
-        site_id: editForm.site_id || null,
+        role: editForm.role as 'admin' | 'site_manager' | 'stakeholder' | 'employee' | 'site_employee',
+        site_id: editForm.role === 'admin' ? null : (editForm.site_id || null),
       })
       .eq('id', editingRow.id)
     if (error) {
       toast.error(`Error updating role: ${error.message}`)
     } else {
+      // If this row was a stakeholder grant on a site, and it's no longer a
+      // stakeholder grant on that same site (role changed, or site changed),
+      // remove the now-stale stakeholder_site_access row first.
+      const wasStakeholderSite = editingRow.role === 'stakeholder' && editingRow.site_id
+      const stillSameStakeholderSite = editForm.role === 'stakeholder' && editForm.site_id === editingRow.site_id
+      if (wasStakeholderSite && !stillSameStakeholderSite) {
+        await supabase.from('stakeholder_site_access').delete()
+          .eq('stakeholder_user_id', editingRow.user_id).eq('site_id', editingRow.site_id as string)
+      }
       // If changing to/from stakeholder update site access
       if (editForm.role === 'stakeholder' && editForm.site_id) {
         await supabase.from('stakeholder_site_access').upsert({
@@ -222,8 +252,8 @@ export default function UsersPage() {
     setSubmitting(false)
   }
 
-  const roleIcon = (role: string) => role === 'admin' ? '🛡️' : role === 'site_manager' ? '👷' : '📊'
-  const roleBadge = (role: string) => role === 'admin' ? 'badge-amber' : role === 'site_manager' ? 'badge-blue' : 'badge-green'
+  const roleIcon = (role: string) => role === 'admin' ? '🛡️' : role === 'site_manager' ? '👷' : (role === 'employee' || role === 'site_employee') ? '🚛' : '📊'
+  const roleBadge = (role: string) => role === 'admin' ? 'badge-amber' : role === 'site_manager' ? 'badge-blue' : (role === 'employee' || role === 'site_employee') ? 'badge-purple' : 'badge-green'
 
   return (
     <div>
@@ -344,7 +374,7 @@ export default function UsersPage() {
                           <Pencil size={13} style={{ color: 'var(--text-muted)' }} />
                         </button>
                         <button className="btn btn-ghost btn-icon" style={{ padding: '0.2rem' }}
-                          onClick={() => revokeRow(row.id, u.user_id, row.site_id)} title="Revoke this role">
+                          onClick={() => revokeRow(row.id, u.user_id, row.role, row.site_id)} title="Revoke this role">
                           <X size={13} style={{ color: 'var(--danger)' }} />
                         </button>
                       </>
@@ -409,6 +439,59 @@ export default function UsersPage() {
                     <option value="">Select site</option>
                     {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
+                </div>
+              )}
+
+              {(form.role === 'site_employee' || form.role === 'employee') && form.site_id && (
+                <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.5rem', fontFamily: 'var(--font-display)', color: 'var(--accent)' }}>Employee Profile Assignment</div>
+                  
+                  <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                      <input type="radio" checked={form.employee_link_mode === 'create'} onChange={() => setForm(f => ({ ...f, employee_link_mode: 'create' }))} />
+                      Create New Profile
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8rem', cursor: 'pointer' }}>
+                      <input type="radio" checked={form.employee_link_mode === 'link'} onChange={() => setForm(f => ({ ...f, employee_link_mode: 'link' }))} />
+                      Link Existing Profile
+                    </label>
+                  </div>
+
+                  {form.employee_link_mode === 'link' ? (
+                    <div className="form-group">
+                      <label className="form-label">Select Employee Profile *</label>
+                      <select className="form-input form-select" value={form.employee_id} onChange={e => setForm(f => ({ ...f, employee_id: e.target.value }))} required>
+                        <option value="">Choose employee...</option>
+                        {employees.filter(emp => emp.site_id === form.site_id).map(emp => (
+                          <option key={emp.id} value={emp.id}>{emp.name} ({emp.phone || 'No phone'})</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="form-group">
+                        <label className="form-label">Employee Name *</label>
+                        <input className="form-input" type="text" placeholder="Full Name" value={form.employee_name} onChange={e => setForm(f => ({ ...f, employee_name: e.target.value }))} required />
+                      </div>
+                      <div className="form-group">
+                        <label className="form-label">Employee Phone</label>
+                        <input className="form-input" type="text" placeholder="Phone Number" value={form.employee_phone} onChange={e => setForm(f => ({ ...f, employee_phone: e.target.value }))} />
+                      </div>
+                      <div style={{ display: 'flex', gap: '1rem' }}>
+                        <div className="form-group" style={{ flex: 1 }}>
+                          <label className="form-label">Wage Type</label>
+                          <select className="form-input form-select" value={form.employee_wage_type} onChange={e => setForm(f => ({ ...f, employee_wage_type: e.target.value }))}>
+                            <option value="daily">Daily</option>
+                            <option value="monthly">Monthly</option>
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ flex: 1 }}>
+                          <label className="form-label">Wage Rate (₹)</label>
+                          <input className="form-input" type="number" value={form.employee_wage_rate} onChange={e => setForm(f => ({ ...f, employee_wage_rate: e.target.value }))} />
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
               {form.role === 'stakeholder' && form.site_id && (

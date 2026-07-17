@@ -90,35 +90,39 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl)
   }
 
+
+
   // ── 3. Role-based route guard for authenticated users ───────────────────
   if (user && request.nextUrl.pathname.startsWith('/dashboard')) {
     const pathname = request.nextUrl.pathname
-    const isBlockedForStakeholder = STAKEHOLDER_BLOCKED_PREFIXES.some(p =>
-      pathname.startsWith(p)
-    )
 
-    if (isBlockedForStakeholder) {
-      // Fetch all roles of the user to check priority
-      const { data: roleRows } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id)
+    // Fetch all roles of the user to check priority
+    const { data: roleRows } = await supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
 
-      const roles = roleRows?.map(r => r.role) || []
-      
-      // Explicit priority role matching: Admin > Site Manager > Stakeholder
-      const role = roles.includes('admin')
-        ? 'admin'
-        : roles.includes('site_manager')
-        ? 'site_manager'
-        : 'stakeholder'
+    const roles = roleRows?.map(r => r.role) || []
+    const role = roles.includes('admin')
+      ? 'admin'
+      : roles.includes('site_manager')
+      ? 'site_manager'
+      : roles.includes('stakeholder')
+      ? 'stakeholder'
+      : roles.includes('employee')
+      ? 'employee'
+      : null
 
-      // Stakeholders cannot access operational pages — send to their dashboard
-      if (role === 'stakeholder') {
-        const redirectUrl = request.nextUrl.clone()
-        redirectUrl.pathname = '/dashboard/stakeholder'
-        return NextResponse.redirect(redirectUrl)
-      }
+    if (role === 'employee' && pathname !== '/dashboard/employee') {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = '/dashboard/employee'
+      return NextResponse.redirect(redirectUrl)
+    }
+
+    if (role === 'stakeholder' && pathname !== '/dashboard/stakeholder') {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = '/dashboard/stakeholder'
+      return NextResponse.redirect(redirectUrl)
     }
   }
 

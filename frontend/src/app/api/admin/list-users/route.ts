@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
   // Check user roles in DB
   const { data: rolesData } = await supabase
     .from('user_roles')
-    .select('role, site_id')
+    .select('role, site_id, organization_id')
     .eq('user_id', callerData.user.id)
 
   const roles = rolesData?.map(r => r.role) || []
@@ -42,10 +42,20 @@ export async function GET(req: NextRequest) {
   if (!isAdmin && !isSiteManager) {
     return NextResponse.json({ error: 'Forbidden: admin or site manager only' }, { status: 403 })
   }
+  const callerOrganizationId = rolesData?.[0]?.organization_id
 
-  // Determine allowed user IDs for site managers
+  // auth.admin.listUsers() below returns every user in the entire Supabase
+  // project — Auth itself has no concept of organization — so this allow-list
+  // is the only thing standing between "admin" and "every user across every
+  // tenant". Every branch below is scoped to the caller's own organization_id.
   const allowedUserIds = new Set<string>()
-  if (isSiteManager && !isAdmin) {
+  if (isAdmin) {
+    const { data: orgUsers } = await supabase
+      .from('user_roles')
+      .select('user_id')
+      .eq('organization_id', callerOrganizationId)
+    for (const row of orgUsers || []) allowedUserIds.add(row.user_id)
+  } else if (isSiteManager) {
     const managedSiteIds = rolesData
       ?.filter(r => r.role === 'site_manager' && r.site_id)
       .map(r => r.site_id) || []
@@ -54,6 +64,7 @@ export async function GET(req: NextRequest) {
       const { data: siteUsers } = await supabase
         .from('user_roles')
         .select('user_id')
+        .eq('organization_id', callerOrganizationId)
         .or(`site_id.in.(${managedSiteIds.join(',')}),role.eq.admin`)
 
       if (siteUsers) {
@@ -65,6 +76,7 @@ export async function GET(req: NextRequest) {
       const { data: siteUsers } = await supabase
         .from('user_roles')
         .select('user_id')
+        .eq('organization_id', callerOrganizationId)
         .eq('role', 'admin')
 
       if (siteUsers) {
@@ -94,7 +106,7 @@ export async function GET(req: NextRequest) {
   }
 
   const users = (usersData?.users || [])
-    .filter(u => isAdmin || allowedUserIds.has(u.id))
+    .filter(u => allowedUserIds.has(u.id))
     .map(u => ({
       id: u.id,
       email: u.email ?? '',

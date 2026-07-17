@@ -18,9 +18,9 @@ export const attendanceRepository = {
   ): Promise<RosterEmployee[]> {
     // Get employees
     const { data: employees, error: empError } = await supabase
+
       .from('employees')
-      .select('id, name, role, wage_type, wage_rate, site_id, phone, active, join_date, created_at, updated_at, leave_balance')
-      .eq('site_id', siteId)
+      .select('id, name, role, wage_type, wage_rate, site_id, phone, active, join_date, created_at, updated_at, leave_balance, user_id')
       .eq('active', true)
       .order('name')
       .limit(500)

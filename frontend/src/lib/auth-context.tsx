@@ -5,8 +5,9 @@ import { createClient } from '@/lib/supabase/client'
 
 interface UserRole {
   user_id: string
-  role: 'admin' | 'site_manager' | 'stakeholder'
+  role: 'admin' | 'site_manager' | 'stakeholder' | 'employee' | 'site_employee'
   site_id: string | null
+  organization_id: string
 }
 
 interface AuthContextType {
@@ -16,7 +17,11 @@ interface AuthContextType {
   isAdmin: boolean
   isSiteManager: boolean
   isStakeholder: boolean
+  isEmployee: boolean
+  isSiteEmployee: boolean
   siteIds: string[]
+  organizationId: string | null
+  organizationName: string | null
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -26,25 +31,36 @@ const AuthContext = createContext<AuthContextType>({
   isAdmin: false,
   isSiteManager: false,
   isStakeholder: false,
+  isEmployee: false,
+  isSiteEmployee: false,
   siteIds: [],
+  organizationId: null,
+  organizationName: null,
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null)
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
+  const [organizationName, setOrganizationName] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
   const loadRoles = async (userId: string | undefined) => {
     if (!userId) {
       setUserRoles([])
+      setOrganizationName(null)
       return
     }
+
     const { data } = await supabase
       .from('user_roles')
       .select('*')
       .eq('user_id', userId)
-    setUserRoles(data || [])
+    setUserRoles((data as any) || [])
+    // (organizations_self_read: id = get_user_organization_id()), so no
+    // client-side filtering is needed here.
+    const { data: org } = await supabase.from('organizations').select('name').maybeSingle()
+    setOrganizationName(org?.name ?? null)
   }
 
   useEffect(() => {
@@ -65,6 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await loadRoles(currentUser.id)
       } else {
         setUserRoles([])
+        setOrganizationName(null)
       }
       setLoading(false)
     })
@@ -74,17 +91,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAdmin = userRoles.some(r => r.role === 'admin')
   const isSiteManager = userRoles.some(r => r.role === 'site_manager')
   const isStakeholder = userRoles.some(r => r.role === 'stakeholder')
+  const isEmployee = userRoles.some(r => r.role === 'employee')
+  const isSiteEmployee = userRoles.some(r => r.role === 'site_employee')
   const siteIds = userRoles.map(r => r.site_id).filter(Boolean) as string[]
+
+  // Deterministic priority (admin > site_manager > stakeholder > employee > site_employee) instead of
+  // userRoles[0], since the underlying query has no ORDER BY and a user with
+  // more than one role row could otherwise get an arbitrary one back.
+  const priorityRole =
+    userRoles.find(r => r.role === 'admin') ||
+    userRoles.find(r => r.role === 'site_manager') ||
+    userRoles.find(r => r.role === 'stakeholder') ||
+    userRoles.find(r => r.role === 'employee') ||
+    userRoles.find(r => r.role === 'site_employee') ||
+    null
 
   return (
     <AuthContext.Provider value={{
       user,
-      userRole: userRoles[0] || null, // backward-compatible fallback
+      userRole: priorityRole, // backward-compatible fallback
       loading,
       isAdmin,
       isSiteManager,
       isStakeholder,
+      isEmployee,
+      isSiteEmployee,
       siteIds,
+      organizationId: priorityRole?.organization_id ?? null,
+      organizationName,
     }}>
       {children}
     </AuthContext.Provider>

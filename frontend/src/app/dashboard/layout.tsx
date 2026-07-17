@@ -15,7 +15,7 @@ import {
 function NavContent() {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, userRole, isAdmin, isSiteManager, isStakeholder } = useAuth()
+  const { user, userRole, isAdmin, isSiteManager, isStakeholder, isSiteEmployee, isEmployee, organizationName } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const supabase = createClient()
   const [showMoreMenu, setShowMoreMenu] = useState(false)
@@ -28,6 +28,7 @@ function NavContent() {
   // Build nav items based on role
   const operationsNav = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'site_manager', 'stakeholder'] },
+    { href: '/dashboard/employee', icon: LayoutDashboard, label: 'Home', roles: ['employee', 'site_employee'] },
     { href: '/dashboard/trips', icon: Truck, label: 'Trips', roles: ['admin', 'site_manager'] },
     { href: '/dashboard/cash-book', icon: BookOpen, label: 'Cash Book', roles: ['admin', 'site_manager'] },
     { href: '/dashboard/attendance', icon: Calendar, label: 'Attendance', roles: ['admin', 'site_manager'] },
@@ -47,7 +48,8 @@ function NavContent() {
     return (
       (isAdmin && item.roles.includes('admin')) ||
       (isSiteManager && item.roles.includes('site_manager')) ||
-      (isStakeholder && item.roles.includes('stakeholder'))
+      (isStakeholder && item.roles.includes('stakeholder')) ||
+      ((isEmployee || isSiteEmployee) && item.roles.some(r => r === 'employee' || r === 'site_employee'))
     )
   })
 
@@ -74,13 +76,15 @@ function NavContent() {
     )
   })
 
-  const roleColor = isAdmin ? 'var(--accent)' : isSiteManager ? 'var(--info)' : 'var(--success)'
+  const roleColor = isAdmin ? 'var(--accent)' : isSiteManager ? 'var(--info)' : (isSiteEmployee || isEmployee) ? 'var(--success)' : 'var(--success)'
   
   const rolesList: string[] = []
   if (isAdmin) rolesList.push('Admin')
   if (isSiteManager) rolesList.push('Site Manager')
   if (isStakeholder) rolesList.push('Stakeholder')
-  const roleLabel = rolesList.join(' + ') || 'Site Manager'
+  if (isSiteEmployee) rolesList.push('Site Employee')
+  else if (isEmployee) rolesList.push('Employee')
+  const roleLabel = rolesList.join(' + ') || 'No Role Assigned'
 
   return (
     <>
@@ -139,7 +143,9 @@ function NavContent() {
               <div style={{ fontSize: '0.8rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {user?.email?.split('@')[0] || 'User'}
               </div>
-              <div style={{ fontSize: '0.65rem', color: roleColor }}>{roleLabel}</div>
+              <div style={{ fontSize: '0.65rem', color: roleColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {roleLabel}{organizationName ? ` · ${organizationName}` : ''}
+              </div>
             </div>
             <button onClick={toggleTheme} className="btn-ghost btn btn-icon" title="Toggle theme">
               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
@@ -256,6 +262,21 @@ function NavContent() {
             <Link href="/dashboard/stakeholder" className={`bottom-nav-item ${pathname === '/dashboard/stakeholder' ? 'active' : ''}`}>
               <TrendingUp size={22} />
               <span className="bottom-nav-label">Summary</span>
+            </Link>
+          </>
+        ) : (isSiteEmployee || isEmployee) ? (
+          <>
+            <Link href="/dashboard/employee" className={`bottom-nav-item ${pathname === '/dashboard/employee' ? 'active' : ''}`}>
+              <LayoutDashboard size={22} />
+              <span className="bottom-nav-label">Home</span>
+            </Link>
+            <Link href="/dashboard/trips" className={`bottom-nav-item ${pathname.startsWith('/dashboard/trips') ? 'active' : ''}`}>
+              <Truck size={22} />
+              <span className="bottom-nav-label">Log Trip</span>
+            </Link>
+            <Link href="/dashboard/cash-book" className={`bottom-nav-item ${pathname.startsWith('/dashboard/cash-book') ? 'active' : ''}`}>
+              <BookOpen size={22} />
+              <span className="bottom-nav-label">Expense</span>
             </Link>
           </>
         ) : (

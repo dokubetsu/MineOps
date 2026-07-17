@@ -15,13 +15,21 @@ interface ExtendedVehicle extends Vehicle {
 }
 
 export default function SettingsPage() {
-  const { isAdmin, loading: authLoading } = useAuth()
+  const { isAdmin, organizationId, organizationName, loading: authLoading } = useAuth()
+  const [orgName, setOrgName] = useState('')
+  const [savingOrg, setSavingOrg] = useState(false)
+
+  useEffect(() => {
+    if (organizationName) {
+      setOrgName(organizationName)
+    }
+  }, [organizationName])
   const router = useRouter()
   const [sites, setSites] = useState<Site[]>([])
   const [contractors, setContractors] = useState<TransportContractor[]>([])
   const [vehicles, setVehicles] = useState<ExtendedVehicle[]>([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'sites' | 'contractors' | 'vehicles'>('sites')
+  const [activeTab, setActiveTab] = useState<'sites' | 'contractors' | 'vehicles' | 'organization'>('sites')
 
   // Forms
   const [siteName, setSiteName] = useState('')
@@ -66,7 +74,7 @@ export default function SettingsPage() {
 
   const addSite = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { error } = await supabase.from('sites').insert({ name: siteName, location: siteLocation, active: true })
+    const { error } = await supabase.from('sites').insert({ name: siteName, location: siteLocation, active: true, organization_id: organizationId! })
     if (error) {
       toast.error(`Error adding site: ${error.message}`)
     } else {
@@ -78,7 +86,7 @@ export default function SettingsPage() {
 
   const addContractor = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { error } = await supabase.from('transport_contractors').insert({ name: contractorName, active: true })
+    const { error } = await supabase.from('transport_contractors').insert({ name: contractorName, active: true, organization_id: organizationId! })
     if (error) {
       toast.error(`Error adding contractor: ${error.message}`)
     } else {
@@ -109,6 +117,7 @@ export default function SettingsPage() {
       ownership: vehicleOwnership as 'rented' | 'owned',
       default_contractor_id: vehicleContractor || null,
       active: true,
+      organization_id: organizationId!,
     })
 
     if (error) {
@@ -118,6 +127,27 @@ export default function SettingsPage() {
       setVehiclePlate(''); setVehicleContractor('')
       loadAll()
     }
+  }
+
+  const updateOrganization = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!orgName.trim()) {
+      toast.error('Organization name cannot be empty')
+      return
+    }
+    setSavingOrg(true)
+    const { error } = await supabase
+      .from('organizations')
+      .update({ name: orgName })
+      .eq('id', organizationId!)
+    
+    if (error) {
+      toast.error(`Error updating organization: ${error.message}`)
+    } else {
+      toast.success('Organization updated successfully')
+      router.refresh()
+    }
+    setSavingOrg(false)
   }
 
   const toggleActive = async (table: 'sites' | 'transport_contractors' | 'vehicles', id: string, current: boolean) => {
@@ -153,6 +183,9 @@ export default function SettingsPage() {
     { key: 'contractors', label: 'Contractors', count: contractors.length },
     { key: 'vehicles', label: 'Vehicles', count: vehicles.length },
   ]
+  if (isAdmin) {
+    tabs.push({ key: 'organization', label: 'Organization', count: 1 })
+  }
 
   return (
     <div>
@@ -237,7 +270,7 @@ export default function SettingsPage() {
                     </div>
                     <button
                       className={`btn btn-sm ${site.active ? 'btn-success' : 'btn-danger'}`}
-                      onClick={() => toggleActive('sites', site.id, site.active)}
+                      onClick={() => toggleActive('sites', site.id, !!site.active)}
                     >
                       {site.active ? 'Active' : 'Inactive'}
                     </button>
@@ -265,7 +298,7 @@ export default function SettingsPage() {
                     <div style={{ flex: 1, fontWeight: 600 }}>{c.name}</div>
                     <button
                       className={`btn btn-sm ${c.active ? 'btn-success' : 'btn-danger'}`}
-                      onClick={() => toggleActive('transport_contractors', c.id, c.active)}
+                      onClick={() => toggleActive('transport_contractors', c.id, !!c.active)}
                     >
                       {c.active ? 'Active' : 'Inactive'}
                     </button>
@@ -322,13 +355,35 @@ export default function SettingsPage() {
                     </div>
                     <button
                       className={`btn btn-sm ${v.active ? 'btn-success' : 'btn-danger'}`}
-                      onClick={() => toggleActive('vehicles', v.id, v.active)}
+                      onClick={() => toggleActive('vehicles', v.id, !!v.active)}
                     >
                       {v.active ? 'Active' : 'Off'}
                     </button>
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {activeTab === 'organization' && (
+            <div>
+              <form onSubmit={updateOrganization} className="card mb-4" style={{ maxWidth: '500px' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '1.5rem', fontFamily: 'var(--font-display)' }}>Organization Details</h3>
+                <div className="form-group">
+                  <label className="form-label">Company / Mining Name</label>
+                  <input
+                    className="form-input"
+                    type="text"
+                    placeholder="Enter company name"
+                    value={orgName}
+                    onChange={e => setOrgName(e.target.value)}
+                    required
+                  />
+                </div>
+                <button type="submit" className="btn btn-primary" disabled={savingOrg}>
+                  {savingOrg ? 'Saving...' : 'Save Changes'}
+                </button>
+              </form>
             </div>
           )}
         </>

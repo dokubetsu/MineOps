@@ -268,15 +268,21 @@ export default function ReportsPage() {
 
   const exportTripsCSV = () => {
     const rows = [
-      ['Date', 'Plate Number', 'Vehicle Type', 'Contractor', 'Ownership', 'DD Number', 'Permit', 'Load Info'],
+      ['Date', 'Plate Number', 'Vehicle Type', 'Contractor', 'Ownership', 'Permit', 'Cubic Capacity', 'Advance', 'Customer', 'Drop Location', 'Distance (KM)', 'Trip Worth', 'Payment Status', 'Load Info'],
       ...trips.map(t => [
         t.trip_date,
         t.vehicles?.plate_number || '',
         t.vehicles?.vehicle_type || '',
         t.transport_contractors?.name || '',
         t.ownership_snapshot || '',
-        t.dd_number || '',
         t.permit_number || '',
+        t.cubic_capacity || '',
+        t.advance_amount || 0,
+        (t as any).customers?.name || '',
+        t.drop_location || '',
+        t.distance_km || '',
+        t.trip_worth || '',
+        t.payment_status || 'pending',
         t.load_info || '',
       ]),
     ]
@@ -581,12 +587,13 @@ export default function ReportsPage() {
                       <th>Type</th>
                       <th>Contractor</th>
                       <th>Ownership</th>
-                      <th>DD No.</th>
+                      <th>Permit No.</th>
+                      <th>Trip Worth</th>
                     </tr>
                   </thead>
                   <tbody>
                     {trips.length === 0 ? (
-                      <tr><td colSpan={6} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No trips in this period</td></tr>
+                      <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>No trips in this period</td></tr>
                     ) : trips.map(t => (
                       <tr key={t.id}>
                         <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{format(new Date(t.trip_date), 'd MMM')}</td>
@@ -594,7 +601,8 @@ export default function ReportsPage() {
                         <td><span className="badge badge-amber">{t.vehicles?.vehicle_type}</span></td>
                         <td>{t.transport_contractors?.name || '—'}</td>
                         <td><span className={`badge ${t.ownership_snapshot === 'owned' ? 'badge-blue' : 'badge-gray'}`}>{t.ownership_snapshot}</span></td>
-                        <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{t.dd_number || '—'}</td>
+                        <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{t.permit_number || '—'}</td>
+                        <td><strong style={{ color: 'var(--success)' }}>₹{(t.trip_worth ?? 0).toLocaleString('en-IN')}</strong></td>
                       </tr>
                     ))}
                   </tbody>

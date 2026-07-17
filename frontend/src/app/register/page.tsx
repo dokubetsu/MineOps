@@ -1,67 +1,55 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { createClient } from '@/lib/supabase/client'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/lib/theme-context'
-import { Sun, Moon } from 'lucide-react'
+import { Sun, Moon, ArrowLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
 import Link from 'next/link'
 
-export default function LoginPage() {
+export default function RegisterPage() {
+  const [companyName, setCompanyName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [checkingSession, setCheckingSession] = useState(true)
   const [error, setError] = useState('')
   const router = useRouter()
-  const supabase = createClient()
   const { theme, toggleTheme } = useTheme()
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        router.push('/dashboard')
-      } else {
-        setCheckingSession(false)
-      }
-    })
-
-    // Show toast if redirected from register
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('registered')) {
-      toast.success('Organization registered successfully! Please log in.')
-      router.replace('/')
-    }
-  }, [])
-
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
-    setLoading(true)
     setError('')
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      console.error('Login error detailed:', error.message)
-      setError(error.message)
-      setLoading(false)
-    } else {
-      router.push('/dashboard')
-      router.refresh()
-    }
-  }
 
-  if (checkingSession) {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--bg-gradient)',
-      }}>
-        <div className="spinner" style={{ width: '2rem', height: '2rem' }} />
-      </div>
-    )
+    if (password !== confirmPassword) {
+      setError('Passwords do not match')
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      const response = await fetch('/api/auth/register-tenant', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ companyName, email, password }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Registration failed')
+      }
+
+      toast.success('Organization registered successfully! Please log in.')
+      router.push('/?registered=true')
+    } catch (err: any) {
+      console.error('Registration error:', err)
+      setError(err.message || 'Something went wrong. Please try again.')
+      setLoading(false)
+    }
   }
 
   return (
@@ -100,9 +88,9 @@ export default function LoginPage() {
         {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
       </button>
 
-      <div style={{ width: '100%', maxWidth: '380px', position: 'relative' }}>
+      <div style={{ width: '100%', maxWidth: '400px', position: 'relative' }}>
         {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+        <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
           <div style={{
             width: '64px',
             height: '64px',
@@ -112,7 +100,7 @@ export default function LoginPage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            margin: '0 auto 1rem',
+            margin: '0 auto 0.75rem',
             fontSize: '1.75rem',
           }}>⛏️</div>
           <h1 style={{
@@ -125,23 +113,40 @@ export default function LoginPage() {
           <p style={{
             fontSize: '0.875rem',
             color: 'var(--text-muted)',
-            marginTop: '0.375rem',
-          }}>Mine Logistics & Workforce Management</p>
+            marginTop: '0.25rem',
+          }}>Register a New Mining Organization</p>
         </div>
 
         {/* Card */}
         <div className="card" style={{ padding: '2rem' }}>
-          <h2 style={{ fontSize: '1.1rem', marginBottom: '1.5rem', fontWeight: 600 }}>
-            Sign In
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
+            <Link href="/" style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}>
+              <ArrowLeft size={16} />
+            </Link>
+            <h2 style={{ fontSize: '1.1rem', fontWeight: 600, margin: 0 }}>
+              Create Organization
+            </h2>
+          </div>
 
-          <form onSubmit={handleLogin}>
+          <form onSubmit={handleRegister}>
             <div className="form-group">
-              <label className="form-label">Email</label>
+              <label className="form-label">Company / Mining Name</label>
+              <input
+                className="form-input"
+                type="text"
+                placeholder="e.g. Madha Mines"
+                value={companyName}
+                onChange={e => setCompanyName(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Admin Email</label>
               <input
                 className="form-input"
                 type="email"
-                placeholder="you@example.com"
+                placeholder="admin@company.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
@@ -150,15 +155,28 @@ export default function LoginPage() {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Password</label>
+              <label className="form-label">Admin Password</label>
               <input
                 className="form-input"
                 type="password"
-                placeholder="••••••••"
+                placeholder="Min 6 characters"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
-                autoComplete="current-password"
+                autoComplete="new-password"
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Confirm Password</label>
+              <input
+                className="form-input"
+                type="password"
+                placeholder="Repeat password"
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                required
+                autoComplete="new-password"
               />
             </div>
 
@@ -183,18 +201,11 @@ export default function LoginPage() {
             >
               {loading ? (
                 <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <span className="spinner" /> Signing in...
+                  <span className="spinner" /> Registering...
                 </span>
-              ) : 'Sign In'}
+              ) : 'Create & Sign Up'}
             </button>
           </form>
-          
-          <div style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.85rem' }}>
-            <span style={{ color: 'var(--text-muted)' }}>Want to use MineOps for your company? </span>
-            <Link href="/register" style={{ color: 'var(--accent)', fontWeight: 600 }}>
-              Register here
-            </Link>
-          </div>
         </div>
 
         {/* Footer */}

@@ -400,13 +400,13 @@ export default function CashBookPage() {
             <div className="card" style={{ padding: '0.875rem 1rem' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Opening Balance</span>
               <div style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: '0.25rem' }}>
-                ₹{cashBook.opening_balance.toLocaleString('en-IN')}
+                ₹{(cashBook.opening_balance ?? 0).toLocaleString('en-IN')}
               </div>
             </div>
             <div className="card" style={{ padding: '0.875rem 1rem' }}>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Closing Balance</span>
               <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)', marginTop: '0.25rem' }}>
-                ₹{cashBook.closing_balance.toLocaleString('en-IN')}
+                ₹{(cashBook.closing_balance ?? 0).toLocaleString('en-IN')}
               </div>
             </div>
           </div>

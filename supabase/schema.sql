@@ -7,12 +7,22 @@
 -- 1. Tables Definition
 -- ------------------------------------------
 
+-- Organizations (tenant boundary — one row per mining company customer)
+CREATE TABLE IF NOT EXISTS public.organizations (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name text NOT NULL,
+  active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now()
+);
+
 -- Sites
 CREATE TABLE IF NOT EXISTS public.sites (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
   location text,
   active boolean NOT NULL DEFAULT true,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
 );
@@ -22,6 +32,7 @@ CREATE TABLE IF NOT EXISTS public.transport_contractors (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
   active boolean NOT NULL DEFAULT true,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
 );
@@ -34,6 +45,7 @@ CREATE TABLE IF NOT EXISTS public.vehicles (
   ownership text NOT NULL CHECK (ownership IN ('rented','owned')),
   default_contractor_id uuid REFERENCES public.transport_contractors(id) ON DELETE SET NULL,
   active boolean NOT NULL DEFAULT true,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
 );
@@ -45,6 +57,7 @@ CREATE TABLE IF NOT EXISTS public.drivers (
   license_number text,
   phone text,
   active boolean NOT NULL DEFAULT true,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
 );
@@ -172,8 +185,14 @@ CREATE TABLE IF NOT EXISTS public.user_roles (
   user_id uuid NOT NULL,
   role text NOT NULL CHECK (role IN ('admin','site_manager','stakeholder')),
   site_id uuid REFERENCES public.sites(id) ON DELETE RESTRICT,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now()
+  updated_at timestamp with time zone DEFAULT now(),
+  -- site_manager/stakeholder rows are scoped entirely through site_id via
+  -- get_user_site_ids() — a null site_id here silently resolves to zero
+  -- accessible sites instead of an error, so it's required for these roles.
+  -- See migration 020.
+  CONSTRAINT chk_user_roles_site_required CHECK (role = 'admin' OR site_id IS NOT NULL)
 );
 
 -- Stakeholder Site Access
@@ -194,12 +213,49 @@ CREATE TABLE IF NOT EXISTS public.stakeholder_site_access (
 
 CREATE OR REPLACE FUNCTION public.get_user_role()
 RETURNS text AS $$
-  SELECT role FROM public.user_roles WHERE user_id = auth.uid() LIMIT 1;
+  -- Deterministic priority (admin > site_manager > stakeholder) for users who
+  -- end up with more than one user_roles row — see migration 019.
+  SELECT role FROM public.user_roles
+  WHERE user_id = auth.uid()
+  ORDER BY CASE role
+    WHEN 'admin' THEN 1
+    WHEN 'site_manager' THEN 2
+    WHEN 'stakeholder' THEN 3
+    ELSE 4
+  END
+  LIMIT 1;
 $$ LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION public.get_user_site_ids()
 RETURNS uuid[] AS $$
   SELECT ARRAY(SELECT site_id FROM public.user_roles WHERE user_id = auth.uid() AND site_id IS NOT NULL);
+$$ LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp;
+
+-- A user is assumed to belong to exactly one organization; same
+-- deterministic priority as get_user_role() for anyone who ends up with
+-- more than one user_roles row. See migration 021.
+CREATE OR REPLACE FUNCTION public.get_user_organization_id()
+RETURNS uuid AS $$
+  SELECT organization_id FROM public.user_roles
+  WHERE user_id = auth.uid()
+  ORDER BY CASE role
+    WHEN 'admin' THEN 1
+    WHEN 'site_manager' THEN 2
+    WHEN 'stakeholder' THEN 3
+    ELSE 4
+  END
+  LIMIT 1;
+$$ LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp;
+
+-- All site ids belonging to the caller's organization — used by *_admin
+-- policies so "admin" means "admin of my org", not "admin of every site in
+-- the database". Distinct from get_user_site_ids(), which is only the sites
+-- a site_manager/stakeholder is individually assigned to.
+CREATE OR REPLACE FUNCTION public.get_org_site_ids()
+RETURNS uuid[] AS $$
+  SELECT ARRAY(
+    SELECT id FROM public.sites WHERE organization_id = public.get_user_organization_id()
+  );
 $$ LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp;
 
 
@@ -312,7 +368,7 @@ BEFORE INSERT OR UPDATE OR DELETE ON public.payroll_lines
 FOR EACH ROW EXECUTE FUNCTION public.check_payroll_run_not_finalized();
 
 
--- Trigger Function: Prevent deleting last admin
+-- Trigger Function: Prevent deleting last admin (per-organization — see migration 022)
 CREATE OR REPLACE FUNCTION public.check_last_admin_deletion()
 RETURNS trigger AS $$
 DECLARE
@@ -320,10 +376,10 @@ DECLARE
 BEGIN
   SELECT COUNT(*) INTO v_count
   FROM public.user_roles
-  WHERE role = 'admin' AND id <> OLD.id;
+  WHERE role = 'admin' AND organization_id = OLD.organization_id AND id <> OLD.id;
 
   IF v_count = 0 THEN
-    RAISE EXCEPTION 'Cannot remove user roles. At least one admin must exist in the system to prevent lockout.' USING ERRCODE = 'check_violation';
+    RAISE EXCEPTION 'Cannot remove this admin. At least one admin must exist per organization to prevent lockout.' USING ERRCODE = 'check_violation';
   END IF;
 
   RETURN OLD;
@@ -398,6 +454,63 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
+-- Trigger Function: Auto-stamp organization_id on insert
+-- Fills organization_id from the caller's own session when the client
+-- doesn't supply one, so app code creating sites/vehicles/drivers/
+-- contractors needs no changes. If a client *does* send an explicit
+-- organization_id (e.g. a spoofed value), this trigger leaves it alone and
+-- the table's own WITH CHECK policy rejects the insert for not matching the
+-- caller's real organization. See migration 023.
+CREATE OR REPLACE FUNCTION public.set_organization_id()
+RETURNS trigger AS $$
+BEGIN
+  IF NEW.organization_id IS NULL THEN
+    NEW.organization_id := public.get_user_organization_id();
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS trg_sites_set_org ON public.sites;
+CREATE TRIGGER trg_sites_set_org BEFORE INSERT ON public.sites
+FOR EACH ROW EXECUTE FUNCTION public.set_organization_id();
+
+DROP TRIGGER IF EXISTS trg_vehicles_set_org ON public.vehicles;
+CREATE TRIGGER trg_vehicles_set_org BEFORE INSERT ON public.vehicles
+FOR EACH ROW EXECUTE FUNCTION public.set_organization_id();
+
+DROP TRIGGER IF EXISTS trg_drivers_set_org ON public.drivers;
+CREATE TRIGGER trg_drivers_set_org BEFORE INSERT ON public.drivers
+FOR EACH ROW EXECUTE FUNCTION public.set_organization_id();
+
+DROP TRIGGER IF EXISTS trg_contractors_set_org ON public.transport_contractors;
+CREATE TRIGGER trg_contractors_set_org BEFORE INSERT ON public.transport_contractors
+FOR EACH ROW EXECUTE FUNCTION public.set_organization_id();
+
+-- Trigger Function: user_roles.site_id must belong to the same organization
+-- as user_roles.organization_id (the API route that inserts user_roles uses
+-- the service role, so it sets organization_id explicitly rather than
+-- relying on the auto-stamp trigger above — this is the safety net).
+CREATE OR REPLACE FUNCTION public.check_user_roles_org_site_match()
+RETURNS trigger AS $$
+DECLARE
+  v_site_org uuid;
+BEGIN
+  IF NEW.site_id IS NOT NULL THEN
+    SELECT organization_id INTO v_site_org FROM public.sites WHERE id = NEW.site_id;
+    IF v_site_org IS DISTINCT FROM NEW.organization_id THEN
+      RAISE EXCEPTION 'site_id must belong to the same organization as this role' USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS trg_user_roles_org_site_match ON public.user_roles;
+CREATE TRIGGER trg_user_roles_org_site_match
+BEFORE INSERT OR UPDATE ON public.user_roles
+FOR EACH ROW EXECUTE FUNCTION public.check_user_roles_org_site_match();
+
 
 -- ------------------------------------------
 -- 4. Database Views
@@ -418,75 +531,115 @@ GROUP BY cb.id, cb.site_id, cb.book_date, cb.opening_balance, cb.closing_balance
 -- 5. Row Level Security (RLS) Policies
 -- ------------------------------------------
 
+-- Organizations Policies
+-- Every authenticated user can see their own organization's name; only that
+-- org's own admin can rename/update it. Nobody can list or create other
+-- organizations from the client — provisioning a new tenant is a deliberate
+-- service-role operation (see docs/vercel_deployment_guide.md).
+ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
+CREATE POLICY organizations_self_read ON public.organizations FOR SELECT TO authenticated
+  USING (id = get_user_organization_id());
+CREATE POLICY organizations_self_admin_update ON public.organizations FOR UPDATE TO authenticated
+  USING (get_user_role() = 'admin' AND id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND id = get_user_organization_id());
+
 -- Sites Policies
 ALTER TABLE public.sites ENABLE ROW LEVEL SECURITY;
-CREATE POLICY sites_admin_all ON public.sites TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY sites_admin_all ON public.sites TO authenticated
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
 CREATE POLICY sites_manager_read ON public.sites FOR SELECT TO authenticated USING (get_user_role() = 'site_manager' AND id = ANY (get_user_site_ids()));
 CREATE POLICY sites_stakeholder_read ON public.sites FOR SELECT TO authenticated USING (get_user_role() = 'stakeholder' AND id IN (SELECT site_id FROM stakeholder_site_access WHERE stakeholder_user_id = auth.uid()));
 
 -- Transport Contractors Policies
 ALTER TABLE public.transport_contractors ENABLE ROW LEVEL SECURITY;
-CREATE POLICY contractors_admin ON public.transport_contractors TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
-CREATE POLICY contractors_read ON public.transport_contractors FOR SELECT TO authenticated USING (true);
+CREATE POLICY contractors_admin ON public.transport_contractors TO authenticated
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
+CREATE POLICY contractors_read ON public.transport_contractors FOR SELECT TO authenticated USING (organization_id = get_user_organization_id());
 
 -- Vehicles Policies
 ALTER TABLE public.vehicles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY vehicles_admin ON public.vehicles TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
-CREATE POLICY vehicles_manager_insert ON public.vehicles FOR INSERT TO authenticated WITH CHECK (get_user_role() = 'site_manager');
-CREATE POLICY vehicles_read ON public.vehicles FOR SELECT TO authenticated USING (true);
+CREATE POLICY vehicles_admin ON public.vehicles TO authenticated
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
+CREATE POLICY vehicles_manager_insert ON public.vehicles FOR INSERT TO authenticated WITH CHECK (get_user_role() = 'site_manager' AND organization_id = get_user_organization_id());
+CREATE POLICY vehicles_read ON public.vehicles FOR SELECT TO authenticated USING (organization_id = get_user_organization_id());
 
 -- Drivers Policies
 ALTER TABLE public.drivers ENABLE ROW LEVEL SECURITY;
-CREATE POLICY drivers_admin ON public.drivers TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
-CREATE POLICY drivers_read ON public.drivers FOR SELECT TO authenticated USING (true);
+CREATE POLICY drivers_admin ON public.drivers TO authenticated
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
+CREATE POLICY drivers_read ON public.drivers FOR SELECT TO authenticated USING (organization_id = get_user_organization_id());
 
 -- Employees Policies
 ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
-CREATE POLICY employees_admin ON public.employees TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY employees_admin ON public.employees TO authenticated
+  USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()))
+  WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()));
 CREATE POLICY employees_manager ON public.employees TO authenticated USING (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids())) WITH CHECK (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids()));
 
 -- Trips Policies
 ALTER TABLE public.trips ENABLE ROW LEVEL SECURITY;
-CREATE POLICY trips_admin ON public.trips TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY trips_admin ON public.trips TO authenticated
+  USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()))
+  WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()));
 CREATE POLICY trips_manager ON public.trips TO authenticated USING (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids())) WITH CHECK (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids()));
 CREATE POLICY trips_stakeholder_read ON public.trips FOR SELECT TO authenticated USING (get_user_role() = 'stakeholder' AND site_id IN (SELECT site_id FROM stakeholder_site_access WHERE stakeholder_user_id = auth.uid()));
 
 -- Cash Books Policies
 ALTER TABLE public.cash_books ENABLE ROW LEVEL SECURITY;
-CREATE POLICY cashbooks_admin ON public.cash_books TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY cashbooks_admin ON public.cash_books TO authenticated
+  USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()))
+  WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()));
 CREATE POLICY cashbooks_manager ON public.cash_books TO authenticated USING (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids())) WITH CHECK (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids()));
 
 -- Cash Entries Policies
 ALTER TABLE public.cash_entries ENABLE ROW LEVEL SECURITY;
-CREATE POLICY cashentries_admin ON public.cash_entries TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY cashentries_admin ON public.cash_entries TO authenticated
+  USING (get_user_role() = 'admin' AND cash_book_id IN (SELECT id FROM cash_books WHERE site_id = ANY (get_org_site_ids())))
+  WITH CHECK (get_user_role() = 'admin' AND cash_book_id IN (SELECT id FROM cash_books WHERE site_id = ANY (get_org_site_ids())));
 CREATE POLICY cashentries_manager ON public.cash_entries TO authenticated USING (get_user_role() = 'site_manager' AND cash_book_id IN (SELECT id FROM cash_books WHERE site_id = ANY (get_user_site_ids()))) WITH CHECK (get_user_role() = 'site_manager' AND cash_book_id IN (SELECT id FROM cash_books WHERE site_id = ANY (get_user_site_ids())));
 
 -- Attendance Policies
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
-CREATE POLICY attendance_admin ON public.attendance TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY attendance_admin ON public.attendance TO authenticated
+  USING (get_user_role() = 'admin' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_org_site_ids())))
+  WITH CHECK (get_user_role() = 'admin' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_org_site_ids())));
 CREATE POLICY attendance_manager ON public.attendance TO authenticated USING (get_user_role() = 'site_manager' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_user_site_ids()))) WITH CHECK (get_user_role() = 'site_manager' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_user_site_ids())));
 
 -- Leave Applications Policies
 ALTER TABLE public.leave_applications ENABLE ROW LEVEL SECURITY;
-CREATE POLICY leave_admin ON public.leave_applications TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY leave_admin ON public.leave_applications TO authenticated
+  USING (get_user_role() = 'admin' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_org_site_ids())))
+  WITH CHECK (get_user_role() = 'admin' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_org_site_ids())));
 CREATE POLICY leave_manager ON public.leave_applications TO authenticated USING (get_user_role() = 'site_manager' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_user_site_ids()))) WITH CHECK (get_user_role() = 'site_manager' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_user_site_ids())));
 
 -- Payroll Runs Policies
 ALTER TABLE public.payroll_runs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY payroll_runs_admin ON public.payroll_runs TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY payroll_runs_admin ON public.payroll_runs TO authenticated
+  USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()))
+  WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()));
 CREATE POLICY payroll_runs_manager ON public.payroll_runs TO authenticated USING (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids())) WITH CHECK (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids()));
 
 -- Payroll Lines Policies
 ALTER TABLE public.payroll_lines ENABLE ROW LEVEL SECURITY;
-CREATE POLICY payroll_lines_admin ON public.payroll_lines TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY payroll_lines_admin ON public.payroll_lines TO authenticated
+  USING (get_user_role() = 'admin' AND payroll_run_id IN (SELECT id FROM payroll_runs WHERE site_id = ANY (get_org_site_ids())))
+  WITH CHECK (get_user_role() = 'admin' AND payroll_run_id IN (SELECT id FROM payroll_runs WHERE site_id = ANY (get_org_site_ids())));
 CREATE POLICY payroll_lines_manager ON public.payroll_lines TO authenticated USING (get_user_role() = 'site_manager' AND payroll_run_id IN (SELECT id FROM payroll_runs WHERE site_id = ANY (get_user_site_ids()))) WITH CHECK (get_user_role() = 'site_manager' AND payroll_run_id IN (SELECT id FROM payroll_runs WHERE site_id = ANY (get_user_site_ids())));
 
 -- User Roles Policies
 ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY user_roles_admin ON public.user_roles TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY user_roles_admin ON public.user_roles TO authenticated
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
 CREATE POLICY user_roles_self_read ON public.user_roles FOR SELECT TO authenticated USING (user_id = auth.uid());
 
 -- Stakeholder Access Policies
 ALTER TABLE public.stakeholder_site_access ENABLE ROW LEVEL SECURITY;
-CREATE POLICY stakeholder_access_admin ON public.stakeholder_site_access TO authenticated USING (get_user_role() = 'admin') WITH CHECK (get_user_role() = 'admin');
+CREATE POLICY stakeholder_access_admin ON public.stakeholder_site_access TO authenticated
+  USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()))
+  WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()));
 CREATE POLICY stakeholder_access_self_read ON public.stakeholder_site_access FOR SELECT TO authenticated USING (stakeholder_user_id = auth.uid());

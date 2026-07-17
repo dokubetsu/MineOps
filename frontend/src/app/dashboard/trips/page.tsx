@@ -3,17 +3,17 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
-import { Plus, Search, Truck, X, Camera, Image as ImageIcon } from 'lucide-react'
+import { Plus, Search, Truck, X, Camera, Image as ImageIcon, Pencil, Trash2, Check, ExternalLink } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
-import { Site, Vehicle, TransportContractor } from '@/lib/supabase/types'
+import { Site, Vehicle, TransportContractor, Trip, Customer, TripPhoto } from '@/lib/supabase/types'
 import { tripsRepository } from '@/lib/repositories/trips'
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
 
 const VEHICLE_TYPES = ['12WH', '10WH', '6WH', 'Other'] as const
-const OWNERSHIP_TYPES = ['rented', 'owned'] as const
+const OWNERSHIP_TYPES = ['rented', 'leased', 'owned'] as const
 
 interface ExtendedVehicle extends Vehicle {
   transport_contractors?: {
@@ -21,26 +21,10 @@ interface ExtendedVehicle extends Vehicle {
   } | null
 }
 
-interface ExtendedTrip {
-  id: string
-  site_id: string
-  vehicle_id: string | null
-  contractor_id: string | null
-  trip_date: string
-  entry_time: string | null
-  ownership_snapshot: string | null
-  dd_number: string | null
-  permit_number: string | null
-  load_info: string | null
-  notes: string | null
-  photo_url: string | null
-  active: boolean | null
-  created_at: string | null
-  updated_at: string | null
-  created_by?: string | null
+interface ExtendedTrip extends Trip {
   vehicles?: {
     plate_number: string
-    vehicle_type: '12WH' | '10WH' | '6WH' | 'Other'
+    vehicle_type: string
   } | null
   transport_contractors?: {
     name: string
@@ -48,80 +32,76 @@ interface ExtendedTrip {
   drivers?: {
     name: string
   } | null
-  signed_photo_url?: string | null
-  settled: boolean
-  settlement_amount: number
-  settlement_account: string | null
+  customers?: {
+    name: string
+  } | null
+  trip_photos?: Array<{
+    photo_url: string
+  }> | null
+  signed_photo_urls?: string[] | null
 }
 
 export default function TripsPage() {
-  const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
+  const { isAdmin, isSiteManager, organizationId, loading: authLoading } = useAuth()
   const router = useRouter()
+  const supabase = createClient()
+  const PAGE_LIMIT = 20
+
   const [trips, setTrips] = useState<ExtendedTrip[]>([])
   const [sites, setSites] = useState<Site[]>([])
   const [vehicles, setVehicles] = useState<ExtendedVehicle[]>([])
   const [contractors, setContractors] = useState<TransportContractor[]>([])
+  const [customers, setCustomers] = useState<Customer[]>([])
+  const [rates, setRates] = useState<any[]>([])
+
   const [selectedSite, setSelectedSite] = useState('')
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [editingTripId, setEditingTripId] = useState<string | null>(null)
+  
   const [vehicleSearch, setVehicleSearch] = useState('')
   const [filteredVehicles, setFilteredVehicles] = useState<ExtendedVehicle[]>([])
   
   const [form, setForm] = useState({
-    vehicle_id: '', plate_number: '', contractor_id: '',
-    ownership: 'rented', vehicle_type: '12WH', dd_number: '',
-    permit_number: '', load_info: '', notes: '',
+    vehicle_id: '',
+    plate_number: '',
+    contractor_id: '',
+    ownership: 'rented',
+    vehicle_type: '12WH',
+    cubic_capacity: '',
+    advance_amount: '0',
+    customer_id: '',
+    drop_location: '',
+    distance_km: '',
+    trip_worth: '',
+    total_shipment_cost: '',
+    payment_status: 'pending',
+    payment_method: 'cash',
+    payment_reference: '',
+    permit_number: '',
+    load_info: '',
+    notes: '',
   })
-  const [photoFile, setPhotoFile] = useState<File | null>(null)
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
 
-  // Pagination states
+  // Multiple photo uploads
+  const [photoFiles, setPhotoFiles] = useState<File[]>([])
+  const [photoPreviews, setPhotoPreviews] = useState<string[]>([])
+  const [existingPhotoUrls, setExistingPhotoUrls] = useState<string[]>([])
+  
+  const [submitting, setSubmitting] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
-  const [usersMap, setUsersMap] = useState<Record<string, string>>({}) // created_by uuid -> email
-
+  const [usersMap, setUsersMap] = useState<Record<string, string>>({})
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
   // Settle trip states
   const [settleTripId, setSettleTripId] = useState<string | null>(null)
   const [settleAmount, setSettleAmount] = useState('')
   const [settleAccount, setSettleAccount] = useState('')
+  const [settleMethod, setSettleMethod] = useState('cash')
+  const [settleRef, setSettleRef] = useState('')
   const [settleSubmitting, setSettleSubmitting] = useState(false)
-
-  const handleSettleTrip = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!settleTripId) return
-    const amt = parseFloat(settleAmount)
-    if (isNaN(amt) || amt < 0) {
-      toast.error('Please enter a valid amount')
-      return
-    }
-    if (!settleAccount.trim()) {
-      toast.error('Please enter whose account/destination')
-      return
-    }
-    setSettleSubmitting(true)
-    try {
-      await tripsRepository.settle(supabase, settleTripId, {
-        settlement_amount: amt,
-        settlement_account: settleAccount.trim(),
-      })
-      toast.success('Trip settled successfully')
-      setSettleTripId(null)
-      setSettleAmount('')
-      setSettleAccount('')
-      loadTrips()
-    } catch (err: any) {
-      toast.error(`Error settling trip: ${err.message}`)
-    } finally {
-      setSettleSubmitting(false)
-    }
-  }
-
-  const supabase = createClient()
-  const PAGE_LIMIT = 20
 
   useEffect(() => {
     if (authLoading) return
@@ -170,29 +150,46 @@ export default function TripsPage() {
     }
   }, [vehicleSearch, vehicles])
 
-  // Cleanup object URLs on unmount or when photoPreview changes
+  // Cleanup object URLs on unmount
   useEffect(() => {
     return () => {
-      if (photoPreview) {
-        URL.revokeObjectURL(photoPreview)
-      }
+      photoPreviews.forEach(url => {
+        if (url.startsWith('blob:')) {
+          URL.revokeObjectURL(url)
+        }
+      })
     }
-  }, [photoPreview])
+  }, [photoPreviews])
+
+  // Calculate default trip worth dynamically from capacity * negotiated rates
+  useEffect(() => {
+    const cap = parseFloat(form.cubic_capacity)
+    if (isNaN(cap) || cap <= 0) return
+
+    const rateRow = rates.find(r => r.vehicle_type === form.vehicle_type)
+    const rate = rateRow ? rateRow.rate_per_cubic : 0
+    if (rate > 0) {
+      setForm(f => ({ ...f, trip_worth: String(cap * rate) }))
+    }
+  }, [form.vehicle_type, form.cubic_capacity, rates])
 
   const loadInitialData = async () => {
     try {
-      const [{ data: sitesData }, { data: vehiclesData }, { data: contractorsData }] = await Promise.all([
+      const [{ data: sitesData }, { data: vehiclesData }, { data: contractorsData }, { data: customersData }, { data: ratesData }] = await Promise.all([
         supabase.from('sites').select('*').eq('active', true).order('name'),
         supabase.from('vehicles').select('*, transport_contractors(name)').eq('active', true).order('plate_number'),
         supabase.from('transport_contractors').select('*').eq('active', true).order('name'),
+        supabase.from('customers').select('*').eq('active', true).order('name'),
+        supabase.from('negotiated_rates').select('*'),
       ])
       
       const loadedSites = sitesData || []
       setSites(loadedSites)
       setVehicles((vehiclesData as any) || [])
       setContractors(contractorsData || [])
+      setCustomers(customersData || [])
+      setRates(ratesData || [])
 
-      // Smart Default: Auto-select single site if the user only has access to one
       if (loadedSites.length > 0) {
         setSelectedSite(loadedSites[0].id)
       }
@@ -233,31 +230,38 @@ export default function TripsPage() {
       const data = await tripsRepository.list(supabase, selectedSite, selectedDate, PAGE_LIMIT, offset)
       
       const tripsWithSignedUrls = await Promise.all(data.map(async (trip) => {
-        let signedPhotoUrl = null
-        if (trip.photo_url) {
-          let path = trip.photo_url
+        // Load all photos for this trip from trip_photos
+        const { data: photos } = await supabase
+          .from('trip_photos')
+          .select('photo_url')
+          .eq('trip_id', trip.id)
+          .order('sort_order')
+
+        const photoUrls = photos && photos.length > 0 ? photos.map(p => p.photo_url) : (trip.photo_url ? [trip.photo_url] : [])
+        const signedUrls = await Promise.all(photoUrls.map(async (p) => {
+          let path = p
           if (path.includes('trip-photos/')) {
             path = path.split('trip-photos/').pop() || path
           }
           const { data: signed } = await supabase.storage
             .from('trip-photos')
             .createSignedUrl(path, 3600)
-          signedPhotoUrl = signed?.signedUrl || null
-        }
+          return signed?.signedUrl || null
+        }))
+
         return {
           ...trip,
-          signed_photo_url: signedPhotoUrl
+          signed_photo_urls: signedUrls.filter(Boolean) as string[]
         }
       }))
 
       const cacheKey = `cached_trips_${selectedSite}_${selectedDate}`
-      // Remove signed URLs for cache to prevent broken images on expiration
-      const cacheableTrips = tripsWithSignedUrls.map(t => ({ ...t, signed_photo_url: null }))
+      const cacheableTrips = tripsWithSignedUrls.map(t => ({ ...t, signed_photo_urls: null }))
 
       if (loadMore) {
         setTrips(prev => {
           const nextTrips = [...prev, ...tripsWithSignedUrls]
-          const prevCacheable = prev.map(t => ({...t, signed_photo_url: null}))
+          const prevCacheable = prev.map(t => ({...t, signed_photo_urls: null}))
           localStorage.setItem(cacheKey, JSON.stringify([...prevCacheable, ...cacheableTrips]))
           return nextTrips
         })
@@ -283,6 +287,14 @@ export default function TripsPage() {
   }
 
   const selectVehicle = (vehicle: ExtendedVehicle) => {
+    let defaultCap = vehicle.default_cubic_capacity
+    if (!defaultCap) {
+      if (vehicle.vehicle_type === '12WH') defaultCap = 20
+      else if (vehicle.vehicle_type === '10WH') defaultCap = 16
+      else if (vehicle.vehicle_type === '6WH') defaultCap = 10
+      else defaultCap = 8
+    }
+
     setForm(f => ({
       ...f,
       vehicle_id: vehicle.id,
@@ -290,21 +302,110 @@ export default function TripsPage() {
       contractor_id: vehicle.default_contractor_id || '',
       ownership: vehicle.ownership || 'rented',
       vehicle_type: vehicle.vehicle_type || '12WH',
+      cubic_capacity: String(defaultCap),
     }))
     setVehicleSearch(vehicle.plate_number)
     setFilteredVehicles([])
   }
 
-  const handlePhotoSelect = (file: File) => {
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('File size exceeds the 5MB limit')
+  const handleVehicleTypeChange = (type: '12WH' | '10WH' | '6WH' | 'Other') => {
+    let defaultCap = 8
+    if (type === '12WH') defaultCap = 20
+    else if (type === '10WH') defaultCap = 16
+    else if (type === '6WH') defaultCap = 10
+
+    setForm(f => ({
+      ...f,
+      vehicle_type: type,
+      cubic_capacity: String(defaultCap),
+    }))
+  }
+
+  const handlePhotosSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files) return
+    const newFiles = Array.from(files)
+    if (photoFiles.length + existingPhotoUrls.length + newFiles.length > 10) {
+      toast.error('You can upload a maximum of 10 photos')
       return
     }
-    if (photoPreview) {
-      URL.revokeObjectURL(photoPreview)
+
+    for (const f of newFiles) {
+      if (f.size > 5 * 1024 * 1024) {
+        toast.error(`${f.name} exceeds the 5MB size limit`)
+        return
+      }
     }
-    setPhotoFile(file)
-    setPhotoPreview(URL.createObjectURL(file))
+
+    const newPreviews = newFiles.map(f => URL.createObjectURL(f))
+    setPhotoFiles(prev => [...prev, ...newFiles])
+    setPhotoPreviews(prev => [...prev, ...newPreviews])
+  }
+
+  const removePhoto = (index: number) => {
+    if (index < existingPhotoUrls.length) {
+      // Remove from existing
+      setExistingPhotoUrls(prev => prev.filter((_, i) => i !== index))
+    } else {
+      // Remove from newly added files
+      const fileIdx = index - existingPhotoUrls.length
+      const previewUrl = photoPreviews[index]
+      if (previewUrl && previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(previewUrl)
+      }
+      setPhotoFiles(prev => prev.filter((_, i) => i !== fileIdx))
+    }
+    setPhotoPreviews(prev => prev.filter((_, i) => i !== index))
+  }
+
+  const startEditTrip = async (trip: ExtendedTrip) => {
+    setEditingTripId(trip.id)
+    setForm({
+      vehicle_id: trip.vehicle_id || '',
+      plate_number: trip.vehicles?.plate_number || '',
+      contractor_id: trip.contractor_id || '',
+      ownership: (trip.ownership_snapshot as any) || 'rented',
+      vehicle_type: (trip.vehicles?.vehicle_type as any) || '12WH',
+      cubic_capacity: String(trip.cubic_capacity || ''),
+      advance_amount: String(trip.advance_amount || '0'),
+      customer_id: trip.customer_id || '',
+      drop_location: trip.drop_location || '',
+      distance_km: String(trip.distance_km || ''),
+      trip_worth: String(trip.trip_worth || ''),
+      total_shipment_cost: String(trip.total_shipment_cost || ''),
+      payment_status: trip.payment_status || 'pending',
+      payment_method: (trip.payment_method as any) || 'cash',
+      payment_reference: trip.payment_reference || '',
+      permit_number: trip.permit_number || '',
+      load_info: trip.load_info || '',
+      notes: trip.notes || '',
+    })
+    setVehicleSearch(trip.vehicles?.plate_number || '')
+
+    // Load existing trip photos
+    const { data: photos } = await supabase
+      .from('trip_photos')
+      .select('*')
+      .eq('trip_id', trip.id)
+      .order('sort_order')
+
+    const photoPaths = photos && photos.length > 0 ? photos.map(p => p.photo_url) : (trip.photo_url ? [trip.photo_url] : [])
+    setExistingPhotoUrls(photoPaths)
+
+    const signedUrls = await Promise.all(photoPaths.map(async (p) => {
+      let path = p
+      if (path.includes('trip-photos/')) {
+        path = path.split('trip-photos/').pop() || path
+      }
+      const { data: signed } = await supabase.storage
+        .from('trip-photos')
+        .createSignedUrl(path, 3600)
+      return signed?.signedUrl || p
+    }))
+
+    setPhotoPreviews(signedUrls.filter(Boolean) as string[])
+    setPhotoFiles([])
+    setShowForm(true)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -313,7 +414,7 @@ export default function TripsPage() {
     let vehicleId = form.vehicle_id
 
     try {
-      // Create vehicle on-the-fly if new plate
+      // 1. Resolve/create vehicle
       if (!vehicleId && vehicleSearch) {
         const upperPlate = vehicleSearch.toUpperCase()
         const { data: existing } = await supabase.from('vehicles')
@@ -326,10 +427,11 @@ export default function TripsPage() {
         } else {
           const { data: newVehicle, error: createError } = await supabase.from('vehicles').insert({
             plate_number: upperPlate,
-            vehicle_type: form.vehicle_type as '12WH' | '10WH' | '6WH' | 'Other',
-            ownership: form.ownership as 'rented' | 'owned',
+            vehicle_type: form.vehicle_type,
+            ownership: form.ownership,
             default_contractor_id: form.contractor_id || null,
             active: true,
+            organization_id: organizationId!,
           }).select().single()
 
           if (createError) throw createError
@@ -337,57 +439,97 @@ export default function TripsPage() {
         }
       }
 
-      // Upload photo
-      let photoUrl: string | null = null
-      if (photoFile) {
-        const ext = photoFile.name.split('.').pop() || 'jpg'
+      // 2. Upload new photo files
+      const uploadedPaths: string[] = []
+      for (const file of photoFiles) {
+        const ext = file.name.split('.').pop() || 'jpg'
         const fileUuid = crypto.randomUUID()
         const path = `${selectedSite}/${selectedDate}/${fileUuid}.${ext}`
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('trip-photos')
-          .upload(path, photoFile, { upsert: true })
+          .upload(path, file, { upsert: true })
         
         if (uploadError) throw uploadError
-        if (uploadData) photoUrl = path
+        if (uploadData) uploadedPaths.push(path)
       }
 
-      // Create Trip
-      await tripsRepository.create(supabase, {
+      const finalPhotos = [...existingPhotoUrls, ...uploadedPaths]
+
+      const payload = {
         site_id: selectedSite,
         vehicle_id: vehicleId || null,
         contractor_id: form.contractor_id || null,
         trip_date: selectedDate,
         ownership_snapshot: form.ownership,
-        dd_number: form.dd_number || null,
         permit_number: form.permit_number || null,
         load_info: form.load_info || null,
         notes: form.notes || null,
-        photo_url: photoUrl,
-      })
+        photo_url: finalPhotos[0] || null,
+        cubic_capacity: parseFloat(form.cubic_capacity) || null,
+        advance_amount: parseFloat(form.advance_amount) || 0,
+        customer_id: form.customer_id || null,
+        drop_location: form.drop_location || null,
+        distance_km: parseFloat(form.distance_km) || null,
+        trip_worth: parseFloat(form.trip_worth) || null,
+        total_shipment_cost: parseFloat(form.total_shipment_cost) || null,
+        payment_status: form.payment_status,
+        payment_method: form.payment_status === 'settled' ? form.payment_method : null,
+        payment_reference: form.payment_status === 'settled' ? form.payment_reference : null,
+        settled: form.payment_status === 'settled',
+        settlement_amount: form.payment_status === 'settled' ? (parseFloat(form.trip_worth) || 0) : 0,
+        settlement_account: form.payment_status === 'settled' ? (form.payment_reference || 'UPI/Cash') : null,
+      }
 
-      // Smart Default: Pre-fill last contractor & vehicle type to allow rapid entry
-      const lastContractor = form.contractor_id
-      const lastOwnership = form.ownership
-      const lastType = form.vehicle_type
+      let tripId = editingTripId
 
-      toast.success('Trip logged successfully')
+      if (editingTripId) {
+        // Edit flow
+        const { error: updateError } = await supabase
+          .from('trips')
+          .update(payload)
+          .eq('id', editingTripId)
+
+        if (updateError) throw updateError
+        toast.success('Trip updated successfully')
+      } else {
+        // Create flow
+        const newTrip = await tripsRepository.create(supabase, payload)
+        tripId = newTrip.id
+        toast.success('Trip logged successfully')
+      }
+
+      // Re-sync photos in trip_photos table
+      if (tripId) {
+        await supabase.from('trip_photos').delete().eq('trip_id', tripId)
+        if (finalPhotos.length > 0) {
+          const photoInserts = finalPhotos.map((url, idx) => ({
+            trip_id: tripId!,
+            photo_url: url,
+            sort_order: idx,
+          }))
+          const { error: photoErr } = await supabase.from('trip_photos').insert(photoInserts)
+          if (photoErr) {
+            console.error('Failed to sync trip photos:', photoErr.message)
+          }
+        }
+      }
+
       setShowForm(false)
+      setEditingTripId(null)
       setForm({
-        vehicle_id: '', plate_number: '',
-        contractor_id: lastContractor,
-        ownership: lastOwnership,
-        vehicle_type: lastType,
-        dd_number: '', permit_number: '', load_info: '', notes: ''
+        vehicle_id: '', plate_number: '', contractor_id: form.contractor_id,
+        ownership: form.ownership, vehicle_type: form.vehicle_type, cubic_capacity: '',
+        advance_amount: '0', customer_id: '', drop_location: '', distance_km: '',
+        trip_worth: '', total_shipment_cost: '', payment_status: 'pending',
+        payment_method: 'cash', payment_reference: '', permit_number: '', load_info: '', notes: ''
       })
       setVehicleSearch('')
-      setPhotoFile(null)
-      if (photoPreview) {
-        URL.revokeObjectURL(photoPreview)
-      }
-      setPhotoPreview(null)
+      setPhotoFiles([])
+      setPhotoPreviews([])
+      setExistingPhotoUrls([])
       loadTrips()
-    } catch (err: any) {
-      toast.error(`Error saving trip details: ${err.message}`)
+    } catch (error: any) {
+      toast.error(`Error saving trip: ${error.message}`)
     } finally {
       setSubmitting(false)
     }
@@ -406,7 +548,41 @@ export default function TripsPage() {
     }
   }
 
-  // Group trips by contractor
+  const handleSettleTrip = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!settleTripId) return
+    const amt = parseFloat(settleAmount)
+    if (isNaN(amt) || amt < 0) {
+      toast.error('Please enter a valid amount')
+      return
+    }
+    if (!settleAccount.trim()) {
+      toast.error('Please enter whose account/destination')
+      return
+    }
+    setSettleSubmitting(true)
+    try {
+      await tripsRepository.settle(supabase, settleTripId, {
+        settlement_amount: amt,
+        settlement_account: settleAccount.trim(),
+        payment_status: 'settled',
+        payment_method: settleMethod,
+        payment_reference: settleRef.trim() || undefined
+      })
+      toast.success('Trip settled successfully')
+      setSettleTripId(null)
+      setSettleAmount('')
+      setSettleAccount('')
+      setSettleMethod('cash')
+      setSettleRef('')
+      loadTrips()
+    } catch (err: any) {
+      toast.error(`Error settling trip: ${err.message}`)
+    } finally {
+      setSettleSubmitting(false)
+    }
+  }
+
   const byContractor = trips.reduce((acc, t) => {
     const name = t.transport_contractors?.name || 'Unknown'
     if (!acc[name]) acc[name] = []
@@ -421,7 +597,21 @@ export default function TripsPage() {
           <h1 className="page-title">Trips</h1>
           <p className="page-subtitle">Vehicle Movement Log</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+        <button className="btn btn-primary" onClick={() => {
+          setEditingTripId(null)
+          setPhotoFiles([])
+          setPhotoPreviews([])
+          setExistingPhotoUrls([])
+          setForm({
+            vehicle_id: '', plate_number: '', contractor_id: '',
+            ownership: 'rented', vehicle_type: '12WH', cubic_capacity: '',
+            advance_amount: '0', customer_id: '', drop_location: '', distance_km: '',
+            trip_worth: '', total_shipment_cost: '', payment_status: 'pending',
+            payment_method: 'cash', payment_reference: '', permit_number: '', load_info: '', notes: ''
+          })
+          setVehicleSearch('')
+          setShowForm(true)
+        }}>
           <Plus size={18} /> Log Trip
         </button>
       </div>
@@ -483,114 +673,133 @@ export default function TripsPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {trips.map(trip => (
             <div key={trip.id} className="trip-card" style={{ justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.875rem', flex: 1, minWidth: 0 }}>
                 <div style={{
-                  width: '40px', height: '40px',
-                  background: 'var(--accent-muted)',
+                  width: '50px', height: '50px',
+                  background: 'var(--bg-elevated)',
+                  border: '1px solid var(--border)',
                   borderRadius: 'var(--radius)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: '1.25rem', flexShrink: 0,
                   overflow: 'hidden',
+                  position: 'relative'
                 }}>
-                  {trip.signed_photo_url ? (
-                    <a href={trip.signed_photo_url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} title="View captured photo">
-                      <img src={trip.signed_photo_url} alt="Truck" style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />
+                  {trip.signed_photo_urls && trip.signed_photo_urls.length > 0 ? (
+                    <a href={trip.signed_photo_urls[0]} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} title="View captured photo">
+                      <img src={trip.signed_photo_urls[0]} alt="Truck" style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />
+                      {trip.signed_photo_urls.length > 1 && (
+                        <div style={{ position: 'absolute', bottom: 2, right: 2, background: 'rgba(0,0,0,0.6)', color: 'white', fontSize: '0.55rem', padding: '0.1rem 0.2rem', borderRadius: 2, fontWeight: 700 }}>
+                          +{trip.signed_photo_urls.length - 1}
+                        </div>
+                      )}
                     </a>
                   ) : '🚛'}
                 </div>
-                <div>
-                  <div className="trip-vehicle">{trip.vehicles?.plate_number || 'Unknown'}</div>
-                  <div className="trip-contractor">{trip.transport_contractors?.name || '—'}</div>
-                  {trip.dd_number && <div className="trip-time">DD: {trip.dd_number}</div>}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    <span className="trip-vehicle" style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>{trip.vehicles?.plate_number || 'Unknown'}</span>
+                    <span className="badge badge-amber" style={{ fontSize: '0.65rem' }}>{trip.vehicles?.vehicle_type}</span>
+                    <span className={`badge ${trip.ownership_snapshot === 'owned' ? 'badge-blue' : trip.ownership_snapshot === 'leased' ? 'badge-purple' : 'badge-gray'}`} style={{ fontSize: '0.65rem' }}>
+                      {trip.ownership_snapshot}
+                    </span>
+                  </div>
+                  <div className="trip-contractor" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    {trip.transport_contractors?.name || 'Self/Rented'} {trip.customers?.name ? `→ ${trip.customers.name}` : ''}
+                  </div>
+                  
+                  {/* Detailed specs banner */}
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    {trip.cubic_capacity && <span>Capacity: {trip.cubic_capacity} m³</span>}
+                    {trip.permit_number && <span>Permit: {trip.permit_number}</span>}
+                    {trip.drop_location && <span>Drop: {trip.drop_location}</span>}
+                    {trip.distance_km && <span>Dist: {trip.distance_km} km</span>}
+                    {trip.advance_amount ? <span>Advance: ₹{trip.advance_amount}</span> : null}
+                  </div>
+
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
                     {trip.created_at ? format(new Date(trip.created_at), 'hh:mm a') : ''}
                     {trip.created_by && usersMap[trip.created_by] ? ` by ${usersMap[trip.created_by]}` : ''}
                   </div>
+
                   <div style={{ marginTop: '0.375rem', display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
-                    {trip.settled ? (
+                    {trip.settled || trip.payment_status === 'settled' ? (
                       <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.35rem', borderRadius: '5px', background: 'rgba(16,185,129,0.12)', color: 'var(--success)', fontWeight: 600 }}>
-                        Collected: ₹{Number(trip.settlement_amount).toLocaleString('en-IN')} ({trip.settlement_account})
+                        Collected: ₹{Number(trip.trip_worth || trip.settlement_amount).toLocaleString('en-IN')} via {trip.payment_method?.toUpperCase() || 'UPI/Cash'}
                       </span>
                     ) : (
                       <button
-                        className="btn btn-ghost btn-sm"
-                        style={{ padding: '0.15rem 0.5rem', fontSize: '0.7rem', height: 'auto', background: 'rgba(245,158,11,0.1)', color: 'var(--accent)', border: '1px solid rgba(245,158,11,0.3)', minHeight: 'unset', lineHeight: 'normal' }}
-                        onClick={() => {
+                        className="btn btn-success btn-xs"
+                        style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem' }}
+                        onClick={(e) => {
+                          e.stopPropagation()
                           setSettleTripId(trip.id)
-                          setSettleAmount('')
-                          setSettleAccount('')
+                          setSettleAmount(String(trip.trip_worth || ''))
                         }}
                       >
-                        🪙 Settle Trip
+                        Settle Collection
                       </button>
+                    )}
+                    {trip.trip_worth && (
+                      <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent)' }}>
+                        Worth: ₹{trip.trip_worth.toLocaleString('en-IN')}
+                      </span>
                     )}
                   </div>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <span className={`trip-type-badge ${trip.ownership_snapshot}`}>
-                  {trip.vehicles?.vehicle_type || '?'}
-                </span>
+
+              {/* Action buttons */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', justifyContent: 'center' }}>
                 <button
-                  className="btn btn-danger btn-icon btn-sm"
-                  onClick={() => setConfirmDeleteId(trip.id)}
-                  title="Delete trip"
+                  className="btn btn-ghost btn-icon"
+                  style={{ padding: '0.25rem' }}
+                  onClick={() => startEditTrip(trip)}
+                  title="Edit details"
                 >
-                  <X size={14} />
+                  <Pencil size={14} style={{ color: 'var(--text-muted)' }} />
+                </button>
+                <button
+                  className="btn btn-ghost btn-icon"
+                  style={{ padding: '0.25rem' }}
+                  onClick={() => setConfirmDeleteId(trip.id)}
+                  title="Delete trip log"
+                >
+                  <Trash2 size={14} style={{ color: 'var(--danger)' }} />
                 </button>
               </div>
             </div>
           ))}
-
-          {/* Load More Button */}
-          {hasMore && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '1rem' }}>
-              <button 
-                className="btn btn-secondary" 
-                onClick={() => loadTrips(true)}
-                disabled={loadingMore}
-                style={{ minWidth: '150px' }}
-              >
-                {loadingMore ? <span className="spinner" /> : 'Load More Trips'}
-              </button>
-            </div>
-          )}
         </div>
       )}
 
-      {/* FAB */}
-      <button className="btn-fab" onClick={() => setShowForm(true)} title="Log Trip">
-        <Plus size={24} />
-      </button>
-
-      {/* Shared BottomSheet for logging trips */}
-      <BottomSheet isOpen={showForm} onClose={() => setShowForm(false)} title="Log Trip">
-        <form onSubmit={handleSubmit}>
-          {/* Vehicle Search */}
+      {/* Log / Edit Trip BottomSheet */}
+      <BottomSheet isOpen={showForm} onClose={() => setShowForm(false)} title={editingTripId ? "Edit Trip Log" : "Log Trip Movement"}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem', paddingBottom: '2rem' }}>
+          
+          {/* Vehicle Input & Auto Suggest */}
           <div className="form-group" style={{ position: 'relative' }}>
-            <label className="form-label">Vehicle Plate Number *</label>
-            <div style={{ position: 'relative' }}>
-              <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <label className="form-label">Vehicle Number *</label>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
               <input
                 className="form-input"
-                style={{ paddingLeft: '2.5rem', textTransform: 'uppercase' }}
-                placeholder="Search or enter new plate..."
+                style={{ textTransform: 'uppercase', flex: 1 }}
+                placeholder="e.g. KA-19-M-1234"
                 value={vehicleSearch}
-                onChange={e => { setVehicleSearch(e.target.value.toUpperCase()); setForm(f => ({ ...f, vehicle_id: '' })) }}
+                onChange={e => {
+                  setVehicleSearch(e.target.value)
+                  if (!e.target.value) {
+                    setForm(f => ({ ...f, vehicle_id: '' }))
+                  }
+                }}
                 required
-                autoComplete="off"
               />
             </div>
             {filteredVehicles.length > 0 && (
               <div style={{
                 position: 'absolute', top: '100%', left: 0, right: 0,
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius)',
-                zIndex: 10,
-                maxHeight: '200px',
-                overflowY: 'auto',
-                boxShadow: 'var(--shadow-elevated)',
+                background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)', zIndex: 10, maxHeight: '160px', overflowY: 'auto',
+                boxShadow: 'var(--shadow-lg)'
               }}>
                 {filteredVehicles.map(v => (
                   <div
@@ -609,7 +818,7 @@ export default function TripsPage() {
                       <span style={{ fontWeight: 600, fontFamily: 'var(--font-display)' }}>{v.plate_number}</span>
                       <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginLeft: '0.5rem' }}>{v.vehicle_type}</span>
                     </div>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--accent)' }}>{v.transport_contractors?.name}</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--accent)' }}>{v.transport_contractors?.name || 'Self'}</span>
                   </div>
                 ))}
               </div>
@@ -620,7 +829,7 @@ export default function TripsPage() {
             <div className="form-group">
               <label className="form-label">Type</label>
               <select className="form-input form-select" value={form.vehicle_type}
-                onChange={e => setForm(f => ({ ...f, vehicle_type: e.target.value }))}>
+                onChange={e => handleVehicleTypeChange(e.target.value as any)}>
                 {VEHICLE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
@@ -633,6 +842,21 @@ export default function TripsPage() {
             </div>
           </div>
 
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="form-label">Cubic Capacity (m³)</label>
+              <input className="form-input" type="number" step="any" value={form.cubic_capacity}
+                onChange={e => setForm(f => ({ ...f, cubic_capacity: e.target.value }))}
+                placeholder="Auto-filled, editable" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Permit No.</label>
+              <input className="form-input" value={form.permit_number}
+                onChange={e => setForm(f => ({ ...f, permit_number: e.target.value }))}
+                placeholder="Permit Number" />
+            </div>
+          </div>
+
           <div className="form-group">
             <label className="form-label">Transport Contractor</label>
             <select className="form-input form-select" value={form.contractor_id}
@@ -642,19 +866,84 @@ export default function TripsPage() {
             </select>
           </div>
 
+          {/* New fields for Customer & Scopes */}
           <div className="grid-2">
             <div className="form-group">
-              <label className="form-label">DD Number</label>
-              <input className="form-input" value={form.dd_number}
-                onChange={e => setForm(f => ({ ...f, dd_number: e.target.value }))}
-                placeholder="Optional" />
+              <label className="form-label">Customer</label>
+              <select className="form-input form-select" value={form.customer_id}
+                onChange={e => setForm(f => ({ ...f, customer_id: e.target.value }))}>
+                <option value="">Choose customer</option>
+                {customers.map(cust => <option key={cust.id} value={cust.id}>{cust.name}</option>)}
+              </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Permit No.</label>
-              <input className="form-input" value={form.permit_number}
-                onChange={e => setForm(f => ({ ...f, permit_number: e.target.value }))}
-                placeholder="Optional" />
+              <label className="form-label">Drop Location</label>
+              <input className="form-input" value={form.drop_location}
+                onChange={e => setForm(f => ({ ...f, drop_location: e.target.value }))}
+                placeholder="Destination" />
             </div>
+          </div>
+
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="form-label">Distance (KM)</label>
+              <input className="form-input" type="number" step="any" value={form.distance_km}
+                onChange={e => setForm(f => ({ ...f, distance_km: e.target.value }))}
+                placeholder="e.g. 45" />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Trip Worth (₹)</label>
+              <input className="form-input" type="number" step="any" value={form.trip_worth}
+                onChange={e => setForm(f => ({ ...f, trip_worth: e.target.value }))}
+                placeholder="Calculated price" />
+            </div>
+          </div>
+
+          <div className="grid-2">
+            <div className="form-group">
+              <label className="form-label">Advance Amount (₹)</label>
+              <input className="form-input" type="number" step="any" value={form.advance_amount}
+                onChange={e => setForm(f => ({ ...f, advance_amount: e.target.value }))} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Total Shipment Cost (₹)</label>
+              <input className="form-input" type="number" step="any" value={form.total_shipment_cost}
+                onChange={e => setForm(f => ({ ...f, total_shipment_cost: e.target.value }))}
+                placeholder="Total billing cost" />
+            </div>
+          </div>
+
+          {/* Payment Status & Settlement */}
+          <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1rem' }}>
+            <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.75rem', fontFamily: 'var(--font-display)', color: 'var(--accent)' }}>Payment Settlement</div>
+            
+            <div className="form-group">
+              <label className="form-label">Status</label>
+              <select className="form-input form-select" value={form.payment_status}
+                onChange={e => setForm(f => ({ ...f, payment_status: e.target.value }))}>
+                <option value="pending">Pending Collection</option>
+                <option value="settled">Settled / Collected</option>
+              </select>
+            </div>
+
+            {form.payment_status === 'settled' && (
+              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem' }}>
+                <div className="form-group" style={{ flex: 1 }}>
+                  <label className="form-label">Method</label>
+                  <select className="form-input form-select" value={form.payment_method}
+                    onChange={e => setForm(f => ({ ...f, payment_method: e.target.value as any }))}>
+                    <option value="cash">Cash</option>
+                    <option value="upi">UPI</option>
+                  </select>
+                </div>
+                <div className="form-group" style={{ flex: 1 }}>
+                  <label className="form-label">Reference ID / Account</label>
+                  <input className="form-input" value={form.payment_reference}
+                    onChange={e => setForm(f => ({ ...f, payment_reference: e.target.value }))}
+                    placeholder="e.g. Txn or Safe Account" />
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="form-group">
@@ -664,10 +953,17 @@ export default function TripsPage() {
               placeholder="e.g. 6 loads, 12 tonnes..." />
           </div>
 
-          {/* Photo capture */}
           <div className="form-group">
-            <label className="form-label">Photo Evidence (optional)</label>
-            <div style={{ display: 'flex', gap: '0.625rem' }}>
+            <label className="form-label">Notes</label>
+            <textarea className="form-input" value={form.notes}
+              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              placeholder="Any additional remarks..." rows={2} />
+          </div>
+
+          {/* Multiple Photo capture */}
+          <div className="form-group">
+            <label className="form-label">Photo Evidences (up to 10 photos)</label>
+            <div style={{ display: 'flex', gap: '0.625rem', marginBottom: '0.75rem' }}>
               <label style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 gap: '0.5rem', padding: '0.75rem',
@@ -677,10 +973,7 @@ export default function TripsPage() {
               }}>
                 <Camera size={18} /> Capture
                 <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
-                  onChange={e => {
-                    const f = e.target.files?.[0]
-                    if (f) handlePhotoSelect(f)
-                  }} />
+                  onChange={handlePhotosSelect} multiple />
               </label>
               <label style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -691,20 +984,21 @@ export default function TripsPage() {
               }}>
                 <ImageIcon size={18} /> Gallery
                 <input type="file" accept="image/*" style={{ display: 'none' }}
-                  onChange={e => {
-                    const f = e.target.files?.[0]
-                    if (f) handlePhotoSelect(f)
-                  }} />
+                  onChange={handlePhotosSelect} multiple />
               </label>
             </div>
-            {photoPreview && (
-              <div style={{ position: 'relative', marginTop: '0.625rem' }}>
-                <img src={photoPreview} alt="Preview"
-                  style={{ width: '100%', maxHeight: '160px', objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }} />
-                <button type="button" onClick={() => { setPhotoFile(null); setPhotoPreview(null) }}
-                  style={{ position: 'absolute', top: '0.5rem', right: '0.5rem', background: 'rgba(0,0,0,0.7)', border: 'none', borderRadius: '50%', width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
-                  <X size={14} />
-                </button>
+            {photoPreviews.length > 0 && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.5rem' }}>
+                {photoPreviews.map((url, idx) => (
+                  <div key={idx} style={{ position: 'relative', aspectRatio: '1/1' }}>
+                    <img src={url} alt="Preview"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }} />
+                    <button type="button" onClick={() => removePhoto(idx)}
+                      style={{ position: 'absolute', top: '-4px', right: '-4px', background: 'rgba(220,38,38,0.9)', border: 'none', borderRadius: '50%', width: '18px', height: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -714,7 +1008,7 @@ export default function TripsPage() {
               Cancel
             </button>
             <button type="submit" className="btn btn-primary w-full" disabled={submitting}>
-              {submitting ? <span className="spinner" /> : '+ Log Trip'}
+              {submitting ? <span className="spinner" /> : (editingTripId ? 'Save Changes' : '+ Log Trip')}
             </button>
           </div>
         </form>
@@ -748,6 +1042,23 @@ export default function TripsPage() {
                   min="0"
                   step="any"
                   required
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Payment Method *</label>
+                <select className="form-input form-select" value={settleMethod} onChange={e => setSettleMethod(e.target.value)}>
+                  <option value="cash">Cash</option>
+                  <option value="upi">UPI</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Transaction Ref / Reference Details</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  placeholder="e.g. UPI ID, Txn No, or Safe"
+                  value={settleRef}
+                  onChange={e => setSettleRef(e.target.value)}
                 />
               </div>
               <div className="form-group">

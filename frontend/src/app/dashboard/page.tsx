@@ -23,7 +23,7 @@ interface ExtendedTrip extends Trip {
 }
 
 export default function DashboardPage() {
-  const { loading: authLoading, isStakeholder } = useAuth()
+  const { loading: authLoading, isStakeholder, isSiteEmployee, isEmployee } = useAuth()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [sites, setSites] = useState<Site[]>([])
@@ -36,12 +36,16 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (authLoading) return
+    if (isSiteEmployee || isEmployee) {
+      router.push('/dashboard/employee')
+      return
+    }
     if (isStakeholder) {
       router.push('/dashboard/stakeholder')
       return
     }
     loadSites()
-  }, [authLoading, isStakeholder])
+  }, [authLoading, isStakeholder, isSiteEmployee, isEmployee])
 
   useEffect(() => {
     if (selectedSite && !isStakeholder) loadDashboardData()
@@ -98,11 +102,22 @@ export default function DashboardPage() {
 
   const totalIn = cashEntries.filter(e => e.entry_type === 'in').reduce((s, e) => s + e.amount, 0)
   const totalOut = cashEntries.filter(e => e.entry_type === 'out').reduce((s, e) => s + e.amount, 0)
+  const totalSpentAdvances = recentTrips.reduce((s, t) => s + (t.advance_amount || 0), 0)
+  const unsettledInwardWorth = recentTrips.filter(t => !t.settled).reduce((s, t) => s + (t.total_shipment_cost || t.trip_worth || 0), 0)
+  const totalInwardRevenue = recentTrips.reduce((s, t) => s + (t.total_shipment_cost || t.trip_worth || 0), 0)
+  const totalMaterialMoved = recentTrips.reduce((s, t) => s + (t.cubic_capacity || 0), 0)
   const byContractor = recentTrips.reduce((acc, t) => {
     const name = t.transport_contractors?.name || 'Unknown'
     acc[name] = (acc[name] || 0) + 1
     return acc
   }, {} as Record<string, number>)
+  const byVehicleType = recentTrips.reduce((acc, t) => {
+    const type = t.vehicles?.vehicle_type || 'Other'
+    if (!acc[type]) acc[type] = { count: 0, capacity: 0 }
+    acc[type].count += 1
+    acc[type].capacity += (t.cubic_capacity || 0)
+    return acc
+  }, {} as Record<string, { count: number; capacity: number }>)
 
   return (
     <div>
@@ -140,7 +155,7 @@ export default function DashboardPage() {
       ) : (
         <>
           {/* Stats Grid */}
-          <div className="grid-2 mb-4" style={{ gap: '0.75rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
             <div className="stat-card">
               <div className="stat-icon amber">
                 <Truck size={20} />
@@ -156,12 +171,51 @@ export default function DashboardPage() {
             </div>
 
             <div className="stat-card">
+              <div className="stat-icon info">
+                <Activity size={20} style={{ color: 'var(--info)' }} />
+              </div>
+              <div>
+                <div className="stat-label">Material Moved</div>
+                <div className="stat-value">{totalMaterialMoved.toLocaleString()} CUM</div>
+              </div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-icon red">
+                <TrendingDown size={20} style={{ color: 'var(--danger)' }} />
+              </div>
+              <div>
+                <div className="stat-label">Advance Spent</div>
+                <div className="stat-value" style={{ fontSize: '1.15rem' }}>
+                  ₹{totalSpentAdvances.toLocaleString('en-IN')}
+                </div>
+              </div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-icon green">
+                <TrendingUp size={20} style={{ color: 'var(--success)' }} />
+              </div>
+              <div>
+                <div className="stat-label">Inward Revenue</div>
+                <div className="stat-value" style={{ fontSize: '1.15rem', color: 'var(--success)' }}>
+                  ₹{totalInwardRevenue.toLocaleString('en-IN')}
+                </div>
+                {unsettledInwardWorth > 0 && (
+                  <div className="stat-change" style={{ color: 'var(--amber)' }}>
+                    ₹{unsettledInwardWorth.toLocaleString('en-IN')} pending
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="stat-card">
               <div className="stat-icon green">
                 <BookOpen size={20} />
               </div>
               <div>
                 <div className="stat-label">Cash Balance</div>
-                <div className="stat-value" style={{ fontSize: '1.25rem' }}>
+                <div className="stat-value" style={{ fontSize: '1.15rem' }}>
                   ₹{((cashBook?.closing_balance || 0)).toLocaleString('en-IN')}
                 </div>
                 <div className="stat-change positive">
@@ -172,29 +226,41 @@ export default function DashboardPage() {
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon green">
-                <TrendingUp size={20} />
-              </div>
-              <div>
-                <div className="stat-label">Cash In</div>
-                <div className="stat-value" style={{ fontSize: '1.25rem', color: 'var(--success)' }}>
-                  ₹{totalIn.toLocaleString('en-IN')}
-                </div>
-              </div>
-            </div>
-
-            <div className="stat-card">
               <div className="stat-icon red">
                 <TrendingDown size={20} />
               </div>
               <div>
-                <div className="stat-label">Cash Out</div>
-                <div className="stat-value" style={{ fontSize: '1.25rem', color: 'var(--danger)' }}>
+                <div className="stat-label">Cash Outflow</div>
+                <div className="stat-value" style={{ fontSize: '1.15rem', color: 'var(--danger)' }}>
                   ₹{totalOut.toLocaleString('en-IN')}
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Vehicle Capacity Utilization */}
+          {Object.keys(byVehicleType).length > 0 && (
+            <div className="card mb-4">
+              <h3 style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.75rem' }}>
+                Vehicle Capacity Utilisation — Today
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '0.625rem' }}>
+                {Object.entries(byVehicleType).map(([type, stats]) => (
+                  <div key={type} style={{
+                    padding: '0.75rem',
+                    background: 'var(--bg-elevated)',
+                    borderRadius: 'var(--radius)',
+                    border: '1px solid var(--border)',
+                    textAlign: 'center',
+                  }}>
+                    <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--accent)' }}>{stats.capacity} <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>CUM</span></div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>{type}</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>{stats.count} trip{stats.count !== 1 ? 's' : ''}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Quick Actions */}
           <div className="card mb-4">
@@ -231,7 +297,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Today's Trips */}
           <div className="card mb-4">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.875rem' }}>
               <h3 style={{ fontSize: '0.95rem', fontWeight: 600 }}>Today's Trips</h3>
@@ -240,7 +305,6 @@ export default function DashboardPage() {
               </Link>
             </div>
 
-            {/* Contractor breakdown */}
             {Object.keys(byContractor).length > 0 && (
               <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.875rem' }}>
                 {Object.entries(byContractor).map(([name, count]) => (
@@ -252,6 +316,8 @@ export default function DashboardPage() {
             )}
 
             {recentTrips.length === 0 ? (
+
+
               <div className="empty-state" style={{ padding: '1.5rem' }}>
                 <div style={{ fontSize: '1.5rem' }}>🚛</div>
                 <div className="empty-desc">No trips logged today</div>
@@ -284,7 +350,10 @@ export default function DashboardPage() {
             )}
           </div>
 
+
+
           {/* Cash Summary */}
+
           {cashBook && (
             <div className="card mb-4">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.875rem' }}>
@@ -303,10 +372,11 @@ export default function DashboardPage() {
                 </div>
                 <div className="balance-bar-item">
                   <span className="label">Net</span>
-                  <span className="value" style={{ color: (cashBook.closing_balance - cashBook.opening_balance) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                    ₹{Math.abs(cashBook.closing_balance - cashBook.opening_balance).toLocaleString('en-IN')}
+                  <span className="value" style={{ color: ((cashBook.closing_balance ?? 0) - (cashBook.opening_balance ?? 0)) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                    ₹{Math.abs((cashBook.closing_balance ?? 0) - (cashBook.opening_balance ?? 0)).toLocaleString('en-IN')}
                   </span>
                 </div>
+
                 <div className="balance-bar-item">
                   <span className="label">Closing</span>
                   <span className="value" style={{ color: 'var(--accent)' }}>
@@ -314,6 +384,8 @@ export default function DashboardPage() {
                   </span>
                 </div>
               </div>
+
+
 
               {cashEntries.slice(0, 3).map(entry => (
                 <div key={entry.id} className="cash-row" style={{ marginTop: '0.5rem' }}>
