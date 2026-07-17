@@ -141,10 +141,14 @@ export const tripsRepository = {
       settled_by?: string
     }
   ): Promise<void> {
-    const amount =
-      payload.settlement_amount != null
-        ? roundMoney(Number(payload.settlement_amount))
-        : 0
+    // Phase 1: settled trips require amount > 0 (DB trigger also enforces)
+    if (payload.settlement_amount == null || Number.isNaN(Number(payload.settlement_amount))) {
+      throw new Error('Settlement amount is required and must be greater than zero')
+    }
+    const amount = roundMoney(Number(payload.settlement_amount))
+    if (amount <= 0) {
+      throw new Error('Settlement amount must be greater than zero')
+    }
 
     const { error } = await supabase
       .from('trips')
@@ -162,6 +166,12 @@ export const tripsRepository = {
       })
       .eq('id', id)
 
-    if (error) throw error
+    if (error) {
+      const msg = error.message || ''
+      if (/settlement_amount|greater than zero/i.test(msg)) {
+        throw new Error('Settlement amount must be greater than zero')
+      }
+      throw error
+    }
   },
 }

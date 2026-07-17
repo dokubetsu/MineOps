@@ -774,6 +774,7 @@ export type Database = {
         Row: {
           created_at: string | null
           id: string
+          organization_id: string
           photo_url: string
           sort_order: number
           trip_id: string
@@ -781,6 +782,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           id?: string
+          organization_id?: string
           photo_url: string
           sort_order?: number
           trip_id: string
@@ -788,11 +790,19 @@ export type Database = {
         Update: {
           created_at?: string | null
           id?: string
+          organization_id?: string
           photo_url?: string
           sort_order?: number
           trip_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "trip_photos_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "trip_photos_trip_id_fkey"
             columns: ["trip_id"]

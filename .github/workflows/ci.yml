@@ -38,7 +38,6 @@ jobs:
           ANON_KEY=""
           SERVICE_KEY=""
           
-          # Debug: Show CLI version and available files
           echo "=== DEBUG: Supabase CLI version ==="
           supabase --version || true
           echo "=== DEBUG: Checking supabase/.temp/ ==="
@@ -48,7 +47,6 @@ jobs:
           echo "=== DEBUG: supabase status --output env ==="
           supabase status --output env 2>&1 || true
           
-          # Method 1: Try supabase/.temp/api-keys file (newer CLI)
           if [ -f supabase/.temp/api-keys ]; then
             echo ">>> Method 1: Parsing from supabase/.temp/api-keys"
             cat supabase/.temp/api-keys
@@ -56,7 +54,6 @@ jobs:
             SERVICE_KEY=$(grep "service_role=" supabase/.temp/api-keys | cut -d'=' -f2- | tr -d '[:space:]')
           fi
           
-          # Method 2: Try supabase status --output env (newer CLI flag)
           if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ]; then
             echo ">>> Method 2: Trying --output env"
             ENV_OUTPUT=$(supabase status --output env 2>/dev/null || echo "")
@@ -64,7 +61,6 @@ jobs:
             SERVICE_KEY=$(echo "$ENV_OUTPUT" | grep "SERVICE_ROLE_KEY=" | cut -d'=' -f2- | tr -d '[:space:]' | tr -d '"')
           fi
           
-          # Method 3: Try JSON output (some CLI versions)
           if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ]; then
             echo ">>> Method 3: Trying -o json / --output json"
             STATUS_JSON=$(supabase status -o json 2>/dev/null || supabase status --output json 2>/dev/null || echo "{}")
@@ -72,7 +68,6 @@ jobs:
             SERVICE_KEY=$(echo "$STATUS_JSON" | jq -r '(.["service_role_key"] // .["service.key"] // .["SERVICE_ROLE_KEY"] // empty)' 2>/dev/null)
           fi
           
-          # Method 4: Text grep from supabase status
           if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ]; then
             echo ">>> Method 4: Trying status text grep"
             STATUS_TEXT=$(supabase status 2>/dev/null || echo "")
@@ -80,7 +75,6 @@ jobs:
             SERVICE_KEY=$(echo "$STATUS_TEXT" | grep -i "service" | grep -oE 'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+')
           fi
           
-          # Method 5: Well-known default local dev keys (always the same for supabase local)
           if [ -z "$ANON_KEY" ] || [ "$ANON_KEY" = "null" ]; then
             echo ">>> Method 5: Using well-known default Supabase local dev keys"
             ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0"
@@ -104,22 +98,32 @@ jobs:
           cd frontend
           npm run audit:prod
 
-      - name: Type Check & Verify
+      - name: Typecheck
         run: |
           cd frontend
-          npm run test
+          npm run typecheck
+
+      - name: Install Playwright Chromium
+        run: |
+          cd frontend
+          npx playwright install chromium --with-deps
+
+      - name: Unit tests (pure + multi-tenant DB probes)
+        run: |
+          cd frontend
+          npm run test:unit
+        env:
+          PW_SKIP_WEBSERVER: '1'
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
 
       - name: Production Build Verification
         run: |
           cd frontend
           npm run build
 
-      - name: Install Playwright Chromium Browser
-        run: |
-          cd frontend
-          npx playwright install chromium --with-deps
-
-      - name: Run E2E Integration Tests
+      - name: E2E (desktop chromium)
         run: |
           cd frontend
           npm run test:e2e
@@ -130,5 +134,13 @@ jobs:
           E2E_ADMIN_EMAIL: admin@mineops.com
           E2E_ADMIN_PASSWORD: password123
 
-
-
+      - name: E2E mobile smoke (Pixel 5)
+        run: |
+          cd frontend
+          npm run test:e2e:mobile
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+          E2E_ADMIN_EMAIL: admin@mineops.com
+          E2E_ADMIN_PASSWORD: password123

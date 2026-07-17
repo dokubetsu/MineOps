@@ -72,7 +72,7 @@ For security, production credentials are not stored in source control. Access is
 
 ### 1. Database Setup
 
-Apply all Supabase migrations (currently through **`046_phase_f_residual_hardening.sql`**).  
+Apply all Supabase migrations (currently through **`050_phase3_schema_perf.sql`**).  
 Wage rules: [`docs/wage_policy.md`](docs/wage_policy.md). Platform bootstrap: [`docs/platform_owner_bootstrap.md`](docs/platform_owner_bootstrap.md). Env: [`docs/ENV.md`](docs/ENV.md). Schema types policy: [`docs/SCHEMA_SSOT.md`](docs/SCHEMA_SSOT.md).
 
 **Source of truth for the database is `supabase/migrations/`** — do not apply `schema.sql` alone (it is a reference snapshot).
@@ -113,12 +113,17 @@ Public tenant self-registration is **disabled** (platform owner provisions orgs)
 
 ```bash
 cd frontend
-npm run lint          # ESLint (generated PWA assets excluded)
-npm run test          # TypeScript --noEmit
-npm run audit:prod    # npm audit --omit=dev
+npm run lint              # ESLint (generated PWA assets excluded)
+npm run typecheck         # TypeScript --noEmit
+npm run test              # typecheck + unit project
+npm run test:unit         # Pure unit specs (set PW_SKIP_WEBSERVER=1 without Next)
+npm run audit:prod        # npm audit --omit=dev
 npm run build
-npm run test:e2e      # Playwright (global-setup seeds admin via service role)
+npm run test:e2e          # Desktop Chromium e2e (global-setup seeds admin)
+npm run test:e2e:mobile   # Pixel 5 smoke (phase5-critical)
 ```
+
+See [`docs/TESTING.md`](docs/TESTING.md) for layout, multi-tenant DB probes, and CI mapping.
 
 Calculation unit cases import `src/lib/calculations.ts` so tests track production payroll proration and cash-balance math.
 

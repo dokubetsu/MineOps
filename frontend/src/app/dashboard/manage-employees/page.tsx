@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
+import { toErrorMessage } from '@/lib/errors'
 
 const ROLES = ['worker', 'supervisor', 'driver', 'other']
 
@@ -94,8 +95,8 @@ export default function EmployeesPage() {
           setUsersMap(mapping)
         }
       }
-    } catch (err: any) {
-      toast.error(`Error loading sites: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error loading sites: ${toErrorMessage(err)}`)
     } finally {
       setLoading(false)
     }
@@ -119,8 +120,8 @@ export default function EmployeesPage() {
 
       if (error) throw error
       setEmployees(data || [])
-    } catch (err: any) {
-      toast.error(`Error loading roster: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error loading roster: ${toErrorMessage(err)}`)
     } finally {
       setLoading(false)
     }
@@ -163,8 +164,8 @@ export default function EmployeesPage() {
       } else {
         loadEmployees()
       }
-    } catch (err: any) {
-      toast.error(`Registration failed: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Registration failed: ${toErrorMessage(err)}`)
     } finally {
       setSubmitting(false)
     }
@@ -181,8 +182,8 @@ export default function EmployeesPage() {
       if (error) throw error
       toast.success('Employee record archived')
       loadEmployees()
-    } catch (err: any) {
-      toast.error(`Archive failed: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Archive failed: ${toErrorMessage(err)}`)
     } finally {
       setConfirmDeactivateId(null)
     }
@@ -198,8 +199,8 @@ export default function EmployeesPage() {
       if (error) throw error
       toast.success('Employee record reactivated')
       loadEmployees()
-    } catch (err: any) {
-      toast.error(`Reactivation failed: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Reactivation failed: ${toErrorMessage(err)}`)
     }
   }
 
@@ -214,8 +215,8 @@ export default function EmployeesPage() {
       if (error) throw error
       toast.success('Employee permanently deleted')
       loadEmployees()
-    } catch (err: any) {
-      toast.error(`Deletion failed: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Deletion failed: ${toErrorMessage(err)}`)
     } finally {
       setConfirmDeleteId(null)
     }
@@ -255,8 +256,8 @@ export default function EmployeesPage() {
       setShowEditForm(false)
       setEditingEmp(null)
       loadEmployees()
-    } catch (err: any) {
-      toast.error(`Update failed: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Update failed: ${toErrorMessage(err)}`)
     } finally {
       setEditSubmitting(false)
     }

@@ -216,7 +216,13 @@ export const payrollRepository = {
   async finalize(supabase: SupabaseClient<Database>, runId: string): Promise<void> {
     // Atomic draft → finalized with row lock + role checks inside the RPC
     const { error } = await supabase.rpc('finalize_payroll_run', { p_run_id: runId })
-    if (error) throw error
+    if (error) {
+      const msg = error.message || ''
+      if (/no lines|no payroll lines/i.test(msg)) {
+        throw new Error('Cannot finalize payroll with no lines. Generate payroll first.')
+      }
+      throw error
+    }
   },
 
   /**

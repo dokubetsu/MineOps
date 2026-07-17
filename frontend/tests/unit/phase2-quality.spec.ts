@@ -15,7 +15,10 @@ import {
 import { featureForPath, featuresFromRows, defaultFeatureMap } from '../../src/lib/features'
 import { passwordSchema, PASSWORD_MIN_LENGTH } from '../../src/lib/password-policy'
 import { leaveRepository, LeaveError } from '../../src/lib/repositories/leave'
+import { partitionAttendanceSave } from '../../src/lib/repositories/attendance'
 import { checkRateLimitMemory, pruneRateLimitStore } from '../../src/lib/rate-limit'
+import { toErrorMessage } from '../../src/lib/errors'
+import { getCapacityForType, VEHICLE_TYPES } from '../../src/lib/trip-constants'
 
 /**
  * Phase 2 quality suite — pure unit cases (no browser).
@@ -71,6 +74,42 @@ test.describe('Wage policy edges', () => {
   test('roundMoney stable for adjustments', () => {
     expect(roundMoney(100.005)).toBe(100.01)
     expect(roundMoney(10 + 0.1 + 0.2)).toBe(10.3)
+  })
+})
+
+test.describe('Phase 4 error + trip helpers', () => {
+  test('toErrorMessage normalizes Error, string, and unknown', () => {
+    expect(toErrorMessage(new Error('boom'))).toBe('boom')
+    expect(toErrorMessage('plain')).toBe('plain')
+    expect(toErrorMessage({ message: 'obj' })).toBe('obj')
+    expect(toErrorMessage(null, 'fallback')).toBe('fallback')
+  })
+
+  test('getCapacityForType covers vehicle types', () => {
+    expect(getCapacityForType('12WH')).toBe('20')
+    expect(getCapacityForType('10WH')).toBe('16')
+    expect(VEHICLE_TYPES).toContain('Other')
+  })
+})
+
+test.describe('Attendance save partition (Phase 0 unmark)', () => {
+  test('splits marked upserts from null clears', () => {
+    const { toUpsert, toClear } = partitionAttendanceSave([
+      { employee_id: 'a', att_date: '2026-07-01', status: 'present', photo_url: null },
+      { employee_id: 'b', att_date: '2026-07-01', status: null, photo_url: null },
+      { employee_id: 'c', att_date: '2026-07-01', status: 'leave', photo_url: 'x' },
+      { employee_id: 'd', att_date: '2026-07-01', status: null, photo_url: null },
+    ])
+    expect(toUpsert.map((r) => r.employee_id)).toEqual(['a', 'c'])
+    expect(toClear.map((r) => r.employee_id)).toEqual(['b', 'd'])
+  })
+
+  test('all-unmarked is only clears (DELETE path)', () => {
+    const { toUpsert, toClear } = partitionAttendanceSave([
+      { employee_id: 'a', att_date: '2026-07-01', status: null, photo_url: null },
+    ])
+    expect(toUpsert).toHaveLength(0)
+    expect(toClear).toHaveLength(1)
   })
 })
 

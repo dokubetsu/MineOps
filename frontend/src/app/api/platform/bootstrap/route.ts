@@ -7,6 +7,12 @@ const bootstrapSchema = z.object({
   email: z.string().email(),
   password: passwordSchema,
   secret: z.string().optional(),
+  /**
+   * When true, allow promoting an existing Auth user (password set only AFTER
+   * exclusive claim succeeds). Default false — refuse existing emails so
+   * bootstrap cannot reset arbitrary passwords before ownership is won.
+   */
+  force_existing: z.boolean().optional(),
 })
 
 function isProduction(): boolean {
@@ -17,11 +23,13 @@ function isProduction(): boolean {
  * One-time bootstrap: create the first platform_owner.
  * Only works when platform_roles has zero rows.
  *
- * Security (Phase A):
+ * Security (Phase A + Phase 0):
  * - In production / Vercel production: PLATFORM_BOOTSTRAP_SECRET is REQUIRED.
  * - Body.secret must match. After the first owner exists, this endpoint returns 409.
+ * - Existing Auth emails are refused unless force_existing=true.
+ * - Password is never written for an existing user until claim_first_platform_owner succeeds.
+ * - Newly created Auth users are rolled back if claim fails.
  * - Rotate or remove the secret from the host env after successful bootstrap.
- * - Local/dev may bootstrap without a secret (still rate-limited).
  */
 export async function POST(req: NextRequest) {
   let body: unknown
@@ -59,7 +67,6 @@ export async function POST(req: NextRequest) {
       )
     }
   } else if (requiredSecret && parsed.data.secret !== requiredSecret) {
-    // Dev/preview: if secret is configured, enforce it
     return NextResponse.json(
       { error: 'Invalid bootstrap secret', code: 'BOOTSTRAP_SECRET_INVALID' },
       { status: 403 }
@@ -83,7 +90,7 @@ export async function POST(req: NextRequest) {
       {
         error:
           `Cannot access platform_roles: ${countError.message}. ` +
-          'Apply migrations through 042 (supabase db push) first. See docs/DEPLOYMENT_CHECKLIST.md.',
+          'Apply migrations through 050 (supabase db push) first. See docs/DEPLOYMENT_CHECKLIST.md.',
       },
       { status: 500 }
     )
@@ -101,8 +108,9 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const { email, password } = parsed.data
+  const { email, password, force_existing: forceExisting } = parsed.data
   let userId: string | null = null
+  let createdNewAuthUser = false
 
   try {
     const { data: listed } = await supabase.auth.admin.listUsers({ perPage: 200 })
@@ -111,12 +119,37 @@ export async function POST(req: NextRequest) {
     )
 
     if (existing) {
+      if (!forceExisting) {
+        return NextResponse.json(
+          {
+            error:
+              'An Auth user with this email already exists. Use a new email, or pass force_existing: true to promote this user after a successful ownership claim (password is only set after claim).',
+            code: 'EMAIL_ALREADY_EXISTS',
+          },
+          { status: 409 }
+        )
+      }
       userId = existing.id
-      // Only reset password for bootstrap of empty platform — never for random emails once owners exist (already gated)
-      await supabase.auth.admin.updateUserById(existing.id, {
+      // Claim FIRST — never reset password before exclusive ownership
+      const claimError = await claimOwner(supabase, userId)
+      if (claimError) return claimError
+
+      const { error: pwError } = await supabase.auth.admin.updateUserById(userId, {
         password,
         email_confirm: true,
+        app_metadata: { platform_role: 'platform_owner' },
       })
+      if (pwError) {
+        // Ownership already claimed — surface password failure so operator can reset manually
+        return NextResponse.json(
+          {
+            error: `Platform owner claimed but password update failed: ${pwError.message}. Sign-in may require a password reset in Supabase Auth.`,
+            code: 'PASSWORD_UPDATE_AFTER_CLAIM',
+            user_id: userId,
+          },
+          { status: 500 }
+        )
+      }
     } else {
       const { data: created, error: createError } = await supabase.auth.admin.createUser({
         email,
@@ -128,34 +161,23 @@ export async function POST(req: NextRequest) {
         throw new Error(createError?.message || 'Failed to create auth user')
       }
       userId = created.user.id
-    }
+      createdNewAuthUser = true
 
-    // Atomic claim (advisory lock) — prevents concurrent bootstrap double-owner (Phase F / 046)
-    const { error: roleError } = await supabase.rpc('claim_first_platform_owner', {
-      p_user_id: userId,
-    })
-    if (roleError) {
-      const msg = roleError.message || ''
-      if (
-        roleError.code === '23505' ||
-        /already exists|unique_violation|duplicate/i.test(msg)
-      ) {
-        return NextResponse.json(
-          {
-            error:
-              'A platform owner already exists. Sign in with that account. Bootstrap is closed.',
-            already_bootstrapped: true,
-            code: 'ALREADY_BOOTSTRAPPED',
-          },
-          { status: 409 }
-        )
+      const claimError = await claimOwner(supabase, userId)
+      if (claimError) {
+        // Roll back orphan Auth user when claim loses the race
+        try {
+          await supabase.auth.admin.deleteUser(userId)
+        } catch (rollbackErr) {
+          console.error('Failed to roll back Auth user after bootstrap claim failure:', rollbackErr)
+        }
+        return claimError
       }
-      throw new Error(msg)
-    }
 
-    await supabase.auth.admin.updateUserById(userId, {
-      app_metadata: { platform_role: 'platform_owner' },
-    })
+      await supabase.auth.admin.updateUserById(userId, {
+        app_metadata: { platform_role: 'platform_owner' },
+      })
+    }
 
     const { data: verify } = await supabase
       .from('platform_roles')
@@ -164,8 +186,15 @@ export async function POST(req: NextRequest) {
       .maybeSingle()
 
     if (!verify) {
+      if (createdNewAuthUser && userId) {
+        try {
+          await supabase.auth.admin.deleteUser(userId)
+        } catch {
+          /* ignore */
+        }
+      }
       throw new Error(
-        'platform_roles row was not found after insert. Apply migrations 036–042 and retry.'
+        'platform_roles row was not found after claim. Apply migrations 036–050 and retry.'
       )
     }
 
@@ -191,6 +220,33 @@ export async function POST(req: NextRequest) {
   }
 }
 
+async function claimOwner(
+  supabase: ReturnType<typeof serviceClient>,
+  userId: string
+): Promise<NextResponse | null> {
+  const { error: roleError } = await supabase.rpc('claim_first_platform_owner', {
+    p_user_id: userId,
+  })
+  if (!roleError) return null
+
+  const msg = roleError.message || ''
+  if (
+    roleError.code === '23505' ||
+    /already exists|unique_violation|duplicate|already has/i.test(msg)
+  ) {
+    return NextResponse.json(
+      {
+        error:
+          'A platform owner already exists. Sign in with that account. Bootstrap is closed.',
+        already_bootstrapped: true,
+        code: 'ALREADY_BOOTSTRAPPED',
+      },
+      { status: 409 }
+    )
+  }
+  return NextResponse.json({ error: msg }, { status: 500 })
+}
+
 /** GET — is bootstrap still available? */
 export async function GET() {
   try {
@@ -212,7 +268,6 @@ export async function GET() {
     const ownerCount = count ?? 0
     const available = ownerCount === 0
 
-    // Production without secret: setup UI should show blocked (secret required)
     const blockedByMissingSecret = prod && !hasSecret && available
 
     return NextResponse.json({

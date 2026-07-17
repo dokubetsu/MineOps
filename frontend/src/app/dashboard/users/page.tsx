@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site, UserRole } from '@/lib/supabase/types'
 import toast from 'react-hot-toast'
+import { toErrorMessage } from '@/lib/errors'
 
 const ROLES = [
   { value: 'admin', label: 'Admin', desc: 'Full access to all sites and data', icon: '🛡️' },
@@ -104,8 +105,8 @@ export default function UsersPage() {
         emailMap[u.id] = u.email
       }
       setAuthUsers(emailMap)
-    } catch (err: any) {
-      toast.error(`Error loading users data: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error loading users data: ${toErrorMessage(err)}`)
     } finally {
       setLoading(false)
     }
@@ -174,22 +175,46 @@ export default function UsersPage() {
       })
       loadData()
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : 'Failed to create user'
+      const errMsg = toErrorMessage(err, 'Failed to create user')
       setError(errMsg)
     }
     setSubmitting(false)
   }
 
   const removeUser = async (userId: string) => {
-    if (!confirm("Remove this user's access completely?")) return
-    // Delete stakeholder site access first
-    await supabase.from('stakeholder_site_access').delete().eq('stakeholder_user_id', userId)
-    const { error } = await supabase.from('user_roles').delete().eq('user_id', userId)
-    if (error) {
-      toast.error(`Error: ${error.message}`)
-    } else {
-      toast.success('User access revoked')
+    if (
+      !confirm(
+        "Remove this user completely? This revokes all roles and deletes their login account."
+      )
+    ) {
+      return
+    }
+    try {
+      const token = await getAuthToken()
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ user_id: userId }),
+      })
+      const json = (await res.json()) as {
+        error?: string
+        warning?: string
+        partial?: boolean
+      }
+      if (!res.ok) {
+        throw new Error(json.error || 'Failed to remove user')
+      }
+      if (json.partial && json.warning) {
+        toast.success(json.warning)
+      } else {
+        toast.success('User removed (access revoked and Auth account deleted)')
+      }
       loadData()
+    } catch (err: unknown) {
+      toast.error(toErrorMessage(err, 'Failed to remove user'))
     }
   }
 
@@ -201,7 +226,7 @@ export default function UsersPage() {
     }
     const { error } = await supabase.from('user_roles').delete().eq('id', rowId)
     if (error) {
-      toast.error(`Error: ${error.message}`)
+      toast.error(`Error: ${toErrorMessage(error)}`)
     } else {
       toast.success('Role revoked successfully')
       loadData()
@@ -228,7 +253,7 @@ export default function UsersPage() {
       })
       .eq('id', editingRow.id)
     if (error) {
-      toast.error(`Error updating role: ${error.message}`)
+      toast.error(`Error updating role: ${toErrorMessage(error)}`)
     } else {
       // If this row was a stakeholder grant on a site, and it's no longer a
       // stakeholder grant on that same site (role changed, or site changed),

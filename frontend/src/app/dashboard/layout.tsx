@@ -58,9 +58,10 @@ function NavContent() {
     feature?: Parameters<typeof hasFeature>[0]
   }
 
-  // Build nav items based on role + org feature entitlements
+  // Build nav items based on role + org feature entitlements.
+  // Must match proxy redirects: employees → my-work only; stakeholders → stakeholder only.
   const operationsNav: NavItem[] = [
-    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'site_manager', 'stakeholder'] },
+    { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'site_manager'] },
     { href: '/dashboard/my-work', icon: LayoutDashboard, label: 'Home', roles: ['employee', 'site_employee'] },
     { href: '/dashboard/trips', icon: Truck, label: 'Trips', roles: ['admin', 'site_manager'], feature: 'trips' },
     { href: '/dashboard/cash-book', icon: BookOpen, label: 'Cash Book', roles: ['admin', 'site_manager'], feature: 'cash_book' },
@@ -277,33 +278,41 @@ function NavContent() {
         </>
       )}
 
-      {/* Mobile Bottom Nav */}
+      {/* Mobile Bottom Nav — routes must match proxy role redirects */}
       <nav className="bottom-nav">
         {isStakeholder ? (
           <>
-            <Link href="/dashboard" className={`bottom-nav-item ${pathname === '/dashboard' ? 'active' : ''}`}>
-              <LayoutDashboard size={22} />
-              <span className="bottom-nav-label">Dashboard</span>
-            </Link>
-            <Link href="/dashboard/stakeholder" className={`bottom-nav-item ${pathname === '/dashboard/stakeholder' ? 'active' : ''}`}>
+            {/* Proxy only allows /dashboard/stakeholder for stakeholders */}
+            <Link
+              href="/dashboard/stakeholder"
+              className={`bottom-nav-item ${pathname.startsWith('/dashboard/stakeholder') ? 'active' : ''}`}
+            >
               <TrendingUp size={22} />
               <span className="bottom-nav-label">Summary</span>
             </Link>
           </>
         ) : (isSiteEmployee || isEmployee) ? (
           <>
-            <Link href="/dashboard/my-work" className={`bottom-nav-item ${pathname === '/dashboard/my-work' ? 'active' : ''}`}>
+            {/* Proxy hard-redirects employees off all routes except /dashboard/my-work */}
+            <Link
+              href="/dashboard/my-work"
+              className={`bottom-nav-item ${pathname.startsWith('/dashboard/my-work') ? 'active' : ''}`}
+            >
               <LayoutDashboard size={22} />
               <span className="bottom-nav-label">Home</span>
             </Link>
-            <Link href="/dashboard/trips" className={`bottom-nav-item ${pathname.startsWith('/dashboard/trips') ? 'active' : ''}`}>
-              <Truck size={22} />
-              <span className="bottom-nav-label">Log Trip</span>
-            </Link>
-            <Link href="/dashboard/cash-book" className={`bottom-nav-item ${pathname.startsWith('/dashboard/cash-book') ? 'active' : ''}`}>
-              <BookOpen size={22} />
-              <span className="bottom-nav-label">Expense</span>
-            </Link>
+            {hasFeature('trips') && (
+              <Link href="/dashboard/my-work?action=trip" className="bottom-nav-item">
+                <Truck size={22} />
+                <span className="bottom-nav-label">Log Trip</span>
+              </Link>
+            )}
+            {hasFeature('cash_book') && (
+              <Link href="/dashboard/my-work?action=expense" className="bottom-nav-item">
+                <BookOpen size={22} />
+                <span className="bottom-nav-label">Expense</span>
+              </Link>
+            )}
           </>
         ) : (
           <>

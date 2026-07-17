@@ -28,7 +28,14 @@ Local development (`NODE_ENV !== production` and not `VERCEL_ENV=production`) ma
 | `UPSTASH_REDIS_REST_URL` | Phase E5 durable rate limit (Upstash REST). With token, proxy uses Redis counters. |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token — **server only**, never `NEXT_PUBLIC_` |
 
-Without Upstash vars, rate limiting stays **in-memory** (per serverless isolate). Still set edge/WAF limits in production.
+### Rate limiting (Phase 2)
+
+| Environment | Recommendation |
+|-------------|----------------|
+| **Production / multi-instance (Vercel)** | **Strongly recommended:** set both Upstash vars. Without them, limits are **per isolate** (easy to bypass under load). App logs a one-time warning when memory backend is used in production. |
+| **Local / single process** | In-memory is fine. |
+
+Still set edge/WAF limits in production (Vercel / Cloudflare) as defense-in-depth.
 
 CSP nonce pipeline (not enabled yet): `docs/CSP_NONCE.md`.
 

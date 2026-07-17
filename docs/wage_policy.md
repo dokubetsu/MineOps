@@ -1,7 +1,7 @@
 # MineOps wage & attendance policy
 
 Canonical product rules for payroll generation, attendance marking, and leave.
-Implemented in `frontend/src/lib/calculations.ts`, `payrollRepository.generate`, and DB leave/attendance triggers (Phase C / migration **044**).
+Implemented in `frontend/src/lib/calculations.ts`, `payrollRepository.generate`, and DB leave/attendance triggers (Phase C / **044**, Phase 1 / **048**).
 
 ## Attendance marks
 
@@ -23,12 +23,13 @@ Implemented in `frontend/src/lib/calculations.ts`, `payrollRepository.generate`,
 
 | Path | Effect on `leave_balance` |
 |------|---------------------------|
-| **Leave application approved** | Deducts inclusive days once; writes attendance `leave` for each day (skips per-day balance trigger) |
+| **Leave application approved** | Deducts only days **not already** status=`leave` on the muster (Phase 1 / **048** — no double-charge); writes attendance `leave` for the full range (skips per-day balance trigger) |
+| **Leave unapprove** | Restores only days that were charged by that approval (prior snapshot ≠ leave); restores prior attendance from snapshot |
 | **Muster mark Leave** (no covering approved application) | Deducts **1** day; **rejected** if balance &lt; 1 |
 | **Muster change away from Leave** (no covering approved application) | Restores **1** day |
 | **Muster Leave when approved application covers that date** | No extra deduct (already handled by application) |
 
-So managers cannot mark free paid Leave without consuming balance (unless an approved application already covers the day).
+So managers cannot mark free paid Leave without consuming balance (unless an approved application already covers the day). Approving an application after partial muster Leave only charges the **net new** days.
 
 ## Daily wages
 
@@ -54,11 +55,11 @@ wage = monthly_rate × max(0, 1 − (absent + half_day × 0.5) / period_calendar
 ## Leave applications
 
 - Inclusive calendar days: `(to_date − from_date) + 1`.
-- Approval deducts `leave_balance` and writes attendance status `leave` for each day.
-- Approval is **rejected** if balance is insufficient (no silent clamp).
+- Approval deducts `leave_balance` for **charge_days** = range days minus days already status=`leave`, then writes attendance `leave` for each day in range.
+- Approval is **rejected** if balance is insufficient for charge_days (no silent clamp).
 - Approval is **blocked** if any overlapping calendar month already has a **finalized** payroll run for that site.
 - If existing **non-leave** attendance would be overwritten, approval requires **force** confirmation.
-- **Undo approval** (`unapprove_leave_application`): restore balance, remove leave attendance for the range, status → pending (blocked if payroll finalized).
+- **Undo approval** (`unapprove_leave_application`): restore **charge_days** only, restore attendance from snapshot, status → pending (blocked if payroll finalized).
 - Only admin / site_manager (scoped) may approve / unapprove.
 - New employees (UI + `provision_user_access` create) default **`leave_balance = 15`**.
 
@@ -67,12 +68,19 @@ wage = monthly_rate × max(0, 1 − (absent + half_day × 0.5) / period_calendar
 - One draft/finalized run per `(site_id, period_month)`.
 - Lines store `days_present`, `days_half_day`, `days_leave`, `days_absent`.
 - Unique `(payroll_run_id, employee_id)` prevents duplicate liability lines.
-- Finalize is atomic (`finalize_payroll_run`); lines cannot be edited after finalize.
+- Finalize is atomic (`finalize_payroll_run`); **requires ≥1 payroll line** (Phase 1 / **048**); lines cannot be edited after finalize.
+- After finalize, **attendance INSERT/UPDATE/DELETE** for dates in that month at the same site is blocked (muster freeze, **048**).
 
-## Trip worth (Phase C)
+## Trip worth (Phase C) & settlement (Phase 1)
 
 - Client and server normalize via `computeTripWorth` / DB trigger `normalize_trip_worth` (2 decimal places).
 - Preferred create path: `tripsRepository.create` (admin + my-work).
+- **Settled** trips require `settlement_amount > 0` (DB trigger + `tripsRepository.settle`).
+
+## Stakeholder shares
+
+- Per-person share is 0–100%.
+- **Sum of `share_percent` per site cannot exceed 100%** (`check_stakeholder_share_limit` trigger).
 
 ## Site employees (expenses / trips)
 

@@ -14,6 +14,7 @@ import { formatInr } from '@/lib/calculations'
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
+import { toErrorMessage } from '@/lib/errors'
 
 const ENTRY_CATEGORIES_IN = ['Cash received from main office', 'Other incoming']
 const ENTRY_CATEGORIES_OUT = ['Fuel/Diesel Purchase', 'Driver Wage payment', 'Supervisor payment', 'Meal & Food expense', 'Repair & Spares', 'Other outgoing']
@@ -114,8 +115,8 @@ export default function CashBookPage() {
           })
           .catch(() => {})
       }
-    } catch (err: any) {
-      toast.error(`Error loading sites: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error loading sites: ${toErrorMessage(err)}`)
     }
   }
 
@@ -184,7 +185,7 @@ export default function CashBookPage() {
       }
       setHasMore(loadedEntries.length === PAGE_LIMIT)
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = error instanceof Error ? toErrorMessage(error) : 'Unknown error'
       const cached = getOfflineCache<{
         book: CashBook
         balances: { totalIn: number; totalOut: number }
@@ -261,8 +262,8 @@ export default function CashBookPage() {
       setPhotoFile(null)
       setPhotoPreview(null)
       loadCashBook()
-    } catch (err: any) {
-      toast.error(`Error saving cash entry: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error saving cash entry: ${toErrorMessage(err)}`)
     } finally {
       setSubmitting(false)
     }
@@ -279,8 +280,8 @@ export default function CashBookPage() {
       await cashBookRepository.deleteEntry(supabase, confirmDeleteId)
       toast.success('Cash entry removed')
       loadCashBook()
-    } catch (error: any) {
-      toast.error(`Error deleting cash entry: ${error.message}`)
+    } catch (error: unknown) {
+      toast.error(`Error deleting cash entry: ${toErrorMessage(error)}`)
     } finally {
       setConfirmDeleteId(null)
     }
@@ -298,7 +299,7 @@ export default function CashBookPage() {
       toast.success(`Cash book is now ${nextStatus}`)
       loadCashBook()
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = error instanceof Error ? toErrorMessage(error) : 'Unknown error'
       toast.error(`Error toggling lock status: ${message}`)
     } finally {
       setConfirmLock(false)
@@ -326,8 +327,8 @@ export default function CashBookPage() {
       await cashBookRepository.updateReceiptUrl(supabase, entryId, path)
       toast.success('Receipt photo updated successfully')
       loadCashBook()
-    } catch (err: any) {
-      toast.error(`Error updating receipt: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error updating receipt: ${toErrorMessage(err)}`)
     } finally {
       setUploadingId(null)
     }

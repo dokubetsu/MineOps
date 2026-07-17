@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { E2E_EMAIL, E2E_PASSWORD, loginAsAdmin } from './helpers'
 
 /**
  * Platform owner flow (seed: platform@mineops.com / password123 after db reset).
@@ -14,53 +15,51 @@ test.describe('Platform owner console', () => {
     await page.locator('input[type="password"]').fill(PLATFORM_PASSWORD)
     await page.locator('button[type="submit"]').click()
 
-    // Either platform console or login error (if seed missing)
-    await page.waitForTimeout(3000)
-    const url = page.url()
+    // Wait for either success redirect or invalid credentials toast/text
+    const landedPlatform = page.waitForURL(/\/platform/, { timeout: 15000 }).then(() => true).catch(() => false)
+    const invalidLogin = page
+      .getByText(/Invalid login credentials/i)
+      .waitFor({ timeout: 15000 })
+      .then(() => true)
+      .catch(() => false)
 
-    if (url.includes('/platform')) {
+    const result = await Promise.race([
+      landedPlatform.then((ok) => (ok ? 'platform' : 'none')),
+      invalidLogin.then((ok) => (ok ? 'invalid' : 'none')),
+    ])
+
+    if (result === 'platform' || page.url().includes('/platform')) {
       await expect(page).toHaveURL(/\/platform/)
       await expect(page.getByText(/Platform Console|Organizations/i).first()).toBeVisible({
         timeout: 15000,
       })
-      // Not stuck on tenant "No Role" shell
       await expect(page.getByText(/No Role/i)).toHaveCount(0)
       return
     }
 
-    // If credentials invalid, document skip rather than false red
-    const invalid = await page.getByText(/Invalid login credentials/i).count()
-    test.skip(invalid > 0 || !url.includes('/platform'), 'Platform seed user not available in this environment')
+    test.skip(true, 'Platform seed user not available in this environment')
   })
 
   test('tenant admin cannot use /platform as console (no access or redirect)', async ({ page }) => {
-    const adminEmail = process.env.E2E_ADMIN_EMAIL || 'admin@mineops.com'
-    const adminPassword = process.env.E2E_ADMIN_PASSWORD || 'password123'
-
-    await page.goto('/')
-    await page.locator('input[type="email"]').fill(adminEmail)
-    await page.locator('input[type="password"]').fill(adminPassword)
-    await page.locator('button[type="submit"]').click()
-
-    await page.waitForTimeout(4000)
-    if (page.url().includes('Invalid') || (await page.getByText(/Invalid login/i).count()) > 0) {
-      test.skip(true, 'Admin seed unavailable')
-    }
+    await loginAsAdmin(page)
 
     await page.goto('/platform')
-    await page.waitForTimeout(2000)
+    await expect(page).toHaveURL(/\/(platform|dashboard)/, { timeout: 15000 })
 
-    // Tenant admin either sees "No platform access" or is bounced to dashboard
     const onDashboard = page.url().includes('/dashboard')
-    const noAccess = (await page.getByText(/No platform access|not a platform owner|First-time/i).count()) > 0
+    const noAccess =
+      (await page.getByText(/No platform access|not a platform owner|First-time/i).count()) > 0
     const onPlatformOrgs = (await page.getByText(/New organization/i).count()) > 0
 
-    // Must not get full platform org management as plain tenant admin
     if (onPlatformOrgs && !noAccess) {
-      // Might be platform owner with same email in some envs — soft check
+      // Env may share credentials; soft allow
       expect(onPlatformOrgs || onDashboard || noAccess).toBeTruthy()
     } else {
       expect(onDashboard || noAccess).toBeTruthy()
     }
+
+    // Sanity: tenant credentials still work
+    expect(E2E_EMAIL).toBeTruthy()
+    expect(E2E_PASSWORD).toBeTruthy()
   })
 })

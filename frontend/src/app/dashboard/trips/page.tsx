@@ -13,9 +13,9 @@ import { computeTripWorthFromRate } from '@/lib/calculations'
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
+import { toErrorMessage } from '@/lib/errors'
 
-const VEHICLE_TYPES = ['12WH', '10WH', '6WH', 'Other'] as const
-const OWNERSHIP_TYPES = ['rented', 'leased', 'owned'] as const
+import { VEHICLE_TYPES, OWNERSHIP_TYPES } from '@/lib/trip-constants'
 
 interface ExtendedVehicle extends Vehicle {
   transport_contractors?: {
@@ -215,8 +215,8 @@ export default function TripsPage() {
           })
           .catch(() => {})
       }
-    } catch (err: any) {
-      toast.error(`Error loading master data: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error loading master data: ${toErrorMessage(err)}`)
     } finally {
       setLoading(false)
     }
@@ -275,7 +275,7 @@ export default function TripsPage() {
       }
       setHasMore(data.length === PAGE_LIMIT)
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = error instanceof Error ? toErrorMessage(error) : 'Unknown error'
       const cached = getOfflineCache<ExtendedTrip[]>(user?.id, organizationId, `trips_${selectedSite}_${selectedDate}`)
       if (cached && !loadMore) {
         setTrips(cached)
@@ -484,6 +484,12 @@ export default function TripsPage() {
         settlement_account: form.payment_status === 'settled' ? (form.payment_reference || 'UPI/Cash') : null,
       }
 
+      if (payload.settled && !(Number(payload.settlement_amount) > 0)) {
+        toast.error('Settled trips require trip worth / settlement amount greater than zero')
+        setSubmitting(false)
+        return
+      }
+
       let tripId = editingTripId
 
       if (editingTripId) {
@@ -532,8 +538,8 @@ export default function TripsPage() {
       setPhotoPreviews([])
       setExistingPhotoUrls([])
       loadTrips()
-    } catch (error: any) {
-      toast.error(`Error saving trip: ${error.message}`)
+    } catch (error: unknown) {
+      toast.error(`Error saving trip: ${toErrorMessage(error)}`)
     } finally {
       setSubmitting(false)
     }
@@ -545,8 +551,8 @@ export default function TripsPage() {
       await tripsRepository.delete(supabase, confirmDeleteId)
       toast.success('Trip deleted')
       loadTrips()
-    } catch (error: any) {
-      toast.error(`Error deleting trip: ${error.message}`)
+    } catch (error: unknown) {
+      toast.error(`Error deleting trip: ${toErrorMessage(error)}`)
     } finally {
       setConfirmDeleteId(null)
     }
@@ -556,8 +562,8 @@ export default function TripsPage() {
     e.preventDefault()
     if (!settleTripId) return
     const amt = parseFloat(settleAmount)
-    if (isNaN(amt) || amt < 0) {
-      toast.error('Please enter a valid amount')
+    if (isNaN(amt) || amt <= 0) {
+      toast.error('Please enter a settlement amount greater than zero')
       return
     }
     if (!settleAccount.trim()) {
@@ -581,8 +587,8 @@ export default function TripsPage() {
       setSettleMethod('cash')
       setSettleRef('')
       loadTrips()
-    } catch (err: any) {
-      toast.error(`Error settling trip: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error settling trip: ${toErrorMessage(err)}`)
     } finally {
       setSettleSubmitting(false)
     }

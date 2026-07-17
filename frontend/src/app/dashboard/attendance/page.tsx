@@ -12,6 +12,7 @@ import { sitesRepository } from '@/lib/repositories/sites'
 import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
 import PageHeader from '@/components/PageHeader'
 import toast from 'react-hot-toast'
+import { toErrorMessage } from '@/lib/errors'
 
 const STATUSES = [
   { key: 'present', label: 'P', color: 'present', full: 'Present' },
@@ -41,7 +42,7 @@ export default function AttendancePage() {
         setSelectedSite(loadedSites[0].id)
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
+      const message = err instanceof Error ? toErrorMessage(err) : 'Unknown error'
       toast.error(`Error loading sites: ${message}`)
     }
   }
@@ -56,7 +57,7 @@ export default function AttendancePage() {
       const cacheable = data.map(({ display_photo_url: _u, uploading: _up, ...rest }) => rest)
       setOfflineCache(user?.id, organizationId, `roster_${selectedSite}_${selectedDate}`, cacheable)
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = error instanceof Error ? toErrorMessage(error) : 'Unknown error'
       const cached = getOfflineCache<RosterEmployee[]>(
         user?.id,
         organizationId,
@@ -165,8 +166,8 @@ export default function AttendancePage() {
         setIsDirty(true)
         toast.success('Photo uploaded')
       }
-    } catch (err: any) {
-      toast.error(`Photo upload failed: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Photo upload failed: ${toErrorMessage(err)}`)
       setRoster(prev => prev.map(emp => emp.id === employeeId ? { ...emp, uploading: false } : emp))
     }
   }
@@ -181,13 +182,12 @@ export default function AttendancePage() {
       return
     }
     const unmarked = roster.filter((e) => !e.status).length
-    if (unmarked === roster.length) {
-      toast.error('Mark attendance for at least one employee before saving')
-      return
-    }
-    if (unmarked > 0) {
+    const marked = roster.length - unmarked
+    // All-unmarked is allowed when clearing previously saved marks (DELETE path).
+    // Fresh empty roster with nothing in DB still fails inside saveRoster.
+    if (unmarked > 0 && marked > 0) {
       toast(
-        `${unmarked} employee(s) still unmarked will not be saved (unmarked ≠ present)`,
+        `${unmarked} unmarked employee(s) will clear any saved mark for this date`,
         { icon: '⚠️' }
       )
     }
@@ -200,13 +200,15 @@ export default function AttendancePage() {
         photo_url: emp.photo_url,
       }))
 
-      await attendanceRepository.saveRoster(supabase, records, selectedSite)
-      const saved = roster.length - unmarked
-      toast.success(`Saved ${saved} attendance mark(s)${unmarked ? ` (${unmarked} left unmarked)` : ''}`)
+      const result = await attendanceRepository.saveRoster(supabase, records, selectedSite)
+      const parts: string[] = []
+      if (result.upserted > 0) parts.push(`${result.upserted} mark(s) saved`)
+      if (result.cleared > 0) parts.push(`${result.cleared} cleared`)
+      toast.success(parts.length ? parts.join(', ') : 'Attendance updated')
       setIsDirty(false)
       await loadRoster()
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = error instanceof Error ? toErrorMessage(error) : 'Unknown error'
       console.error('Attendance save failed:', message)
       toast.error(`Error saving attendance: ${message}`)
     } finally {

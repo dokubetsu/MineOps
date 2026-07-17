@@ -4,7 +4,7 @@ The console at `/platform` only works after someone is in `public.platform_roles
 
 ## Path A — Production first-time UI (required secret)
 
-1. **Apply migrations** through the latest file (at least **042**):
+1. **Apply migrations** through the latest file (at least **049**):
    ```bash
    supabase db push
    ```
@@ -15,7 +15,7 @@ The console at `/platform` only works after someone is in `public.platform_roles
 3. Open **`/platform/setup`**.
 
 4. Enter:
-   - Operator email  
+   - **New** operator email (emails that already exist in Auth are refused by default)  
    - Strong password (min 10 chars, letter + number)  
    - The same bootstrap secret  
 
@@ -24,13 +24,14 @@ The console at `/platform` only works after someone is in `public.platform_roles
 6. **Immediately rotate or delete `PLATFORM_BOOTSTRAP_SECRET`** from the production environment.  
    After any owner exists, bootstrap returns **409** forever (for that project). Keeping a leftover secret is unnecessary risk.
 
-### Production rules (Phase A)
+### Production rules (Phase A + Phase 0)
 
 | Condition | Behavior |
 |-----------|----------|
 | `NODE_ENV=production` or `VERCEL_ENV=production` and secret **missing** | Bootstrap **blocked** (503 / setup UI explains) |
 | Secret set, wrong `secret` in form | **403** |
 | Any row in `platform_roles` | **409** — bootstrap closed |
+| Email already exists in Auth | **409** `EMAIL_ALREADY_EXISTS` — use a new email, or API-only `force_existing: true` (password set **only after** exclusive claim) |
 
 ## Path B — Local seed only (never production)
 
@@ -70,7 +71,7 @@ Use Path C if bootstrap is already closed and you need a second operator.
 
 | Endpoint | Purpose |
 |----------|---------|
-| `GET/POST /api/platform/bootstrap` | First owner only; prod requires secret |
+| `GET/POST /api/platform/bootstrap` | First owner only; prod requires secret; refuse existing emails unless `force_existing` |
 | `GET/POST /api/platform/orgs` | List / create orgs (platform owner JWT) |
 | `PUT /api/platform/orgs/:id/features` | Feature flags |
 | `POST /api/platform/orgs/:id/admins` | Extra tenant admins |

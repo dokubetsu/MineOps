@@ -110,9 +110,27 @@ async function upstashCheck(
   }
 }
 
+let warnedMemoryInProd = false
+
+function warnIfMemoryInProduction(): void {
+  if (warnedMemoryInProd) return
+  const prod =
+    process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production'
+  if (!prod) return
+  warnedMemoryInProd = true
+  console.warn(
+    '[mineops/rate-limit] Using in-memory rate limits in production. ' +
+      'Configure UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for durable multi-instance limits. ' +
+      'See docs/ENV.md and docs/DEPLOYMENT_CHECKLIST.md.'
+  )
+}
+
 /**
  * Async rate limit — prefers Upstash when configured (Phase E), else memory.
  * Prefer this from proxy / route handlers.
+ *
+ * Phase 2: logs once in production when falling back to memory (not a hard fail —
+ * set Upstash for multi-instance deploys).
  */
 export async function checkRateLimit(
   key: string,
@@ -122,6 +140,7 @@ export async function checkRateLimit(
   if (upstashConfigured()) {
     return upstashCheck(key, limit, windowMs)
   }
+  warnIfMemoryInProduction()
   return memoryCheck(key, limit, windowMs)
 }
 

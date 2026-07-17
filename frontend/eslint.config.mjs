@@ -53,6 +53,9 @@ const eslintConfig = defineConfig([
       "src/lib/password-policy.ts",
       "src/lib/platform-auth.ts",
       "src/lib/rate-limit.ts",
+      "src/lib/errors.ts",
+      "src/lib/trip-constants.ts",
+      "src/components/**/*.{ts,tsx}",
     ],
     rules: {
       "@typescript-eslint/no-explicit-any": "error",

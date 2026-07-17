@@ -29,7 +29,7 @@ export default function PlatformSetupPage() {
         if (json.needs_migration) {
           setNeedsMigration(true)
           setStatus('blocked')
-          setMessage(json.error || 'Apply database migrations (through 042) first')
+          setMessage(json.error || 'Apply database migrations (through 050) first')
           return
         }
         if (json.blocked_by_missing_secret) {

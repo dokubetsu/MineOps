@@ -11,6 +11,7 @@ import { payrollRepository } from '@/lib/repositories/payroll'
 import { sitesRepository } from '@/lib/repositories/sites'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
+import { toErrorMessage } from '@/lib/errors'
 
 interface ExtendedPayrollRun extends PayrollRun {
   sites?: {
@@ -65,7 +66,7 @@ export default function PayrollPage() {
         setSelectedSite(loadedSites[0].id)
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
+      const message = err instanceof Error ? toErrorMessage(err) : 'Unknown error'
       toast.error(`Error loading sites: ${message}`)
     }
   }
@@ -75,8 +76,8 @@ export default function PayrollPage() {
     try {
       const data = await payrollRepository.listRuns(supabase, selectedSite)
       setRuns(data)
-    } catch (error: any) {
-      toast.error(`Error loading payroll runs: ${error.message}`)
+    } catch (error: unknown) {
+      toast.error(`Error loading payroll runs: ${toErrorMessage(error)}`)
       setRuns([])
     } finally {
       setLoading(false)
@@ -90,7 +91,7 @@ export default function PayrollPage() {
       const data = await payrollRepository.listLines(supabase, run.id)
       setLines(data)
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = error instanceof Error ? toErrorMessage(error) : 'Unknown error'
       toast.error(`Error loading payroll breakdown: ${message}`)
       setLines([])
     } finally {
@@ -119,7 +120,7 @@ export default function PayrollPage() {
       setLines((prevLines) => prevLines.map((l) => (l.id === line.id ? { ...l, ...updated } : l)))
       toast.success('Adjustment saved')
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error'
+      const message = error instanceof Error ? toErrorMessage(error) : 'Unknown error'
       toast.error(`Could not save adjustment: ${message}`)
     } finally {
       setSavingAdjId(null)
@@ -148,8 +149,8 @@ export default function PayrollPage() {
       toast.success('Payroll run generated successfully!')
       loadRuns()
       selectRun(result.run)
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to generate payroll run')
+    } catch (err: unknown) {
+      toast.error(toErrorMessage(err) || 'Failed to generate payroll run')
     } finally {
       setGenerating(false)
     }
@@ -164,8 +165,8 @@ export default function PayrollPage() {
       if (selectedRun && selectedRun.id === confirmFinalizeId) {
         setSelectedRun(prev => prev ? { ...prev, status: 'finalized' } : null)
       }
-    } catch (err: any) {
-      toast.error(`Error finalizing payroll: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error finalizing payroll: ${toErrorMessage(err)}`)
     } finally {
       setConfirmFinalizeId(null)
     }
@@ -179,8 +180,8 @@ export default function PayrollPage() {
       setSelectedRun(null)
       setLines([])
       loadRuns()
-    } catch (err: any) {
-      toast.error(`Error deleting payroll: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error deleting payroll: ${toErrorMessage(err)}`)
     } finally {
       setConfirmDeleteId(null)
     }

@@ -1,11 +1,12 @@
 -- ==========================================
 -- MineOps Database Schema & Security Blueprints
 -- ==========================================
--- WARNING: This file is a REFERENCE SNAPSHOT only (may lag live migrations).
+-- WARNING: This file is a REFERENCE SNAPSHOT only (intentionally may lag).
 -- Do NOT apply schema.sql to deploy. Use ordered files in
--- supabase/migrations/ (currently through 046_phase_f_residual_hardening.sql).
+-- supabase/migrations/ (currently through 050_phase3_schema_perf.sql).
 -- TypeScript types: frontend/src/lib/supabase/database.types.ts
 -- Policy: docs/SCHEMA_SSOT.md
+-- Optional refresh: supabase db dump --schema public -f supabase/schema.sql
 -- ==========================================
 
 -- ------------------------------------------

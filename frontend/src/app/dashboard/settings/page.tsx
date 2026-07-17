@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site, TransportContractor, Vehicle } from '@/lib/supabase/types'
 import toast from 'react-hot-toast'
+import { toErrorMessage } from '@/lib/errors'
 
 interface ExtendedVehicle extends Vehicle {
   transport_contractors?: {
@@ -65,8 +66,8 @@ export default function SettingsPage() {
       setSites(s || [])
       setContractors(c || [])
       setVehicles((v as any) || [])
-    } catch (err: any) {
-      toast.error(`Error loading configurations: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error loading configurations: ${toErrorMessage(err)}`)
     } finally {
       setLoading(false)
     }
@@ -76,7 +77,7 @@ export default function SettingsPage() {
     e.preventDefault()
     const { error } = await supabase.from('sites').insert({ name: siteName, location: siteLocation, active: true, organization_id: organizationId! })
     if (error) {
-      toast.error(`Error adding site: ${error.message}`)
+      toast.error(`Error adding site: ${toErrorMessage(error)}`)
     } else {
       toast.success('Site added successfully')
       setSiteName(''); setSiteLocation('')
@@ -88,7 +89,7 @@ export default function SettingsPage() {
     e.preventDefault()
     const { error } = await supabase.from('transport_contractors').insert({ name: contractorName, active: true, organization_id: organizationId! })
     if (error) {
-      toast.error(`Error adding contractor: ${error.message}`)
+      toast.error(`Error adding contractor: ${toErrorMessage(error)}`)
     } else {
       toast.success('Contractor added successfully')
       setContractorName('')
@@ -121,7 +122,7 @@ export default function SettingsPage() {
     })
 
     if (error) {
-      toast.error(error.message)
+      toast.error(toErrorMessage(error))
     } else {
       toast.success('Vehicle registered successfully')
       setVehiclePlate(''); setVehicleContractor('')
@@ -142,7 +143,7 @@ export default function SettingsPage() {
       .eq('id', organizationId!)
     
     if (error) {
-      toast.error(`Error updating organization: ${error.message}`)
+      toast.error(`Error updating organization: ${toErrorMessage(error)}`)
     } else {
       toast.success('Organization updated successfully')
       router.refresh()
@@ -161,13 +162,13 @@ export default function SettingsPage() {
         }
       }
       const { error } = await supabase.from('sites').update({ active: !current }).eq('id', id)
-      if (error) errorMsg = error.message
+      if (error) errorMsg = toErrorMessage(error)
     } else if (table === 'transport_contractors') {
       const { error } = await supabase.from('transport_contractors').update({ active: !current }).eq('id', id)
-      if (error) errorMsg = error.message
+      if (error) errorMsg = toErrorMessage(error)
     } else if (table === 'vehicles') {
       const { error } = await supabase.from('vehicles').update({ active: !current }).eq('id', id)
-      if (error) errorMsg = error.message
+      if (error) errorMsg = toErrorMessage(error)
     }
 
     if (errorMsg) {

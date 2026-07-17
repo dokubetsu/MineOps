@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { format, subDays } from 'date-fns'
 import { Plus, Image as ImageIcon, Check, X, AlertCircle } from 'lucide-react'
@@ -10,15 +11,13 @@ import { cashBookRepository } from '@/lib/repositories/cash-book'
 import { tripsRepository } from '@/lib/repositories/trips'
 import BottomSheet from '@/components/BottomSheet'
 import toast from 'react-hot-toast'
-
-const EXPENSE_CATEGORIES = [
-  'Fuel/Diesel Purchase',
-  'Driver Wage payment',
-  'Supervisor payment',
-  'Meal & Food expense',
-  'Repair & Spares',
-  'Other outgoing',
-] as const
+import { toErrorMessage } from '@/lib/errors'
+import {
+  EXPENSE_CATEGORIES,
+  VEHICLE_TYPES,
+  getCapacityForType,
+  vehicleTypeLabel,
+} from '@/lib/trip-constants'
 
 interface EmployeeData {
   id: string
@@ -29,8 +28,10 @@ interface EmployeeData {
   } | null
 }
 
-export default function EmployeePage() {
+function EmployeePage() {
   const { user, organizationId, loading: authLoading, hasFeature } = useAuth()
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const supabase = createClient()
   const canTrips = hasFeature('trips')
   const canCash = hasFeature('cash_book')
@@ -126,15 +127,30 @@ export default function EmployeePage() {
     loadInitialData()
   }, [authLoading, user])
 
-  // Capacity default values
-  const getCapacityForType = (type: string) => {
-    switch (type) {
-      case '12WH': return '20'
-      case '10WH': return '16'
-      case '6WH': return '10'
-      default: return '8'
+  // Deep-link from bottom nav: /dashboard/my-work?action=trip|expense
+  // (employees cannot open /dashboard/trips or /dashboard/cash-book — proxy redirects)
+  useEffect(() => {
+    if (authLoading || loading) return
+    const action = searchParams.get('action')
+    if (!action) return
+
+    if (action === 'trip') {
+      if (canTrips) {
+        setShowTripSheet(true)
+      } else {
+        toast.error('Trips are not enabled for your organization')
+      }
+    } else if (action === 'expense') {
+      if (canCash) {
+        setShowExpenseSheet(true)
+      } else {
+        toast.error('Cash book is not enabled for your organization')
+      }
     }
-  }
+
+    // Strip query so back/refresh does not re-open the sheet
+    router.replace('/dashboard/my-work', { scroll: false })
+  }, [authLoading, loading, searchParams, canTrips, canCash, router])
 
   // Calculate shipment cost on tripForm changes
   useEffect(() => {
@@ -253,8 +269,8 @@ export default function EmployeePage() {
         }
       }
 
-    } catch (err: any) {
-      toast.error(`Error loading profile: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Error loading profile: ${toErrorMessage(err)}`)
     } finally {
       setLoading(false)
     }
@@ -275,8 +291,8 @@ export default function EmployeePage() {
       if (error) throw error
       toast.success(`Attendance marked as ${status}`)
       setShowAttendancePrompt(false)
-    } catch (err: any) {
-      toast.error(`Failed to mark attendance: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Failed to mark attendance: ${toErrorMessage(err)}`)
     }
   }
 
@@ -298,8 +314,8 @@ export default function EmployeePage() {
       toast.success('Leave application submitted for yesterday')
       setShowLeaveForm(false)
       setShowLeaveBanner(false)
-    } catch (err: any) {
-      toast.error(`Failed to apply for leave: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Failed to apply for leave: ${toErrorMessage(err)}`)
     }
   }
 
@@ -436,7 +452,7 @@ export default function EmployeePage() {
       })
       loadInitialData()
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
+      const message = err instanceof Error ? toErrorMessage(err) : 'Unknown error'
       toast.error(`Failed to log trip: ${message}`)
     } finally {
       setSubmittingTrip(false)
@@ -464,7 +480,7 @@ export default function EmployeePage() {
       setExpenseReceipt(null)
       void loadInitialData()
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
+      const message = err instanceof Error ? toErrorMessage(err) : 'Unknown error'
       toast.error(`Failed to log expense: ${message}`)
     } finally {
       setSubmittingExpense(false)
@@ -540,6 +556,12 @@ export default function EmployeePage() {
       const capacity = parseFloat(editForm.cubic_capacity) || 0
       const rate = negotiatedRates.find(r => r.vehicle_type === editForm.vehicle_type)?.rate_per_cubic || 0
       const worth = computeTripWorthFromRate(capacity, rate)
+      const settleAmt = Number(worth) || Number(editingTrip.settlement_amount) || 0
+      if (editForm.settled && settleAmt <= 0) {
+        toast.error('Settled trips require a positive settlement amount')
+        setSubmittingTrip(false)
+        return
+      }
 
       await tripsRepository.update(supabase, editingTrip.id, {
         vehicle_id: vehicleId,
@@ -558,6 +580,8 @@ export default function EmployeePage() {
         settled: editForm.settled,
         settlement_method: editForm.settled ? editForm.settlement_method : null,
         settlement_ref: editForm.settled ? editForm.settlement_ref : null,
+        settlement_amount: editForm.settled ? settleAmt : editingTrip.settlement_amount,
+        payment_status: editForm.settled ? 'settled' : (editingTrip.payment_status || 'pending'),
         settled_at: editForm.settled && !editingTrip.settled ? new Date().toISOString() : editingTrip.settled_at,
         settled_by: editForm.settled && !editingTrip.settled ? user.id : editingTrip.settled_by,
       })
@@ -565,8 +589,8 @@ export default function EmployeePage() {
       setShowEditSheet(false)
       setEditingTrip(null)
       loadInitialData()
-    } catch (err: any) {
-      toast.error(`Update failed: ${err.message}`)
+    } catch (err: unknown) {
+      toast.error(`Update failed: ${toErrorMessage(err)}`)
     } finally {
       setSubmittingTrip(false)
     }
@@ -585,10 +609,15 @@ export default function EmployeePage() {
       toast.error('Please enter a transaction reference number')
       return
     }
+    const settleAmt = Number(settleTrip.trip_worth || settleTrip.total_shipment_cost)
+    if (!Number.isFinite(settleAmt) || settleAmt <= 0) {
+      toast.error('Trip has no positive worth to settle. Edit trip worth first.')
+      return
+    }
     setSubmittingSettle(true)
     try {
       await tripsRepository.settle(supabase, settleTrip.id, {
-        settlement_amount: Number(settleTrip.trip_worth || settleTrip.total_shipment_cost) || 0,
+        settlement_amount: settleAmt,
         payment_method: settleMethod,
         payment_reference: settleRef.trim(),
         settled_by: user.id,
@@ -598,7 +627,7 @@ export default function EmployeePage() {
       setSettleRef('')
       void loadInitialData()
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
+      const message = err instanceof Error ? toErrorMessage(err) : 'Unknown error'
       toast.error(`Settlement failed: ${message}`)
     } finally {
       setSubmittingSettle(false)
@@ -845,10 +874,9 @@ export default function EmployeePage() {
                     cubic_capacity: getCapacityForType(type)
                   }))
                 }}>
-                <option value="12WH">12 Wheeler (12WH)</option>
-                <option value="10WH">10 Wheeler (10WH)</option>
-                <option value="6WH">6 Wheeler (6WH)</option>
-                <option value="Other">Other</option>
+                {VEHICLE_TYPES.map((t) => (
+                  <option key={t} value={t}>{vehicleTypeLabel(t)}</option>
+                ))}
               </select>
             </div>
             <div className="form-group">
@@ -1019,10 +1047,9 @@ export default function EmployeePage() {
                     cubic_capacity: getCapacityForType(type)
                   }))
                 }}>
-                <option value="12WH">12 Wheeler (12WH)</option>
-                <option value="10WH">10 Wheeler (10WH)</option>
-                <option value="6WH">6 Wheeler (6WH)</option>
-                <option value="Other">Other</option>
+                {VEHICLE_TYPES.map((t) => (
+                  <option key={t} value={t}>{vehicleTypeLabel(t)}</option>
+                ))}
               </select>
             </div>
             <div className="form-group">
@@ -1270,5 +1297,19 @@ export default function EmployeePage() {
         )}
       </BottomSheet>
     </div>
+  )
+}
+
+export default function EmployeePageRoute() {
+  return (
+    <Suspense
+      fallback={
+        <div className="page-container" style={{ padding: '2rem', textAlign: 'center' }}>
+          <span className="spinner" />
+        </div>
+      }
+    >
+      <EmployeePage />
+    </Suspense>
   )
 }

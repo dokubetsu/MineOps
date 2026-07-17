@@ -13,6 +13,40 @@ export interface RosterEmployee extends Employee {
   uploading: boolean
 }
 
+export interface AttendanceSaveRecord {
+  employee_id: string
+  att_date: string
+  status: AttendanceStatus | null
+  photo_url: string | null
+}
+
+export interface AttendanceSaveResult {
+  upserted: number
+  cleared: number
+}
+
+/** Pure split for tests and save path — marked upsert vs null clear. */
+export function partitionAttendanceSave(records: AttendanceSaveRecord[]): {
+  toUpsert: Array<AttendanceSaveRecord & { status: AttendanceStatus }>
+  toClear: AttendanceSaveRecord[]
+} {
+  const toUpsert: Array<AttendanceSaveRecord & { status: AttendanceStatus }> = []
+  const toClear: AttendanceSaveRecord[] = []
+  for (const r of records) {
+    if (
+      r.status === 'present' ||
+      r.status === 'absent' ||
+      r.status === 'half-day' ||
+      r.status === 'leave'
+    ) {
+      toUpsert.push(r as AttendanceSaveRecord & { status: AttendanceStatus })
+    } else {
+      toClear.push(r)
+    }
+  }
+  return { toUpsert, toClear }
+}
+
 function normalizeStatus(status: string | null | undefined): AttendanceStatus | null {
   if (status === 'present' || status === 'absent' || status === 'half-day' || status === 'leave') {
     return status
@@ -84,20 +118,23 @@ export const attendanceRepository = {
     return rosterData
   },
 
+  /**
+   * Persist roster for a site/date.
+   * - Marked rows (P/A/H/L) are upserted.
+   * - Unmarked rows (status null) DELETE any existing attendance for that
+   *   employee+date so unmark after save actually clears the DB (and leave
+   *   balance restore triggers fire on real DELETE).
+   */
   async saveRoster(
     supabase: SupabaseClient<Database>,
-    records: Array<{
-      employee_id: string
-      att_date: string
-      status: AttendanceStatus | null
-      photo_url: string | null
-    }>,
+    records: AttendanceSaveRecord[],
     siteId: string
-  ): Promise<void> {
+  ): Promise<AttendanceSaveResult> {
     if (!siteId) throw new Error('Site is required to save attendance')
-    if (records.length === 0) return
+    if (records.length === 0) {
+      return { upserted: 0, cleared: 0 }
+    }
 
-    // Resolve organization_id from the site — required NOT NULL + RLS WITH CHECK
     const { data: site, error: siteError } = await supabase
       .from('sites')
       .select('id, organization_id')
@@ -109,25 +146,19 @@ export const attendanceRepository = {
       throw new Error('Site is missing organization_id — cannot save attendance')
     }
 
-    // Never persist invent-present rows — only explicitly marked statuses
-    const markedRecords = records.filter(
-      (r): r is typeof r & { status: AttendanceStatus } =>
-        r.status === 'present' ||
-        r.status === 'absent' ||
-        r.status === 'half-day' ||
-        r.status === 'leave'
-    )
-    if (markedRecords.length === 0) {
+    const { toUpsert, toClear } = partitionAttendanceSave(records)
+
+    if (toUpsert.length === 0 && toClear.length === 0) {
       throw new Error(
         'No attendance marks to save. Mark each employee Present / Absent / Half / Leave first.'
       )
     }
 
-    const empIds = markedRecords.map((r) => r.employee_id)
+    const allEmpIds = [...new Set(records.map((r) => r.employee_id))]
     const { data: valid, error: validError } = await supabase
       .from('employees')
       .select('id, organization_id, site_id')
-      .in('id', empIds)
+      .in('id', allEmpIds)
       .eq('site_id', siteId)
 
     if (validError) throw validError
@@ -137,34 +168,7 @@ export const attendanceRepository = {
       data: { user },
     } = await supabase.auth.getUser()
 
-    const safeRecords = markedRecords
-      .filter((r) => validById.has(r.employee_id))
-      .map((r) => {
-        const emp = validById.get(r.employee_id)!
-        return {
-          employee_id: r.employee_id,
-          att_date: r.att_date,
-          status: r.status,
-          photo_url: r.photo_url,
-          // Explicit org stamp so RLS WITH CHECK (organization_id = get_user_organization_id())
-          // succeeds even if the BEFORE INSERT trigger is missing on a partial migrate.
-          organization_id: emp.organization_id || site.organization_id,
-          marked_by: user?.id ?? null,
-        }
-      })
-
-    if (safeRecords.length === 0) {
-      throw new Error('No valid employees at this site to save attendance for')
-    }
-
-    // Upsert on unique (employee_id, att_date). Prefer explicit columns only.
-    const { error } = await supabase.from('attendance').upsert(safeRecords, {
-      onConflict: 'employee_id,att_date',
-      ignoreDuplicates: false,
-    })
-
-    if (error) {
-      // Surface common production failures clearly
+    const mapDbError = (error: { message?: string; code?: string }): never => {
       const msg = error.message || 'Unknown database error'
       if (msg.includes('row-level security') || msg.includes('RLS') || error.code === '42501') {
         throw new Error(
@@ -181,7 +185,64 @@ export const attendanceRepository = {
           `Cannot mark Leave: insufficient leave balance. Use a leave application or mark Absent. Details: ${msg}`
         )
       }
+      if (/payroll is already finalized/i.test(msg)) {
+        throw new Error(
+          'Cannot change attendance: payroll is already finalized for that month. Unlock is not available for finalized runs.'
+        )
+      }
       throw error
     }
+
+    // 1) Clear unmarked — DELETE so leave_balance restore (F4) runs
+    let cleared = 0
+    const clearEmpIds = toClear
+      .map((r) => r.employee_id)
+      .filter((id) => validById.has(id))
+    const clearDate = toClear[0]?.att_date ?? toUpsert[0]?.att_date
+
+    if (clearEmpIds.length > 0 && clearDate) {
+      const { data: deleted, error: delError } = await supabase
+        .from('attendance')
+        .delete()
+        .in('employee_id', clearEmpIds)
+        .eq('att_date', clearDate)
+        .select('id')
+
+      if (delError) mapDbError(delError)
+      cleared = deleted?.length ?? 0
+    }
+
+    // 2) Upsert marked
+    const safeRecords = toUpsert
+      .filter((r) => validById.has(r.employee_id))
+      .map((r) => {
+        const emp = validById.get(r.employee_id)!
+        return {
+          employee_id: r.employee_id,
+          att_date: r.att_date,
+          status: r.status,
+          photo_url: r.photo_url,
+          organization_id: emp.organization_id || site.organization_id,
+          marked_by: user?.id ?? null,
+        }
+      })
+
+    if (safeRecords.length === 0 && cleared === 0) {
+      throw new Error(
+        toUpsert.length === 0 && toClear.length > 0
+          ? 'No existing attendance rows to clear for unmarked employees'
+          : 'No valid employees at this site to save attendance for'
+      )
+    }
+
+    if (safeRecords.length > 0) {
+      const { error } = await supabase.from('attendance').upsert(safeRecords, {
+        onConflict: 'employee_id,att_date',
+        ignoreDuplicates: false,
+      })
+      if (error) mapDbError(error)
+    }
+
+    return { upserted: safeRecords.length, cleared }
   },
 }

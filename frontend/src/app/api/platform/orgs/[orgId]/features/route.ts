@@ -72,10 +72,11 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
     .select('feature_key, enabled')
     .eq('organization_id', orgId)
 
+  // Fail-closed: missing row = disabled (matches GET org, list orgs, DB org_has_feature)
   const features = Object.fromEntries(
     FEATURE_KEYS.map((k) => {
       const row = (feats || []).find((f) => f.feature_key === k)
-      return [k, row ? row.enabled : true]
+      return [k, row ? row.enabled : false]
     })
   )
 

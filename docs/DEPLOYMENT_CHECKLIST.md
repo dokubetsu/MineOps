@@ -6,8 +6,8 @@ Use this before every production deploy. Order matters.
 
 Remote Supabase must include **all** migrations through the latest file in `supabase/migrations/`.
 
-As of this document that is **`046_phase_f_residual_hardening.sql`** (and everything before it, including **036–045**).  
-After schema changes, regenerate or hand-update `frontend/src/lib/supabase/database.types.ts` — see `docs/SCHEMA_SSOT.md`.
+As of this document that is **`050_phase3_schema_perf.sql`** (and everything before it, including **036–049**).  
+After schema changes, regenerate or hand-update `frontend/src/lib/supabase/database.types.ts` — see `docs/SCHEMA_SSOT.md` (`npm run gen:types` when CLI is available).
 
 ```bash
 # From repo root, linked project
@@ -28,6 +28,7 @@ If `platform_roles` or `is_platform_owner()` is missing, `/platform` and bootstr
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | **Server only** — never `NEXT_PUBLIC_` |
 | `PLATFORM_BOOTSTRAP_SECRET` | **Yes in production** until first owner exists | Long random string (32+ chars). Required for `/platform/setup` in prod. |
+| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | **Strongly recommended in production** | Durable API rate limits across isolates. Without them, limits are per-process only. |
 
 ### After first platform owner is created
 
@@ -58,11 +59,18 @@ Alternative: Supabase Auth create user + SQL
 
 - Root directory: `frontend`
 - `npm ci` / `npm run build` on Vercel
-- CI: lint, audit:prod, tsc, build, e2e (see `.github/workflows/ci.yml`)
+- CI: lint, audit:prod, typecheck, unit, build, e2e chromium + mobile smoke (see `.github/workflows/ci.yml`, `docs/TESTING.md`)
 
 ## 6. Smoke test after deploy
 
-- [ ] Migrations list complete through **046** (and types/docs per `SCHEMA_SSOT.md`)
+- [ ] Migrations list complete through **050** (and types/docs per `SCHEMA_SSOT.md`)  
+- [ ] Last admin per org: cannot delete/demote sole admin of org A while org B still has admins (**047**)  
+- [ ] Attendance frozen after payroll finalize for that month; empty finalize blocked; leave net-charge; settled amount &gt; 0 (**048**)  
+- [ ] Tenant admin cannot set `organizations.active`; only platform can (**049**)  
+- [ ] Remove user from Users page deletes Auth account via `/api/admin/delete-user` (**049** + API)  
+- [ ] **Upstash** `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` set in production (recommended; memory backend logs a warning)  
+- [ ] Storage buckets accept images only (MIME allowlist **049**)  
+- [ ] `trip_photos.organization_id` present; manager policies include org match (**050**)
 - [ ] Optional: `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` for durable API rate limits  
 - [ ] Login as platform owner → `/platform`  
 - [ ] Create org + admin (temp password)  

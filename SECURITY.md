@@ -48,6 +48,46 @@ User provisioning is decoupled from client auth to prevent unauthorized account 
 
 Helper: `write_audit_event(...)` for SECURITY DEFINER RPCs. See migrations `041` + **`045` (Phase E)**.
 
+### Phase 0 (migration 047)
+
+Last-admin DELETE/demotion checks are **scoped per `organization_id`** (global count from 011 was incorrect after multi-tenant). Bootstrap refuses existing Auth emails by default; password for `force_existing` is set only after `claim_first_platform_owner` succeeds.
+
+### Phase 1 (migration 048)
+
+Attendance INSERT/UPDATE/DELETE blocked when the employee’s site has a **finalized** payroll for that calendar month. Leave approve charges only days not already muster Leave; unapprove restores that net charge. Finalize requires ≥1 line. Settled trips require `settlement_amount > 0`. Stakeholder share sum ≤ 100% reaffirmed.
+
+### Phase 2 (migration 049 + APIs)
+
+- **Org active lock:** tenant admins cannot change `organizations.active` (platform/service only); rename still allowed.
+- **user_roles INSERT:** authenticated clients cannot INSERT roles (orphan UUID claim closed); provision via service-role `provision_user_access` / create-user API only. Admins retain SELECT/UPDATE/DELETE in-org.
+- **Delete user:** `POST /api/admin/delete-user` revokes roles + deletes Auth user (audit logged); UI wired.
+- **Proxy roles:** dashboard role redirects always load `user_roles` from DB (not JWT `app_metadata`).
+- **Rate limit:** production logs if Upstash is not configured (in-memory fallback).
+- **Storage MIME:** trip/attendance/cash-receipt buckets limited to image types + 5MB.
+
+### Phase 3 (migration 050)
+
+- **`trip_photos.organization_id`** denormalized from parent trip; stamp trigger; indexes on `trip_id` / org.
+- **Tighter trip_photos RLS** (select/insert/update/delete by role; org required; employees delete only own trips’ photos).
+- **Manager/employee policies** add `organization_id = get_user_organization_id()` defense-in-depth on operational tables.
+- **Indexes:** customers(org), leave (org,status) / (employee,status), attendance (employee,date), trips (site,date) partial active.
+- **Types:** hand-patched + `npm run gen:types` documented in `docs/SCHEMA_SSOT.md`.
+
+### Phase 4 (frontend quality)
+
+- Shared `toErrorMessage` for catch paths; reduced page-level `catch (err: any)`.
+- BottomSheet / ConfirmDialog: `role="dialog"`, `aria-modal`, Escape, focus trap.
+- Dashboard + platform `loading.tsx` / `error.tsx`.
+- Shared `trip-constants` for vehicle types / capacity / expense categories.
+- ESLint warning budget ratcheted **180 → 145** (~140 warnings remaining; mostly react-hooks set-state-in-effect).
+
+### Phase 5 (testing)
+
+- Scripts: `typecheck`, `test` (= typecheck + unit), `test:unit`, `test:e2e`, `test:e2e:mobile`, `test:all`.
+- Specs split: `tests/unit/**` vs `tests/e2e/**`; mobile Pixel 5 smoke on `phase5-critical`.
+- Multi-tenant last-admin probe + attendance unmark / cash lock e2e helpers.
+- Docs: `docs/TESTING.md`.
+
 ### Phase E–F audit binding
 
 `write_audit_event` stamps `organization_id` from the **actor’s org** for tenant callers (foreign `p_organization_id` is ignored and recorded in metadata). Platform owners and `service_role` may pass an explicit org. Direct `EXECUTE` is revoked from `authenticated` so clients cannot insert arbitrary audit rows. `actor_user_id` may be null for pure service events (migration **046**).

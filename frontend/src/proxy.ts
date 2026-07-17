@@ -135,27 +135,25 @@ export async function proxy(request: NextRequest) {
         return NextResponse.redirect(redirectUrl)
       }
 
-      let role = (user.app_metadata?.role as string) || null
+      // Phase 2: always resolve role from user_roles (DB), never trust JWT app_metadata alone.
+      // Stale JWT after demotion/promotion must not control route access.
+      const { data: roleRows } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
 
-      if (!role) {
-        const { data: roleRows } = await supabase
-          .from('user_roles')
-          .select('role')
-          .eq('user_id', user.id)
-
-        const roles = roleRows?.map((r) => r.role) || []
-        role = roles.includes('admin')
-          ? 'admin'
-          : roles.includes('site_manager')
-            ? 'site_manager'
-            : roles.includes('stakeholder')
-              ? 'stakeholder'
-              : roles.includes('employee')
-                ? 'employee'
-                : roles.includes('site_employee')
-                  ? 'site_employee'
-                  : null
-      }
+      const roles = roleRows?.map((r) => r.role) || []
+      const role = roles.includes('admin')
+        ? 'admin'
+        : roles.includes('site_manager')
+          ? 'site_manager'
+          : roles.includes('stakeholder')
+            ? 'stakeholder'
+            : roles.includes('employee')
+              ? 'employee'
+              : roles.includes('site_employee')
+                ? 'site_employee'
+                : null
 
       if ((role === 'employee' || role === 'site_employee') && path !== '/dashboard/my-work') {
         const redirectUrl = request.nextUrl.clone()
