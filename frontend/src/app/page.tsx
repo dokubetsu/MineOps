@@ -195,6 +195,11 @@ export default function LoginPage() {
           <div style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
             Need an organization account? Contact your MineOps platform operator.
           </div>
+          <div style={{ textAlign: 'center', marginTop: '0.75rem', fontSize: '0.75rem' }}>
+            <a href="/platform/setup" style={{ color: 'var(--text-muted)', textDecoration: 'underline' }}>
+              First-time platform owner setup
+            </a>
+          </div>
         </div>
 
         {/* Footer */}

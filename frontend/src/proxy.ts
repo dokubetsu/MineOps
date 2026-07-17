@@ -74,8 +74,16 @@ export async function proxy(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
+  // First-time platform bootstrap is public (no session)
+  const isPlatformSetup = path === '/platform/setup' || path.startsWith('/platform/setup/')
+  const isPlatformBootstrapApi = path === '/api/platform/bootstrap'
+
   // ── Unauthenticated ────────────────────────────────────────────────────
-  if (!user && (path.startsWith('/dashboard') || path.startsWith('/platform'))) {
+  if (
+    !user &&
+    (path.startsWith('/dashboard') || (path.startsWith('/platform') && !isPlatformSetup)) &&
+    !isPlatformBootstrapApi
+  ) {
     const redirectUrl = request.nextUrl.clone()
     redirectUrl.pathname = '/'
     return NextResponse.redirect(redirectUrl)
@@ -84,13 +92,16 @@ export async function proxy(request: NextRequest) {
   // ── Authenticated: resolve platform vs tenant ──────────────────────────
   if (user) {
     let isPlatformOwner = false
-    const { data: pr } = await supabase
+    // Table may be missing if migration 036 not applied — treat as non-owner
+    const { data: pr, error: prError } = await supabase
       .from('platform_roles')
       .select('role')
       .eq('user_id', user.id)
       .eq('role', 'platform_owner')
       .maybeSingle()
-    isPlatformOwner = !!pr
+    if (!prError) {
+      isPlatformOwner = !!pr
+    }
 
     // Login page → platform console or tenant dashboard
     if (path === '/') {
@@ -99,19 +110,15 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(redirectUrl)
     }
 
-    // Platform owners stay in /platform (not tenant dashboard)
+    // Platform owners stay in /platform (not tenant dashboard), except setup
     if (isPlatformOwner && path.startsWith('/dashboard')) {
       const redirectUrl = request.nextUrl.clone()
       redirectUrl.pathname = '/platform'
       return NextResponse.redirect(redirectUrl)
     }
 
-    // Non-platform users cannot access /platform
-    if (!isPlatformOwner && path.startsWith('/platform')) {
-      const redirectUrl = request.nextUrl.clone()
-      redirectUrl.pathname = '/dashboard'
-      return NextResponse.redirect(redirectUrl)
-    }
+    // Non-platform users: allow /platform UI to show "no access" + setup link
+    // (do not hard-redirect away — that made /platform look broken)
 
     // Tenant role guards
     if (path.startsWith('/dashboard') && !isPlatformOwner) {

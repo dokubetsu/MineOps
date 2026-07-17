@@ -71,15 +71,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    const [{ data: rolesData }, { data: platformRow }, { data: isOwnerRpc }] = await Promise.all([
+    const [rolesRes, platformRes, ownerRpcRes] = await Promise.all([
       supabase.from('user_roles').select('*').eq('user_id', userId),
       supabase.from('platform_roles').select('role').eq('user_id', userId).maybeSingle(),
       supabase.rpc('is_platform_owner'),
     ])
 
-    const loadedRoles = (rolesData as UserRole[] | null) || []
+    const loadedRoles = (rolesRes.data as UserRole[] | null) || []
     setUserRoles(loadedRoles)
-    setIsPlatformOwner(!!platformRow || isOwnerRpc === true)
+    // If migration 036 is missing, platform_roles/RPC error → not platform owner
+    const platformOk = !platformRes.error && !!platformRes.data
+    const rpcOk = !ownerRpcRes.error && ownerRpcRes.data === true
+    setIsPlatformOwner(platformOk || rpcOk)
 
     const priorityRole =
       loadedRoles.find((r) => r.role === 'admin') ||

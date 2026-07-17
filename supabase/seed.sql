@@ -79,6 +79,80 @@ INSERT INTO public.user_roles (id, user_id, role, site_id, organization_id)
 VALUES ('00000000-0000-0000-0000-000000000100', 'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0', 'admin', null, '00000000-0000-0000-0000-000000000000')
 ON CONFLICT (id) DO NOTHING;
 
+-- ============================================================
+-- Platform owner (control plane) — separate from tenant admin
+-- Login: platform@mineops.com / password123
+-- ============================================================
+INSERT INTO auth.users (
+  instance_id,
+  id,
+  aud,
+  role,
+  email,
+  encrypted_password,
+  email_confirmed_at,
+  recovery_sent_at,
+  last_sign_in_at,
+  raw_app_meta_data,
+  raw_user_meta_data,
+  created_at,
+  updated_at,
+  confirmation_token,
+  email_change,
+  email_change_token_new,
+  recovery_token,
+  is_sso_user,
+  is_anonymous
+) VALUES (
+  '00000000-0000-0000-0000-000000000000'::uuid,
+  'e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1'::uuid,
+  'authenticated',
+  'authenticated',
+  'platform@mineops.com',
+  '$2b$10$JiePxFoho6oUAiA2KRIQYub1rY0xXpjWOa9g8rqIkO2Veon5GK1KW', -- password123
+  now(),
+  null,
+  null,
+  '{"provider":"email","providers":["email"],"platform_role":"platform_owner"}'::jsonb,
+  '{}'::jsonb,
+  now(),
+  now(),
+  '',
+  '',
+  '',
+  '',
+  false,
+  false
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO auth.identities (
+  id,
+  user_id,
+  identity_data,
+  provider,
+  provider_id,
+  last_sign_in_at,
+  created_at,
+  updated_at
+) VALUES (
+  'e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1'::uuid,
+  'e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1'::uuid,
+  '{"sub":"e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1","email":"platform@mineops.com","email_verified":true,"phone_verified":false}'::jsonb,
+  'email',
+  'e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1',
+  now(),
+  now(),
+  now()
+) ON CONFLICT (provider_id, provider) DO NOTHING;
+
+-- platform_roles table is created in migration 036; seed runs after migrations
+INSERT INTO public.platform_roles (id, user_id, role)
+VALUES (
+  '00000000-0000-0000-0000-0000000000f1',
+  'e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1',
+  'platform_owner'
+) ON CONFLICT (user_id) DO NOTHING;
+
 -- Add transport contractors
 INSERT INTO public.transport_contractors (id, name, active, organization_id)
 VALUES 

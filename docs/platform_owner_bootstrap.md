@@ -1,71 +1,65 @@
-# Platform owner bootstrap
+# Platform owner — how to log in
 
-Platform owners (`platform_owner`) manage all mining organizations: create tenants, set first admin passwords, and enable/disable modules. They are **not** tenant admins and do not use `/dashboard` ops screens.
+**We did not previously create a platform owner account automatically.** The console at `/platform` only works after someone is in `platform_roles`. Use one of the paths below.
 
-## One-time setup (you as developer)
+## Path A — First-time UI (recommended for production)
 
-### 1. Apply migrations
+1. Apply migrations (must include **036**):
+   ```bash
+   supabase db push
+   ```
+2. Open **`/platform/setup`** (also linked from the sign-in page).
+3. Enter **your email + password** → creates the first `platform_owner`.
+4. Optional: set env `PLATFORM_BOOTSTRAP_SECRET` so bootstrap requires that secret.
+5. Sign in on **`/`** with that email/password → you land on **`/platform`**.
 
-```bash
-supabase db push
-# includes 036_platform_owner_and_org_features.sql
-```
+Bootstrap only works when **zero** platform owners exist. After that it returns 409.
 
-### 2. Create the Auth user
+## Path B — Local seed (Supabase local / db reset)
 
-In **Supabase Dashboard → Authentication → Users → Add user**:
+After `supabase db reset`, seed includes:
 
-- Email: your operator email (e.g. `you@company.com`)
-- Password: strong temporary password
-- Auto-confirm email: **yes**
+| Email | Password | Role |
+|-------|----------|------|
+| `platform@mineops.com` | `password123` | platform_owner |
+| `admin@mineops.com` | `password123` | tenant admin (demo org) |
 
-Copy the user’s **UUID**.
+Sign in as `platform@mineops.com` → `/platform`.
 
-### 3. Grant platform_owner
+## Path C — Manual SQL (any environment)
 
-In **SQL Editor**:
+1. Supabase Dashboard → Authentication → Add user (email confirmed).
+2. SQL:
 
 ```sql
 INSERT INTO public.platform_roles (user_id, role)
-VALUES ('PASTE-AUTH-USER-UUID-HERE', 'platform_owner')
+VALUES ('AUTH-USER-UUID-HERE', 'platform_owner')
 ON CONFLICT (user_id) DO NOTHING;
 ```
 
-### 4. Sign in
+3. Sign in with that email/password.
 
-Open the app login page with that email/password.
+## Why `/platform` looked broken
 
-You are redirected to **`/platform`** (not `/dashboard`).
+If you were logged in as a **tenant admin** (e.g. `admin@mineops.com`) or the **036 migration was not applied**:
 
-### 5. Provision a mining org
+- `isPlatformOwner` was false  
+- You only saw a spinner / redirect  
+- No platform owner login existed  
 
-On **Organizations → New organization**:
+Now the UI shows **“No platform access”** with a link to **setup**.
 
-1. Company name  
-2. Admin email + temporary password (you choose)  
-3. Toggle modules  
-4. Create  
+## After you can open `/platform`
 
-Share the admin email/password with the customer out of band. They sign in on the same app URL and land on the tenant dashboard. They create site managers and employees under **User Access**.
+1. **New organization** → company name + admin email + temp password + modules  
+2. Share admin credentials with the customer  
+3. They sign in as tenant admin and configure sites / managers / employees  
 
-### 6. Optional: more platform owners
+## APIs
 
-Create another Auth user, then:
-
-```sql
-INSERT INTO public.platform_roles (user_id, role)
-VALUES ('OTHER-USER-UUID', 'platform_owner');
-```
-
-There is no public self-signup for platform owners.
-
-## Public registration
-
-- `POST /api/auth/register-tenant` always returns **403**  
-- `/register` explains that orgs are operator-provisioned  
-
-## Feature flags
-
-Stored in `organization_features`. Platform console toggles them; tenant nav hides disabled modules.
-
-Default for new orgs: all modules **on**.
+| Endpoint | Purpose |
+|----------|---------|
+| `GET/POST /api/platform/bootstrap` | First owner only |
+| `GET/POST /api/platform/orgs` | List / create orgs (platform owner JWT) |
+| `PUT /api/platform/orgs/:id/features` | Feature flags |
+| `POST /api/platform/orgs/:id/admins` | Extra tenant admins |
