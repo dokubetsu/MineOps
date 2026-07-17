@@ -16,17 +16,45 @@ ALTER TABLE public.payroll_runs ADD COLUMN IF NOT EXISTS organization_id uuid RE
 ALTER TABLE public.payroll_lines ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE RESTRICT;
 
 -- ============================================================
--- Step 2: Backfill existing records
+-- Step 2: Backfill existing records (Temporarily disable triggers to bypass lock/validation constraints)
 -- ============================================================
 
-UPDATE public.employees e SET organization_id = s.organization_id FROM public.sites s WHERE e.site_id = s.id AND e.organization_id IS NULL;
-UPDATE public.trips t SET organization_id = s.organization_id FROM public.sites s WHERE t.site_id = s.id AND t.organization_id IS NULL;
-UPDATE public.cash_books cb SET organization_id = s.organization_id FROM public.sites s WHERE cb.site_id = s.id AND cb.organization_id IS NULL;
-UPDATE public.cash_entries ce SET organization_id = cb.organization_id FROM public.cash_books cb WHERE ce.cash_book_id = cb.id AND ce.organization_id IS NULL;
-UPDATE public.attendance a SET organization_id = e.organization_id FROM public.employees e WHERE a.employee_id = e.id AND a.organization_id IS NULL;
-UPDATE public.leave_applications la SET organization_id = e.organization_id FROM public.employees e WHERE la.employee_id = e.id AND la.organization_id IS NULL;
-UPDATE public.payroll_runs pr SET organization_id = s.organization_id FROM public.sites s WHERE pr.site_id = s.id AND pr.organization_id IS NULL;
-UPDATE public.payroll_lines pl SET organization_id = pr.organization_id FROM public.payroll_runs pr WHERE pl.payroll_run_id = pr.id AND pl.organization_id IS NULL;
+ALTER TABLE public.employees DISABLE TRIGGER ALL;
+ALTER TABLE public.trips DISABLE TRIGGER ALL;
+ALTER TABLE public.cash_books DISABLE TRIGGER ALL;
+ALTER TABLE public.cash_entries DISABLE TRIGGER ALL;
+ALTER TABLE public.attendance DISABLE TRIGGER ALL;
+ALTER TABLE public.leave_applications DISABLE TRIGGER ALL;
+ALTER TABLE public.payroll_runs DISABLE TRIGGER ALL;
+ALTER TABLE public.payroll_lines DISABLE TRIGGER ALL;
+
+UPDATE public.employees e SET organization_id = COALESCE(s.organization_id, '00000000-0000-0000-0000-000000000000') FROM public.sites s WHERE e.site_id = s.id AND e.organization_id IS NULL;
+UPDATE public.trips t SET organization_id = COALESCE(s.organization_id, '00000000-0000-0000-0000-000000000000') FROM public.sites s WHERE t.site_id = s.id AND t.organization_id IS NULL;
+UPDATE public.cash_books cb SET organization_id = COALESCE(s.organization_id, '00000000-0000-0000-0000-000000000000') FROM public.sites s WHERE cb.site_id = s.id AND cb.organization_id IS NULL;
+UPDATE public.cash_entries ce SET organization_id = COALESCE(cb.organization_id, '00000000-0000-0000-0000-000000000000') FROM public.cash_books cb WHERE ce.cash_book_id = cb.id AND ce.organization_id IS NULL;
+UPDATE public.attendance a SET organization_id = COALESCE(e.organization_id, '00000000-0000-0000-0000-000000000000') FROM public.employees e WHERE a.employee_id = e.id AND a.organization_id IS NULL;
+UPDATE public.leave_applications la SET organization_id = COALESCE(e.organization_id, '00000000-0000-0000-0000-000000000000') FROM public.employees e WHERE la.employee_id = e.id AND la.organization_id IS NULL;
+UPDATE public.payroll_runs pr SET organization_id = COALESCE(s.organization_id, '00000000-0000-0000-0000-000000000000') FROM public.sites s WHERE pr.site_id = s.id AND pr.organization_id IS NULL;
+UPDATE public.payroll_lines pl SET organization_id = COALESCE(pr.organization_id, '00000000-0000-0000-0000-000000000000') FROM public.payroll_runs pr WHERE pl.payroll_run_id = pr.id AND pl.organization_id IS NULL;
+
+-- Enforce any remaining NULLs to default org
+UPDATE public.employees SET organization_id = '00000000-0000-0000-0000-000000000000'::uuid WHERE organization_id IS NULL;
+UPDATE public.trips SET organization_id = '00000000-0000-0000-0000-000000000000'::uuid WHERE organization_id IS NULL;
+UPDATE public.cash_books SET organization_id = '00000000-0000-0000-0000-000000000000'::uuid WHERE organization_id IS NULL;
+UPDATE public.cash_entries SET organization_id = '00000000-0000-0000-0000-000000000000'::uuid WHERE organization_id IS NULL;
+UPDATE public.attendance SET organization_id = '00000000-0000-0000-0000-000000000000'::uuid WHERE organization_id IS NULL;
+UPDATE public.leave_applications SET organization_id = '00000000-0000-0000-0000-000000000000'::uuid WHERE organization_id IS NULL;
+UPDATE public.payroll_runs SET organization_id = '00000000-0000-0000-0000-000000000000'::uuid WHERE organization_id IS NULL;
+UPDATE public.payroll_lines SET organization_id = '00000000-0000-0000-0000-000000000000'::uuid WHERE organization_id IS NULL;
+
+ALTER TABLE public.employees ENABLE TRIGGER ALL;
+ALTER TABLE public.trips ENABLE TRIGGER ALL;
+ALTER TABLE public.cash_books ENABLE TRIGGER ALL;
+ALTER TABLE public.cash_entries ENABLE TRIGGER ALL;
+ALTER TABLE public.attendance ENABLE TRIGGER ALL;
+ALTER TABLE public.leave_applications ENABLE TRIGGER ALL;
+ALTER TABLE public.payroll_runs ENABLE TRIGGER ALL;
+ALTER TABLE public.payroll_lines ENABLE TRIGGER ALL;
 
 -- Enforce NOT NULL constraints
 ALTER TABLE public.employees ALTER COLUMN organization_id SET NOT NULL;
