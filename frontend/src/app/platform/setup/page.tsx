@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTheme } from '@/lib/theme-context'
+import { passwordPolicyHint } from '@/lib/password-policy'
 import { Sun, Moon, Shield } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 /**
  * First-time setup: create the only platform_owner account when none exists.
- * After bootstrap, sign in on / with those credentials.
+ * Production requires PLATFORM_BOOTSTRAP_SECRET (Phase A).
  */
 export default function PlatformSetupPage() {
   const router = useRouter()
@@ -16,6 +17,7 @@ export default function PlatformSetupPage() {
   const [status, setStatus] = useState<'loading' | 'available' | 'blocked'>('loading')
   const [requiresSecret, setRequiresSecret] = useState(false)
   const [needsMigration, setNeedsMigration] = useState(false)
+  const [missingSecret, setMissingSecret] = useState(false)
   const [message, setMessage] = useState('')
   const [form, setForm] = useState({ email: '', password: '', secret: '' })
   const [submitting, setSubmitting] = useState(false)
@@ -27,7 +29,16 @@ export default function PlatformSetupPage() {
         if (json.needs_migration) {
           setNeedsMigration(true)
           setStatus('blocked')
-          setMessage(json.error || 'Run migration 036 first')
+          setMessage(json.error || 'Apply database migrations (through 042) first')
+          return
+        }
+        if (json.blocked_by_missing_secret) {
+          setMissingSecret(true)
+          setStatus('blocked')
+          setMessage(
+            json.message ||
+              'Production requires PLATFORM_BOOTSTRAP_SECRET in the host environment before first-time setup.'
+          )
           return
         }
         if (json.available) {
@@ -37,8 +48,8 @@ export default function PlatformSetupPage() {
           setStatus('blocked')
           setMessage(
             json.owner_count > 0
-              ? 'A platform owner already exists. Sign in with that account.'
-              : json.error || 'Bootstrap unavailable'
+              ? 'A platform owner already exists. Sign in with that account. Bootstrap is closed.'
+              : json.message || json.error || 'Bootstrap unavailable'
           )
         }
       })
@@ -64,6 +75,9 @@ export default function PlatformSetupPage() {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Bootstrap failed')
       toast.success('Platform owner created — sign in now')
+      if (json.next_steps?.length) {
+        toast('Next: rotate PLATFORM_BOOTSTRAP_SECRET after login', { icon: '🔐' })
+      }
       router.push('/')
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed')
@@ -114,9 +128,15 @@ export default function PlatformSetupPage() {
             <div>
               {needsMigration && (
                 <p style={{ fontSize: '0.85rem', color: 'var(--danger)', marginBottom: '1rem' }}>
-                  Database migration required: apply{' '}
-                  <code>036_platform_owner_and_org_features.sql</code> (
-                  <code>supabase db push</code>), then refresh this page.
+                  Database migrations required (through <code>042</code>). Run{' '}
+                  <code>supabase db push</code> against the linked project, then refresh. See{' '}
+                  <code>docs/DEPLOYMENT_CHECKLIST.md</code>.
+                </p>
+              )}
+              {missingSecret && (
+                <p style={{ fontSize: '0.85rem', color: 'var(--danger)', marginBottom: '1rem' }}>
+                  Set a long random value for <code>PLATFORM_BOOTSTRAP_SECRET</code> in Vercel
+                  (Production), redeploy, then return here and enter the same secret in the form.
                 </p>
               )}
               <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
@@ -150,7 +170,7 @@ export default function PlatformSetupPage() {
                   minLength={10}
                   value={form.password}
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                  placeholder="Min 10 chars, letter + number"
+                  placeholder={passwordPolicyHint()}
                 />
               </div>
               {requiresSecret && (
@@ -162,13 +182,16 @@ export default function PlatformSetupPage() {
                     required
                     value={form.secret}
                     onChange={(e) => setForm((f) => ({ ...f, secret: e.target.value }))}
-                    placeholder="PLATFORM_BOOTSTRAP_SECRET from env"
+                    placeholder="Same as PLATFORM_BOOTSTRAP_SECRET in env"
                   />
+                  <p style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                    Required in production. Rotate or remove the env var after setup succeeds.
+                  </p>
                 </div>
               )}
               <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                After this succeeds, sign in on the main login page with the same email/password.
-                You will be taken to /platform.
+                After success: sign in on <code>/</code> with the same email/password →{' '}
+                <code>/platform</code>. Then rotate <code>PLATFORM_BOOTSTRAP_SECRET</code>.
               </p>
               <button type="submit" className="btn btn-primary w-full" disabled={submitting}>
                 {submitting ? 'Creating…' : 'Create platform owner'}

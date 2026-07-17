@@ -15,8 +15,7 @@ const isDev = process.env.NODE_ENV !== 'production'
 function buildCsp(): string {
   // Production tightens scripts (no unsafe-eval). Next still injects inline
   // bootstrap scripts, so 'unsafe-inline' remains for script-src until a full
-  // nonce pipeline (middleware rewrite + Next experimental) is adopted.
-  // See docs/ENV.md / SECURITY.md.
+  // nonce pipeline is adopted (Phase E4 long-term — docs/CSP_NONCE.md).
   const scriptSrc = isDev
     ? "script-src 'self' 'unsafe-eval' 'unsafe-inline'"
     : "script-src 'self' 'unsafe-inline'"

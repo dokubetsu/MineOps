@@ -118,10 +118,26 @@ export default function LeavePage() {
     }
   }
 
-  const updateStatus = async (id: string, status: 'approved' | 'rejected') => {
+  const updateStatus = async (id: string, status: 'approved' | 'rejected', force = false) => {
     try {
       if (status === 'approved') {
-        await leaveRepository.approve(supabase, id)
+        try {
+          await leaveRepository.approve(supabase, id, force)
+        } catch (err) {
+          if (err instanceof LeaveError && err.code === 'overwrite' && !force) {
+            if (
+              confirm(
+                `${err.message}\n\nForce approve will overwrite existing Present/Absent/Half-day marks with Leave. Continue?`
+              )
+            ) {
+              await leaveRepository.approve(supabase, id, true)
+            } else {
+              return
+            }
+          } else {
+            throw err
+          }
+        }
       } else {
         await leaveRepository.reject(supabase, id)
       }
@@ -243,6 +259,33 @@ export default function LeavePage() {
                     </button>
                     <button className="btn btn-danger btn-sm" onClick={() => updateStatus(app.id, 'rejected')}>
                       <X size={14} />
+                    </button>
+                  </div>
+                )}
+                {app.status === 'approved' && (
+                  <div style={{ display: 'flex', gap: '0.375rem', flexShrink: 0 }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      title="Reverse approval: restore leave balance and clear leave attendance"
+                      onClick={async () => {
+                        if (
+                          !confirm(
+                            'Reverse this leave approval? Leave balance will be restored and leave attendance for those days will be removed. Application returns to pending.'
+                          )
+                        ) {
+                          return
+                        }
+                        try {
+                          await leaveRepository.unapprove(supabase, app.id)
+                          toast.success('Leave approval reversed')
+                          void loadApplications()
+                        } catch (err: unknown) {
+                          if (err instanceof LeaveError) toast.error(err.message)
+                          else toast.error(err instanceof Error ? err.message : 'Failed to reverse')
+                        }
+                      }}
+                    >
+                      Undo
                     </button>
                   </div>
                 )}

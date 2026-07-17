@@ -9,12 +9,19 @@ const bootstrapSchema = z.object({
   secret: z.string().optional(),
 })
 
+function isProduction(): boolean {
+  return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production'
+}
+
 /**
  * One-time bootstrap: create the first platform_owner.
  * Only works when platform_roles has zero rows.
  *
- * Optional env PLATFORM_BOOTSTRAP_SECRET — if set, body.secret must match.
- * After bootstrap, remove or rotate the secret; this endpoint becomes a no-op.
+ * Security (Phase A):
+ * - In production / Vercel production: PLATFORM_BOOTSTRAP_SECRET is REQUIRED.
+ * - Body.secret must match. After the first owner exists, this endpoint returns 409.
+ * - Rotate or remove the secret from the host env after successful bootstrap.
+ * - Local/dev may bootstrap without a secret (still rate-limited).
  */
 export async function POST(req: NextRequest) {
   let body: unknown
@@ -33,10 +40,30 @@ export async function POST(req: NextRequest) {
   }
 
   const requiredSecret = process.env.PLATFORM_BOOTSTRAP_SECRET?.trim()
-  if (requiredSecret) {
-    if (parsed.data.secret !== requiredSecret) {
-      return NextResponse.json({ error: 'Invalid bootstrap secret' }, { status: 403 })
+
+  if (isProduction()) {
+    if (!requiredSecret) {
+      return NextResponse.json(
+        {
+          error:
+            'Platform bootstrap is locked: set PLATFORM_BOOTSTRAP_SECRET in the production environment, then retry with that secret. See docs/platform_owner_bootstrap.md.',
+          code: 'BOOTSTRAP_SECRET_REQUIRED',
+        },
+        { status: 503 }
+      )
     }
+    if (parsed.data.secret !== requiredSecret) {
+      return NextResponse.json(
+        { error: 'Invalid bootstrap secret', code: 'BOOTSTRAP_SECRET_INVALID' },
+        { status: 403 }
+      )
+    }
+  } else if (requiredSecret && parsed.data.secret !== requiredSecret) {
+    // Dev/preview: if secret is configured, enforce it
+    return NextResponse.json(
+      { error: 'Invalid bootstrap secret', code: 'BOOTSTRAP_SECRET_INVALID' },
+      { status: 403 }
+    )
   }
 
   let supabase
@@ -47,7 +74,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 })
   }
 
-  // Table may not exist if migration 036 not applied
   const { count, error: countError } = await supabase
     .from('platform_roles')
     .select('*', { count: 'exact', head: true })
@@ -57,7 +83,7 @@ export async function POST(req: NextRequest) {
       {
         error:
           `Cannot access platform_roles: ${countError.message}. ` +
-          'Apply migration 036_platform_owner_and_org_features.sql (supabase db push) first.',
+          'Apply migrations through 042 (supabase db push) first. See docs/DEPLOYMENT_CHECKLIST.md.',
       },
       { status: 500 }
     )
@@ -67,8 +93,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          'A platform owner already exists. Sign in with that account, or add another via SQL: INSERT INTO platform_roles (user_id, role) VALUES (...).',
+          'A platform owner already exists. Sign in with that account. To add another operator, insert into platform_roles via SQL after creating the Auth user. Bootstrap is permanently closed once the first owner exists.',
         already_bootstrapped: true,
+        code: 'ALREADY_BOOTSTRAPPED',
       },
       { status: 409 }
     )
@@ -78,7 +105,6 @@ export async function POST(req: NextRequest) {
   let userId: string | null = null
 
   try {
-    // Reuse existing auth user with this email if present
     const { data: listed } = await supabase.auth.admin.listUsers({ perPage: 200 })
     const existing = listed?.users?.find(
       (u) => u.email?.toLowerCase() === email.toLowerCase()
@@ -86,6 +112,7 @@ export async function POST(req: NextRequest) {
 
     if (existing) {
       userId = existing.id
+      // Only reset password for bootstrap of empty platform — never for random emails once owners exist (already gated)
       await supabase.auth.admin.updateUserById(existing.id, {
         password,
         email_confirm: true,
@@ -108,18 +135,15 @@ export async function POST(req: NextRequest) {
       role: 'platform_owner',
     })
     if (roleError) {
-      // Unique conflict = already platform owner
       if (!roleError.message.includes('duplicate') && roleError.code !== '23505') {
         throw new Error(roleError.message)
       }
     }
 
-    // Stamp app_metadata for convenience
     await supabase.auth.admin.updateUserById(userId, {
       app_metadata: { platform_role: 'platform_owner' },
     })
 
-    // Verify row is readable
     const { data: verify } = await supabase
       .from('platform_roles')
       .select('user_id')
@@ -128,7 +152,7 @@ export async function POST(req: NextRequest) {
 
     if (!verify) {
       throw new Error(
-        'platform_roles row was not found after insert. Apply migrations 036+037 (supabase db push) and retry.'
+        'platform_roles row was not found after insert. Apply migrations 036–042 and retry.'
       )
     }
 
@@ -138,7 +162,13 @@ export async function POST(req: NextRequest) {
         user_id: userId,
         email,
         message:
-          'Platform owner created. Sign out if needed, then sign in at / with this email and password. You should land on /platform.',
+          'Platform owner created. Sign in at / with this email and password → /platform. ' +
+          'Then rotate or remove PLATFORM_BOOTSTRAP_SECRET from the host environment.',
+        next_steps: [
+          'Sign in at /',
+          'Open /platform and create organizations',
+          'Rotate or delete PLATFORM_BOOTSTRAP_SECRET in Vercel/env',
+        ],
       },
       { status: 201 }
     )
@@ -165,11 +195,25 @@ export async function GET() {
     }
 
     const hasSecret = !!(process.env.PLATFORM_BOOTSTRAP_SECRET?.trim())
+    const prod = isProduction()
+    const ownerCount = count ?? 0
+    const available = ownerCount === 0
+
+    // Production without secret: setup UI should show blocked (secret required)
+    const blockedByMissingSecret = prod && !hasSecret && available
+
     return NextResponse.json({
-      available: (count ?? 0) === 0,
+      available: available && !blockedByMissingSecret,
       needs_migration: false,
-      requires_secret: hasSecret,
-      owner_count: count ?? 0,
+      requires_secret: hasSecret || prod,
+      owner_count: ownerCount,
+      production: prod,
+      blocked_by_missing_secret: blockedByMissingSecret,
+      message: blockedByMissingSecret
+        ? 'Set PLATFORM_BOOTSTRAP_SECRET in production env before first-time setup.'
+        : ownerCount > 0
+          ? 'Bootstrap closed — platform owner already exists.'
+          : undefined,
     })
   } catch (err: unknown) {
     return NextResponse.json({

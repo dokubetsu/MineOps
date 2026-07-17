@@ -1,6 +1,8 @@
 /**
  * Product feature catalog — org-level entitlements.
  * Keys must match organization_features.feature_key check constraint.
+ *
+ * Phase B: fail-closed — missing rows / load failure ⇒ feature OFF.
  */
 
 export const FEATURE_KEYS = [
@@ -39,24 +41,35 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
 
 export type FeatureMap = Record<FeatureKey, boolean>
 
-export function defaultFeatureMap(enabled = true): FeatureMap {
+/** Default map: all false when fail-closed; all true only for platform shell / seeds. */
+export function defaultFeatureMap(enabled = false): FeatureMap {
   return FEATURE_KEYS.reduce((acc, key) => {
     acc[key] = enabled
     return acc
   }, {} as FeatureMap)
 }
 
+/**
+ * Build map from DB rows.
+ * Phase B fail-closed: start all OFF, then enable only explicit enabled=true rows.
+ * Missing keys stay OFF.
+ */
 export function featuresFromRows(
   rows: Array<{ feature_key: string; enabled: boolean }> | null | undefined
 ): FeatureMap {
-  const map = defaultFeatureMap(true)
-  if (!rows) return map
+  const map = defaultFeatureMap(false)
+  if (!rows || rows.length === 0) return map
   for (const row of rows) {
     if ((FEATURE_KEYS as readonly string[]).includes(row.feature_key)) {
-      map[row.feature_key as FeatureKey] = !!row.enabled
+      map[row.feature_key as FeatureKey] = row.enabled === true
     }
   }
   return map
+}
+
+/** True only when explicitly enabled. */
+export function isFeatureEnabled(map: FeatureMap, key: FeatureKey): boolean {
+  return map[key] === true
 }
 
 /** Map dashboard path prefix → required feature (if any). */
@@ -71,5 +84,6 @@ export function featureForPath(pathname: string): FeatureKey | null {
   if (pathname.startsWith('/dashboard/users')) return 'users'
   if (pathname.startsWith('/dashboard/settings')) return 'master_data'
   if (pathname.startsWith('/dashboard/manage-employees')) return 'manage_employees'
+  // my-work is a shell; section gating is client-side
   return null
 }

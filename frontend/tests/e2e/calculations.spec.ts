@@ -8,6 +8,7 @@ import {
   applyLeaveBalance,
   computeTripWorthFromRate,
   computeTripWorth,
+  payrollPeriodBounds,
 } from '../../src/lib/calculations'
 
 test.describe('Business Calculations (shared module)', () => {
@@ -82,5 +83,19 @@ test.describe('Business Calculations (shared module)', () => {
   test('should compute trip worth from rate × capacity', () => {
     expect(computeTripWorthFromRate(20, 150)).toBe(3000)
     expect(computeTripWorth({ tripWorth: 2500.555 })).toBe(2500.56)
+  })
+
+  test('payrollPeriodBounds uses local calendar (Feb non-leap = 28)', () => {
+    const b = payrollPeriodBounds('2026-02')
+    expect(b.periodDate).toBe('2026-02-01')
+    expect(b.startIso).toBe('2026-02-01')
+    expect(b.endIso).toBe('2026-02-28')
+    expect(b.periodDays).toBe(28)
+  })
+
+  test('payrollPeriodBounds accepts yyyy-MM-dd input', () => {
+    const b = payrollPeriodBounds('2026-07-01')
+    expect(b.periodDays).toBe(31)
+    expect(b.endIso).toBe('2026-07-31')
   })
 })

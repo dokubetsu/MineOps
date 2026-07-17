@@ -176,6 +176,11 @@ export const attendanceRepository = {
           `Attendance save failed: organization_id required. Re-run migrations 031+ or ensure employees/sites have organization_id. Details: ${msg}`
         )
       }
+      if (/insufficient leave balance/i.test(msg)) {
+        throw new Error(
+          `Cannot mark Leave: insufficient leave balance. Use a leave application or mark Absent. Details: ${msg}`
+        )
+      }
       throw error
     }
   },

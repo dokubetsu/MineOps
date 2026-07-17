@@ -43,9 +43,17 @@ const eslintConfig = defineConfig([
       "@next/next/no-img-element": "warn",
     },
   },
-  // Repositories and pure libs: enforce no-explicit-any as errors
+  // Repositories and pure libs: enforce no-explicit-any as errors (Phase D)
   {
-    files: ["src/lib/repositories/**/*.{ts,tsx}", "src/lib/calculations.ts", "src/lib/offline-cache.ts"],
+    files: [
+      "src/lib/repositories/**/*.{ts,tsx}",
+      "src/lib/calculations.ts",
+      "src/lib/offline-cache.ts",
+      "src/lib/features.ts",
+      "src/lib/password-policy.ts",
+      "src/lib/platform-auth.ts",
+      "src/lib/rate-limit.ts",
+    ],
     rules: {
       "@typescript-eslint/no-explicit-any": "error",
     },

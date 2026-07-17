@@ -1,7 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
-import { endOfMonth, format } from 'date-fns'
-import { calendarDaysInRange, computePayrollWage } from '../calculations'
+import { computePayrollWage, payrollPeriodBounds } from '../calculations'
 
 type PayrollRunRow = Database['public']['Tables']['payroll_runs']['Row']
 type PayrollLineRow = Database['public']['Tables']['payroll_lines']['Row']
@@ -87,9 +86,8 @@ export const payrollRepository = {
     siteId: string,
     periodMonth: string
   ): Promise<{ run: PayrollRunRow; lines: PayrollLineWithEmployee[] }> {
-    const periodDate = periodMonth + '-01'
-    const periodStart = new Date(periodDate)
-    const periodEnd = endOfMonth(periodStart)
+    // Local calendar bounds — never `new Date('yyyy-MM-dd')` (UTC shift risk)
+    const { periodDate, periodDays, startIso, endIso } = payrollPeriodBounds(periodMonth)
 
     // Insert new run
     const { data: newRun, error: insertError } = await supabase
@@ -151,14 +149,14 @@ export const payrollRepository = {
       throw new Error('No active employees found at this site for this period.')
     }
 
-    // Fetch attendance records
+    // Fetch attendance records (inclusive local calendar range)
     const empIds = employees.map(e => e.id)
     const { data: allAtt, error: attError } = await supabase
       .from('attendance')
       .select('employee_id, status')
       .in('employee_id', empIds)
-      .gte('att_date', format(periodStart, 'yyyy-MM-dd'))
-      .lte('att_date', format(periodEnd, 'yyyy-MM-dd'))
+      .gte('att_date', startIso)
+      .lte('att_date', endIso)
       .limit(20000)
 
     if (attError) throw attError
@@ -168,8 +166,6 @@ export const payrollRepository = {
       if (!attMap[att.employee_id]) attMap[att.employee_id] = []
       attMap[att.employee_id].push(att.status)
     }
-
-    const periodDays = calendarDaysInRange(periodStart, periodEnd)
     const linesToInsert = []
     for (const emp of employees) {
       const statuses = attMap[emp.id] || []

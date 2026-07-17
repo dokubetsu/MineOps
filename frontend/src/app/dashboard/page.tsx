@@ -104,7 +104,7 @@ export default function DashboardPage() {
       ])
 
       const bookIds = (books || []).map((b) => b.id)
-      let outByBook: Record<string, number> = {}
+      const outByBook: Record<string, number> = {}
       if (bookIds.length > 0) {
         const { data: outs } = await supabase
           .from('cash_entries')

@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { Database } from './lib/supabase/database.types'
 import { checkRateLimit, pruneRateLimitStore } from './lib/rate-limit'
+import { featureForPath } from './lib/features'
 
 function clientIp(request: NextRequest): string {
   return (
@@ -27,10 +28,16 @@ export async function proxy(request: NextRequest) {
     path.startsWith('/api/platform/') ||
     path === '/api/auth/register-tenant'
   ) {
-    // Soft per-isolate limit (see lib/rate-limit.ts). Not a durable WAF substitute.
+    // Phase E5: Upstash when configured; else in-memory (see lib/rate-limit.ts).
+    // Still not a substitute for edge/WAF rate limits.
     if (Math.random() < 0.01) pruneRateLimitStore()
     const ip = clientIp(request)
-    const rl = checkRateLimit(`api:${ip}`, 60, 60 * 1000)
+    // Bootstrap is tighter (credential stuffing / secret brute-force)
+    const isBootstrap = path === '/api/platform/bootstrap'
+    const limit = isBootstrap ? 10 : 60
+    const windowMs = 60 * 1000
+    const rlKey = isBootstrap ? `bootstrap:${ip}` : `api:${ip}`
+    const rl = await checkRateLimit(rlKey, limit, windowMs)
     if (rl.limited) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },
@@ -38,6 +45,7 @@ export async function proxy(request: NextRequest) {
           status: 429,
           headers: {
             'Retry-After': String(Math.max(1, Math.ceil((rl.resetAt - Date.now()) / 1000))),
+            'X-RateLimit-Backend': rl.backend,
           },
         }
       )
@@ -159,6 +167,31 @@ export async function proxy(request: NextRequest) {
         const redirectUrl = request.nextUrl.clone()
         redirectUrl.pathname = '/dashboard/stakeholder'
         return NextResponse.redirect(redirectUrl)
+      }
+
+      // Phase B: block module routes when org feature is disabled (server-side)
+      const requiredFeature = featureForPath(path)
+      if (requiredFeature) {
+        const { data: featOk, error: featErr } = await supabase.rpc(
+          'org_has_feature_for_caller',
+          { p_feature_key: requiredFeature }
+        )
+        // Fail closed if RPC missing/errors (except during migration rollout: allow if function absent)
+        if (featErr) {
+          const msg = featErr.message || ''
+          if (!msg.includes('Could not find the function') && !msg.includes('does not exist')) {
+            const redirectUrl = request.nextUrl.clone()
+            redirectUrl.pathname = '/dashboard'
+            redirectUrl.searchParams.set('error', 'feature_check_failed')
+            return NextResponse.redirect(redirectUrl)
+          }
+        } else if (featOk === false) {
+          const redirectUrl = request.nextUrl.clone()
+          redirectUrl.pathname = '/dashboard'
+          redirectUrl.searchParams.set('error', 'feature_disabled')
+          redirectUrl.searchParams.set('feature', requiredFeature)
+          return NextResponse.redirect(redirectUrl)
+        }
       }
     }
   }

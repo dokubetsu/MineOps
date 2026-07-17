@@ -63,6 +63,8 @@ For security, production credentials are not stored in source control. Access is
 - **Platform owner** (`platform_roles.platform_owner`) is a separate control-plane role: create orgs, set first admin passwords, enable/disable modules per org via `/platform`.
 - Public self-registration is **disabled**. Bootstrap the first platform owner (see `docs/platform_owner_bootstrap.md`), then provision customers from the platform console.
 - Tenant `admin` creates site managers / employees inside their org only.
+- **Production deploy:** `docs/DEPLOYMENT_CHECKLIST.md` — migrations through latest, set `PLATFORM_BOOTSTRAP_SECRET` for first boot, never apply seed to prod.
+- **Schema SSOT:** migrations first — see `docs/SCHEMA_SSOT.md` (do not treat `schema.sql` as live truth).
 
 ---
 
@@ -70,8 +72,8 @@ For security, production credentials are not stored in source control. Access is
 
 ### 1. Database Setup
 
-Apply all Supabase migrations (currently through **`041_phase3_audit_and_polish.sql`**).  
-Wage rules: [`docs/wage_policy.md`](docs/wage_policy.md). Platform bootstrap: [`docs/platform_owner_bootstrap.md`](docs/platform_owner_bootstrap.md). Env: [`docs/ENV.md`](docs/ENV.md).
+Apply all Supabase migrations (currently through **`045_phase_e_hardening.sql`**).  
+Wage rules: [`docs/wage_policy.md`](docs/wage_policy.md). Platform bootstrap: [`docs/platform_owner_bootstrap.md`](docs/platform_owner_bootstrap.md). Env: [`docs/ENV.md`](docs/ENV.md). Schema types policy: [`docs/SCHEMA_SSOT.md`](docs/SCHEMA_SSOT.md).
 
 **Source of truth for the database is `supabase/migrations/`** — do not apply `schema.sql` alone (it is a reference snapshot).
 

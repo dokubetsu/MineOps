@@ -65,6 +65,47 @@ export type Database = {
           },
         ]
       }
+      audit_logs: {
+        Row: {
+          action: string
+          actor_user_id: string
+          created_at: string | null
+          id: string
+          metadata: Json | null
+          organization_id: string
+          target_id: string | null
+          target_type: string
+        }
+        Insert: {
+          action: string
+          actor_user_id: string
+          created_at?: string | null
+          id?: string
+          metadata?: Json | null
+          organization_id: string
+          target_id?: string | null
+          target_type: string
+        }
+        Update: {
+          action?: string
+          actor_user_id?: string
+          created_at?: string | null
+          id?: string
+          metadata?: Json | null
+          organization_id?: string
+          target_id?: string | null
+          target_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cash_books: {
         Row: {
           book_date: string
@@ -72,6 +113,7 @@ export type Database = {
           created_at: string | null
           id: string
           opening_balance: number
+          organization_id: string
           site_id: string
           status: string
           updated_at: string | null
@@ -82,6 +124,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           opening_balance?: number
+          organization_id?: string
           site_id: string
           status?: string
           updated_at?: string | null
@@ -92,6 +135,7 @@ export type Database = {
           created_at?: string | null
           id?: string
           opening_balance?: number
+          organization_id?: string
           site_id?: string
           status?: string
           updated_at?: string | null
@@ -102,6 +146,13 @@ export type Database = {
             columns: ["site_id"]
             isOneToOne: false
             referencedRelation: "sites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_books_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -117,6 +168,7 @@ export type Database = {
           entry_type: string
           id: string
           note: string | null
+          organization_id: string
           receipt_url: string | null
           updated_at: string | null
         }
@@ -130,6 +182,7 @@ export type Database = {
           entry_type: string
           id?: string
           note?: string | null
+          organization_id?: string
           receipt_url?: string | null
           updated_at?: string | null
         }
@@ -143,6 +196,7 @@ export type Database = {
           entry_type?: string
           id?: string
           note?: string | null
+          organization_id?: string
           receipt_url?: string | null
           updated_at?: string | null
         }
@@ -152,6 +206,13 @@ export type Database = {
             columns: ["cash_book_id"]
             isOneToOne: false
             referencedRelation: "cash_books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_entries_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -315,6 +376,7 @@ export type Database = {
           employee_id: string
           from_date: string
           id: string
+          organization_id: string
           reason: string | null
           status: string
           to_date: string
@@ -326,6 +388,7 @@ export type Database = {
           employee_id: string
           from_date: string
           id?: string
+          organization_id?: string
           reason?: string | null
           status?: string
           to_date: string
@@ -337,6 +400,7 @@ export type Database = {
           employee_id?: string
           from_date?: string
           id?: string
+          organization_id?: string
           reason?: string | null
           status?: string
           to_date?: string
@@ -348,6 +412,13 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_applications_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -473,14 +544,14 @@ export type Database = {
           base_rate: number | null
           computed_amount: number | null
           days_absent: number | null
-          days_half_day: number | null
+          days_half_day: number
           days_leave: number | null
           days_present: number | null
           employee_id: string
           final_amount: number | null
           id: string
           notes: string | null
-          organization_id?: string | null
+          organization_id: string
           payroll_run_id: string
           updated_at: string | null
         }
@@ -489,14 +560,14 @@ export type Database = {
           base_rate?: number | null
           computed_amount?: number | null
           days_absent?: number | null
-          days_half_day?: number | null
+          days_half_day?: number
           days_leave?: number | null
           days_present?: number | null
           employee_id: string
           final_amount?: number | null
           id?: string
           notes?: string | null
-          organization_id?: string | null
+          organization_id?: string
           payroll_run_id: string
           updated_at?: string | null
         }
@@ -505,14 +576,14 @@ export type Database = {
           base_rate?: number | null
           computed_amount?: number | null
           days_absent?: number | null
-          days_half_day?: number | null
+          days_half_day?: number
           days_leave?: number | null
           days_present?: number | null
           employee_id?: string
           final_amount?: number | null
           id?: string
           notes?: string | null
-          organization_id?: string | null
+          organization_id?: string
           payroll_run_id?: string
           updated_at?: string | null
         }
@@ -531,6 +602,13 @@ export type Database = {
             referencedRelation: "payroll_runs"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "payroll_lines_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
         ]
       }
       payroll_runs: {
@@ -538,6 +616,7 @@ export type Database = {
           generated_at: string | null
           generated_by: string | null
           id: string
+          organization_id: string
           period_month: string
           site_id: string
           status: string
@@ -547,6 +626,7 @@ export type Database = {
           generated_at?: string | null
           generated_by?: string | null
           id?: string
+          organization_id?: string
           period_month: string
           site_id: string
           status?: string
@@ -556,6 +636,7 @@ export type Database = {
           generated_at?: string | null
           generated_by?: string | null
           id?: string
+          organization_id?: string
           period_month?: string
           site_id?: string
           status?: string
@@ -567,6 +648,13 @@ export type Database = {
             columns: ["site_id"]
             isOneToOne: false
             referencedRelation: "sites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_runs_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -727,6 +815,7 @@ export type Database = {
           id: string
           load_info: string | null
           notes: string | null
+          organization_id: string
           ownership_snapshot: string | null
           payment_method: string | null
           payment_reference: string | null
@@ -763,6 +852,7 @@ export type Database = {
           id?: string
           load_info?: string | null
           notes?: string | null
+          organization_id?: string
           ownership_snapshot?: string | null
           payment_method?: string | null
           payment_reference?: string | null
@@ -799,6 +889,7 @@ export type Database = {
           id?: string
           load_info?: string | null
           notes?: string | null
+          organization_id?: string
           ownership_snapshot?: string | null
           payment_method?: string | null
           payment_reference?: string | null
@@ -854,6 +945,13 @@ export type Database = {
             columns: ["vehicle_id"]
             isOneToOne: false
             referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "trips_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
         ]
@@ -981,7 +1079,13 @@ export type Database = {
       }
     }
     Functions: {
-      approve_leave_application: {
+      approve_leave_application:
+        | { Args: { p_application_id: string }; Returns: undefined }
+        | {
+            Args: { p_application_id: string; p_force: boolean }
+            Returns: undefined
+          }
+      unapprove_leave_application: {
         Args: { p_application_id: string }
         Returns: undefined
       }
@@ -991,6 +1095,18 @@ export type Database = {
       get_user_site_ids: { Args: never; Returns: string[] }
       is_platform_owner: { Args: never; Returns: boolean }
       is_user_org_active: { Args: never; Returns: boolean }
+      org_has_feature: {
+        Args: { p_organization_id: string; p_feature_key: string }
+        Returns: boolean
+      }
+      org_has_feature_for_caller: {
+        Args: { p_feature_key: string }
+        Returns: boolean
+      }
+      require_caller_org_feature: {
+        Args: { p_feature_key: string }
+        Returns: undefined
+      }
       write_audit_event: {
         Args: {
           p_action: string

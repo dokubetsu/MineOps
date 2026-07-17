@@ -15,7 +15,7 @@ import {
 import { featureForPath, featuresFromRows, defaultFeatureMap } from '../../src/lib/features'
 import { passwordSchema, PASSWORD_MIN_LENGTH } from '../../src/lib/password-policy'
 import { leaveRepository, LeaveError } from '../../src/lib/repositories/leave'
-import { checkRateLimit, pruneRateLimitStore } from '../../src/lib/rate-limit'
+import { checkRateLimitMemory, pruneRateLimitStore } from '../../src/lib/rate-limit'
 
 /**
  * Phase 2 quality suite — pure unit cases (no browser).
@@ -83,20 +83,31 @@ test.describe('Feature path gating helpers', () => {
     expect(featureForPath('/dashboard/my-work')).toBeNull()
   })
 
-  test('featuresFromRows overlays disabled flags', () => {
+  test('featuresFromRows fail-closed: missing keys stay off', () => {
     const map = featuresFromRows([
       { feature_key: 'payroll', enabled: false },
       { feature_key: 'trips', enabled: true },
     ])
     expect(map.payroll).toBe(false)
     expect(map.trips).toBe(true)
-    expect(map.attendance).toBe(true) // default when row missing
+    expect(map.attendance).toBe(false) // Phase B: missing row = off
   })
 
-  test('defaultFeatureMap all on', () => {
+  test('featuresFromRows empty → all off', () => {
+    const map = featuresFromRows([])
+    expect(map.payroll).toBe(false)
+    expect(map.trips).toBe(false)
+  })
+
+  test('defaultFeatureMap fail-closed by default', () => {
+    const map = defaultFeatureMap()
+    expect(map.payroll).toBe(false)
+    expect(map.master_data).toBe(false)
+  })
+
+  test('defaultFeatureMap can still seed all on for platform seeds', () => {
     const map = defaultFeatureMap(true)
     expect(map.payroll).toBe(true)
-    expect(map.master_data).toBe(true)
   })
 })
 
@@ -146,14 +157,15 @@ test.describe('Leave repository validation', () => {
   })
 })
 
-test.describe('Rate limit helper (Phase 3)', () => {
+test.describe('Rate limit helper (Phase E memory backend)', () => {
   test('limits after N hits in window', () => {
     const key = `test-${Date.now()}-${Math.random()}`
     for (let i = 0; i < 3; i++) {
-      const r = checkRateLimit(key, 3, 60_000)
+      const r = checkRateLimitMemory(key, 3, 60_000)
       expect(r.limited).toBe(false)
+      expect(r.backend).toBe('memory')
     }
-    const blocked = checkRateLimit(key, 3, 60_000)
+    const blocked = checkRateLimitMemory(key, 3, 60_000)
     expect(blocked.limited).toBe(true)
     expect(blocked.remaining).toBe(0)
     expect(pruneRateLimitStore(Date.now() + 120_000)).toBeGreaterThanOrEqual(0)

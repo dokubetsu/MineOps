@@ -10,14 +10,27 @@ Single source of truth for configuration. Copy `frontend/.env.example` → `fron
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Client + server | Anon key (RLS enforced) |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Server only** | Admin/platform APIs, E2E seed — never `NEXT_PUBLIC_` |
 
+## Platform bootstrap (Phase A)
+
+| Variable | Purpose |
+|----------|---------|
+| `PLATFORM_BOOTSTRAP_SECRET` | **Required in production** when no platform owner exists yet. Body field `secret` on `POST /api/platform/bootstrap` must match. After the first owner is created, **rotate or remove** this value. |
+
+Local development (`NODE_ENV !== production` and not `VERCEL_ENV=production`) may bootstrap without a secret if the env var is unset. If you set the secret in `.env.local`, the setup form still requires it.
+
 ## Optional
 
 | Variable | Purpose |
 |----------|---------|
-| `PLATFORM_BOOTSTRAP_SECRET` | If set, first-time `/api/platform/bootstrap` requires matching `secret` in body |
-| `E2E_ADMIN_EMAIL` | Playwright admin email (default `admin@mineops.com`) |
-| `E2E_ADMIN_PASSWORD` | Playwright admin password (default `password123`) |
-| `NODE_ENV` | `development` / `production` (CSP and PWA behavior) |
+| `E2E_ADMIN_EMAIL` | Playwright admin email (default `admin@mineops.com`) — **local/CI only** |
+| `E2E_ADMIN_PASSWORD` | Playwright admin password — **local/CI only; never production** |
+| `NODE_ENV` / `VERCEL_ENV` | Controls CSP, PWA, and bootstrap secret enforcement |
+| `UPSTASH_REDIS_REST_URL` | Phase E5 durable rate limit (Upstash REST). With token, proxy uses Redis counters. |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token — **server only**, never `NEXT_PUBLIC_` |
+
+Without Upstash vars, rate limiting stays **in-memory** (per serverless isolate). Still set edge/WAF limits in production.
+
+CSP nonce pipeline (not enabled yet): `docs/CSP_NONCE.md`.
 
 ## Intentionally unused / removed
 
@@ -30,10 +43,12 @@ Single source of truth for configuration. Copy `frontend/.env.example` → `fron
 ## Vercel
 
 - Project **Root Directory**: `frontend`
-- Set the three Supabase vars in Project Settings → Environment Variables
+- Set the three Supabase vars + `PLATFORM_BOOTSTRAP_SECRET` (for first boot) in Project Settings → Environment Variables
 - Auth redirect URLs: site origin + `/` (see `docs/vercel_deployment_guide.md`)
+- Full sequence: `docs/DEPLOYMENT_CHECKLIST.md`
 
 ## Password policy (API-created users)
 
-See `frontend/src/lib/password-policy.ts`: min 10 characters, at least one letter and one number.  
-Local seed passwords may be weaker for E2E convenience.
+See `frontend/src/lib/password-policy.ts`: min 10 characters, at least one letter and one number.
+
+Local seed passwords (`password123`) are **weaker by design for E2E** and must never be used in production.

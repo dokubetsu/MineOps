@@ -1,10 +1,11 @@
 -- ==========================================
 -- MineOps Database Schema & Security Blueprints
 -- ==========================================
--- WARNING: This file is a REFERENCE SNAPSHOT only.
+-- WARNING: This file is a REFERENCE SNAPSHOT only (may lag live migrations).
 -- Do NOT apply schema.sql to deploy. Use ordered files in
--- supabase/migrations/ (through 041_phase3_audit_and_polish.sql).
--- After major schema changes, regenerate or update this snapshot carefully.
+-- supabase/migrations/ (currently through 045_phase_e_hardening.sql).
+-- TypeScript types: frontend/src/lib/supabase/database.types.ts
+-- Policy: docs/SCHEMA_SSOT.md
 -- ==========================================
 
 -- ------------------------------------------
@@ -55,7 +56,8 @@ CREATE TABLE IF NOT EXISTS public.transport_contractors (
 -- Vehicles
 CREATE TABLE IF NOT EXISTS public.vehicles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  plate_number text UNIQUE NOT NULL,
+  -- Uniqueness is per-org: UNIQUE (organization_id, plate_number) — see migration 045
+  plate_number text NOT NULL,
   vehicle_type text NOT NULL CHECK (vehicle_type IN ('12WH','10WH','6WH','Other')),
   ownership text NOT NULL CHECK (ownership IN ('rented','owned')),
   default_contractor_id uuid REFERENCES public.transport_contractors(id) ON DELETE SET NULL,
@@ -1266,6 +1268,9 @@ CREATE INDEX IF NOT EXISTS idx_leave_applications_employee_id ON public.leave_ap
 CREATE INDEX IF NOT EXISTS idx_sites_org ON public.sites (organization_id);
 CREATE INDEX IF NOT EXISTS idx_user_roles_org ON public.user_roles (organization_id);
 CREATE INDEX IF NOT EXISTS idx_vehicles_org ON public.vehicles (organization_id);
+-- Per-org plate uniqueness (migration 045); not global UNIQUE(plate_number)
+CREATE UNIQUE INDEX IF NOT EXISTS vehicles_organization_id_plate_number_key
+  ON public.vehicles (organization_id, plate_number);
 CREATE INDEX IF NOT EXISTS idx_drivers_org ON public.drivers (organization_id);
 CREATE INDEX IF NOT EXISTS idx_transport_contractors_org ON public.transport_contractors (organization_id);
 CREATE INDEX IF NOT EXISTS idx_employees_org ON public.employees (organization_id);

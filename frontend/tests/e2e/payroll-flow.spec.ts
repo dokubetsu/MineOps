@@ -30,9 +30,13 @@ test.describe('MineOps End-to-End Business Flow', () => {
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 25000 })
     await expect(page.locator('.sidebar-logo-text')).toBeVisible()
     await expect(page.getByText(/Invalid login credentials/i)).toHaveCount(0)
+    // Tenant admin should not land on platform console
+    await expect(page).not.toHaveURL(/\/platform/)
 
-    // ── 2. Trips ────────────────────────────────────────────────────────
-    await page.locator('a[href="/dashboard/trips"]').click()
+    // ── 2. Trips (feature must be enabled for demo org — seed defaults all on) ──
+    const tripsNav = page.locator('a[href="/dashboard/trips"]')
+    await expect(tripsNav).toBeVisible({ timeout: 10000 })
+    await tripsNav.click()
     await expect(page).toHaveURL(/\/dashboard\/trips/)
 
     await page.locator('button:has-text("Log Trip")').first().click()

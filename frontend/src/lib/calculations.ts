@@ -94,9 +94,46 @@ export function applyLeaveBalance(currentBalance: number, days: number): number 
   return Math.max(0, Number(currentBalance) - Number(days))
 }
 
-/** Calendar days inclusive between two Date objects (date-only). */
+/** Calendar days inclusive between two Date objects (date-only, local calendar). */
 export function calendarDaysInRange(periodStart: Date, periodEnd: Date): number {
-  return Math.round((periodEnd.getTime() - periodStart.getTime()) / 86400000) + 1
+  const start = new Date(periodStart.getFullYear(), periodStart.getMonth(), periodStart.getDate())
+  const end = new Date(periodEnd.getFullYear(), periodEnd.getMonth(), periodEnd.getDate())
+  return Math.round((end.getTime() - start.getTime()) / 86400000) + 1
+}
+
+/**
+ * Payroll period bounds for `yyyy-MM` (or `yyyy-MM-dd`) in **local** calendar time.
+ * Avoids `new Date('yyyy-MM-dd')` UTC parse which shifts the day in negative TZ.
+ */
+export function payrollPeriodBounds(periodMonth: string): {
+  periodDate: string
+  periodStart: Date
+  periodEnd: Date
+  periodDays: number
+  startIso: string
+  endIso: string
+} {
+  const ym = periodMonth.slice(0, 7)
+  const [ys, ms] = ym.split('-')
+  const y = parseInt(ys, 10)
+  const m = parseInt(ms, 10) // 1–12
+  if (!y || !m || m < 1 || m > 12) {
+    throw new Error(`Invalid payroll period: ${periodMonth}`)
+  }
+  const periodStart = new Date(y, m - 1, 1)
+  const periodEnd = new Date(y, m, 0) // last day of month, local
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const periodDate = `${y}-${pad(m)}-01`
+  const startIso = periodDate
+  const endIso = `${y}-${pad(m)}-${pad(periodEnd.getDate())}`
+  return {
+    periodDate,
+    periodStart,
+    periodEnd,
+    periodDays: calendarDaysInRange(periodStart, periodEnd),
+    startIso,
+    endIso,
+  }
 }
 
 /** Inclusive leave duration in calendar days from ISO date strings (yyyy-MM-dd). */

@@ -45,16 +45,20 @@ On the configuration page, adjust the following settings:
 
 ## 🔑 Step 3: Add Environment Variables
 
-Expand the **Environment Variables** section and add the following three keys:
+Expand the **Environment Variables** section and add:
 
 | Key | Value | Purpose / Notes |
 |---|---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | *Your Supabase URL* | Client-side database connectivity |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | *Your Supabase Anon Key* | Client-side public operations |
 | `SUPABASE_SERVICE_ROLE_KEY` | *Your Supabase Service Role Key* | Server-side secure user creation |
+| `PLATFORM_BOOTSTRAP_SECRET` | *Long random string (32+ chars)* | **Required in production** for first-time `/platform/setup` only. Rotate or delete after the first platform owner is created. |
 
 > [!IMPORTANT]
 > The `SUPABASE_SERVICE_ROLE_KEY` is a secret key that bypasses Row Level Security (RLS). Next.js uses it only on the secure Node.js server to create users automatically without email verification. Never prefix it with `NEXT_PUBLIC_` or share it client-side.
+
+> [!IMPORTANT]
+> **Database:** run `supabase db push` so remote migrations through **042+** are applied before relying on `/platform`. Full checklist: `docs/DEPLOYMENT_CHECKLIST.md`.
 
 ---
 

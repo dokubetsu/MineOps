@@ -46,8 +46,21 @@ User provisioning is decoupled from client auth to prevent unauthorized account 
 | `assign_role` / `update_role` / `revoke_role` | `user_roles` INSERT/UPDATE/DELETE |
 | `create_user`, `platform_create_org`, … | Explicit inserts from API routes |
 
-Helper: `write_audit_event(...)` for SECURITY DEFINER RPCs. See migration `041_phase3_audit_and_polish.sql`.
+Helper: `write_audit_event(...)` for SECURITY DEFINER RPCs. See migrations `041` + **`045` (Phase E)**.
+
+### Phase E audit binding
+
+`write_audit_event` stamps `organization_id` from the **actor’s org** for tenant callers (foreign `p_organization_id` is ignored and recorded in metadata). Platform owners and `service_role` may pass an explicit org. Direct `EXECUTE` is revoked from `authenticated` so clients cannot insert arbitrary audit rows.
+
+### Storage (Phase E)
+
+- Bucket `file_size_limit` = **5MB** on `trip-photos`, `attendance-photos`, `cash-receipts` (re-asserted in `045`).
+- Employees/site_employees may **read/write** trip photos under their site path (my-work parity with cash-receipts).
+
+### Rate limiting (Phase E)
+
+Proxy limits `/api/admin/*`, `/api/platform/*`, and bootstrap. Optional durable backend: `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` (see `docs/ENV.md`). Falls back to in-memory per isolate.
 
 ## 🛡 CSP notes
 
-Production CSP drops `unsafe-eval` and localhost Supabase. Inline scripts remain required by Next.js bootstrapping until a nonce pipeline is adopted. PWA workers are allowed via `worker-src 'self' blob:`.
+Production CSP drops `unsafe-eval` and localhost Supabase. Inline scripts remain required by Next.js bootstrapping until a nonce pipeline is adopted (`docs/CSP_NONCE.md` — Phase E4 long-term). PWA workers are allowed via `worker-src 'self' blob:`.

@@ -7,6 +7,7 @@ import { Plus, Image as ImageIcon, Check, X, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { computeTripWorthFromRate } from '@/lib/calculations'
 import { cashBookRepository } from '@/lib/repositories/cash-book'
+import { tripsRepository } from '@/lib/repositories/trips'
 import BottomSheet from '@/components/BottomSheet'
 import toast from 'react-hot-toast'
 
@@ -29,8 +30,12 @@ interface EmployeeData {
 }
 
 export default function EmployeePage() {
-  const { user, organizationId, loading: authLoading } = useAuth()
+  const { user, organizationId, loading: authLoading, hasFeature } = useAuth()
   const supabase = createClient()
+  const canTrips = hasFeature('trips')
+  const canCash = hasFeature('cash_book')
+  const canLeave = hasFeature('leave')
+  const canAttendance = hasFeature('attendance')
   const [loading, setLoading] = useState(true)
   const [employee, setEmployee] = useState<EmployeeData | null>(null)
   
@@ -298,11 +303,17 @@ export default function EmployeePage() {
     }
   }
 
+  const MAX_PHOTO_BYTES = 5 * 1024 * 1024 // matches storage.buckets file_size_limit (Phase E2)
+
   const uploadPhotos = async (files: File[], siteId: string): Promise<string[]> => {
     const urls: string[] = []
     for (const file of files) {
+      if (file.size > MAX_PHOTO_BYTES) {
+        throw new Error(`Photo "${file.name}" exceeds 5MB limit`)
+      }
       const ext = file.name.split('.').pop() || 'jpg'
       const fileUuid = crypto.randomUUID()
+      // Path must start with site_id for storage RLS (026/045)
       const path = `${siteId}/${todayStr}/${fileUuid}.${ext}`
       const { data, error } = await supabase.storage
         .from('trip-photos')
@@ -316,6 +327,10 @@ export default function EmployeePage() {
 
   const handleTripSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!canTrips) {
+      toast.error('Trips module is not enabled for your organization')
+      return
+    }
     if (!employee || !user) return
     const allPhotoFiles = [...(entryPhoto ? [entryPhoto] : []), ...tripPhotos]
     if (allPhotoFiles.length > 10) {
@@ -358,39 +373,34 @@ export default function EmployeePage() {
       const capacity = parseFloat(tripForm.cubic_capacity) || 0
       const worth = computeTripWorthFromRate(capacity, rate)
 
-      const { data: newTrip, error } = await supabase
-        .from('trips')
-        .insert({
-          site_id: employee.site_id,
-          vehicle_id: vehicleId,
-          contractor_id: tripForm.contractor_id || null,
-          trip_date: todayStr,
-          cubic_capacity: capacity,
-          advance_amount: parseFloat(tripForm.advance_amount) || 0,
-          photo_url: entryPhotoUrl,
-          photo_urls: uploadedUrls,
-          customer_id: tripForm.customer_id || null,
-          drop_location: tripForm.drop_location || null,
-          distance_km: parseFloat(tripForm.distance_km) || null,
-          total_shipment_cost: parseFloat(tripForm.total_shipment_cost) || worth,
-          trip_worth: worth,
-          permit_number: tripForm.permit_number || null,
-          notes: tripForm.notes || null,
-          created_by: user.id,
-          ownership_snapshot: tripForm.ownership,
-          settled: tripForm.settled,
-          settlement_method: tripForm.settled ? tripForm.settlement_method : null,
-          settlement_ref: tripForm.settled ? tripForm.settlement_ref : null,
-          settled_at: tripForm.settled ? new Date().toISOString() : null,
-          settled_by: tripForm.settled ? user.id : null,
-          payment_status: tripForm.settled ? 'settled' : 'pending',
-          payment_method: tripForm.settled ? tripForm.settlement_method : null,
-          payment_reference: tripForm.settled ? tripForm.settlement_ref : null,
-        })
-        .select('id')
-        .single()
-
-      if (error) throw error
+      const newTrip = await tripsRepository.create(supabase, {
+        site_id: employee.site_id,
+        vehicle_id: vehicleId,
+        contractor_id: tripForm.contractor_id || null,
+        trip_date: todayStr,
+        cubic_capacity: capacity,
+        rate_per_cubic: rate,
+        advance_amount: parseFloat(tripForm.advance_amount) || 0,
+        photo_url: entryPhotoUrl,
+        photo_urls: uploadedUrls,
+        customer_id: tripForm.customer_id || null,
+        drop_location: tripForm.drop_location || null,
+        distance_km: parseFloat(tripForm.distance_km) || null,
+        total_shipment_cost: parseFloat(tripForm.total_shipment_cost) || worth,
+        trip_worth: worth,
+        permit_number: tripForm.permit_number || null,
+        notes: tripForm.notes || null,
+        created_by: user.id,
+        ownership_snapshot: tripForm.ownership,
+        settled: tripForm.settled,
+        settlement_method: tripForm.settled ? tripForm.settlement_method : null,
+        settlement_ref: tripForm.settled ? tripForm.settlement_ref : null,
+        settled_at: tripForm.settled ? new Date().toISOString() : null,
+        settled_by: tripForm.settled ? user.id : null,
+        payment_status: tripForm.settled ? 'settled' : 'pending',
+        payment_method: tripForm.settled ? tripForm.settlement_method : null,
+        payment_reference: tripForm.settled ? tripForm.settlement_ref : null,
+      })
 
       // Sync trip_photos rows for managers / multi-photo views
       if (newTrip?.id && uploadedUrls.length > 0) {
@@ -434,6 +444,10 @@ export default function EmployeePage() {
   }
 
   const handleExpenseSubmit = async (e: React.FormEvent) => {
+    if (!canCash) {
+      toast.error('Cash book module is not enabled for your organization')
+      return
+    }
     e.preventDefault()
     if (!employee || !user) return
     setSubmittingExpense(true)
@@ -527,30 +541,26 @@ export default function EmployeePage() {
       const rate = negotiatedRates.find(r => r.vehicle_type === editForm.vehicle_type)?.rate_per_cubic || 0
       const worth = computeTripWorthFromRate(capacity, rate)
 
-      const { error } = await supabase
-        .from('trips')
-        .update({
-          vehicle_id: vehicleId,
-          contractor_id: editForm.contractor_id || null,
-          cubic_capacity: capacity,
-          advance_amount: parseFloat(editForm.advance_amount) || 0,
-          photo_urls: updatedPhotoUrls,
-          customer_id: editForm.customer_id || null,
-          drop_location: editForm.drop_location || null,
-          distance_km: parseFloat(editForm.distance_km) || null,
-          total_shipment_cost: parseFloat(editForm.total_shipment_cost) || worth,
-          trip_worth: worth,
-          notes: editForm.notes || null,
-          ownership_snapshot: editForm.ownership,
-          settled: editForm.settled,
-          settlement_method: editForm.settled ? editForm.settlement_method : null,
-          settlement_ref: editForm.settled ? editForm.settlement_ref : null,
-          settled_at: editForm.settled && !editingTrip.settled ? new Date().toISOString() : editingTrip.settled_at,
-          settled_by: editForm.settled && !editingTrip.settled ? user.id : editingTrip.settled_by,
-        })
-        .eq('id', editingTrip.id)
-
-      if (error) throw error
+      await tripsRepository.update(supabase, editingTrip.id, {
+        vehicle_id: vehicleId,
+        contractor_id: editForm.contractor_id || null,
+        cubic_capacity: capacity,
+        rate_per_cubic: rate,
+        advance_amount: parseFloat(editForm.advance_amount) || 0,
+        photo_urls: updatedPhotoUrls,
+        customer_id: editForm.customer_id || null,
+        drop_location: editForm.drop_location || null,
+        distance_km: parseFloat(editForm.distance_km) || null,
+        total_shipment_cost: parseFloat(editForm.total_shipment_cost) || worth,
+        trip_worth: worth,
+        notes: editForm.notes || null,
+        ownership_snapshot: editForm.ownership,
+        settled: editForm.settled,
+        settlement_method: editForm.settled ? editForm.settlement_method : null,
+        settlement_ref: editForm.settled ? editForm.settlement_ref : null,
+        settled_at: editForm.settled && !editingTrip.settled ? new Date().toISOString() : editingTrip.settled_at,
+        settled_by: editForm.settled && !editingTrip.settled ? user.id : editingTrip.settled_by,
+      })
       toast.success('Trip updated successfully')
       setShowEditSheet(false)
       setEditingTrip(null)
@@ -577,21 +587,12 @@ export default function EmployeePage() {
     }
     setSubmittingSettle(true)
     try {
-      const { error } = await supabase
-        .from('trips')
-        .update({
-          settled: true,
-          settlement_method: settleMethod,
-          settlement_ref: settleRef.trim(),
-          settled_at: new Date().toISOString(),
-          settled_by: user.id,
-          payment_status: 'settled',
-          payment_method: settleMethod,
-          payment_reference: settleRef.trim(),
-        })
-        .eq('id', settleTrip.id)
-
-      if (error) throw error
+      await tripsRepository.settle(supabase, settleTrip.id, {
+        settlement_amount: Number(settleTrip.trip_worth || settleTrip.total_shipment_cost) || 0,
+        payment_method: settleMethod,
+        payment_reference: settleRef.trim(),
+        settled_by: user.id,
+      })
       toast.success('Trip marked as settled')
       setSettleTrip(null)
       setSettleRef('')
@@ -638,7 +639,7 @@ export default function EmployeePage() {
       </div>
 
       {/* Yesterday Leave Application Alert Banner */}
-      {showLeaveBanner && (
+      {canLeave && showLeaveBanner && (
         <div className="card mb-3" style={{ borderLeft: '4px solid var(--amber)', display: 'flex', gap: '0.75rem', padding: '0.75rem' }}>
           <AlertCircle style={{ color: 'var(--amber)', flexShrink: 0 }} size={20} />
           <div>
@@ -654,23 +655,32 @@ export default function EmployeePage() {
         </div>
       )}
 
+      {!canTrips && !canCash && !canLeave && !canAttendance && (
+        <div className="card mb-4" style={{ padding: '1rem', fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+          No self-service modules are enabled for your organization. Contact your administrator.
+        </div>
+      )}
+
       {/* Stats */}
+      {canTrips && (
       <div className="grid-2 mb-4">
         <div className="card" style={{ padding: '0.875rem' }}>
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Trips Logged Today</div>
           <div style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '0.25rem' }}>{todayTrips.length}</div>
         </div>
         <div className="card" style={{ padding: '0.875rem' }}>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Today's Shipment Value</div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Today&apos;s Shipment Value</div>
           <div style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '0.25rem', color: 'var(--accent)' }}>
             ₹{todayTrips.reduce((sum, t) => sum + (t.total_shipment_cost || 0), 0).toLocaleString('en-IN')}
           </div>
         </div>
       </div>
+      )}
 
       {/* Logged Trips Today */}
+      {canTrips && (
       <div style={{ marginBottom: '1.5rem' }}>
-        <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem' }}>Today's Logged Trips</h3>
+        <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem' }}>Today&apos;s Logged Trips</h3>
         {todayTrips.length === 0 ? (
           <div className="card" style={{ padding: '1.5rem', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
             No trips logged yet today.
@@ -718,9 +728,10 @@ export default function EmployeePage() {
           </div>
         )}
       </div>
+      )}
 
       {/* Today's expenses (own entries) */}
-      {todayExpenses.length > 0 && (
+      {canCash && todayExpenses.length > 0 && (
         <div style={{ marginBottom: '1.5rem' }}>
           <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem' }}>Today&apos;s Expenses</h3>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
@@ -742,6 +753,7 @@ export default function EmployeePage() {
       )}
 
       {/* Floating Bottom Major Action Buttons */}
+      {(canCash || canTrips) && (
       <div style={{
         position: 'fixed',
         bottom: 0,
@@ -754,16 +766,21 @@ export default function EmployeePage() {
         gap: '0.75rem',
         zIndex: 99
       }}>
+        {canCash && (
         <button className="btn btn-secondary w-full btn-lg" type="button" onClick={() => setShowExpenseSheet(true)}>
           Log Expense
         </button>
+        )}
+        {canTrips && (
         <button className="btn btn-primary w-full btn-lg" type="button" onClick={() => setShowTripSheet(true)}>
           + Log Trip
         </button>
+        )}
       </div>
+      )}
 
       {/* 1. Daily Attendance Verification Sheet Prompt */}
-      {showAttendancePrompt && (
+      {canAttendance && showAttendancePrompt && (
         <>
           <div className="sheet-overlay" style={{ zIndex: 1000 }} />
           <div className="sheet" style={{ zIndex: 1001, padding: '1.5rem' }}>
@@ -787,7 +804,7 @@ export default function EmployeePage() {
       )}
 
       {/* 2. Leave Form Bottom Sheet */}
-      {showLeaveForm && (
+      {canLeave && showLeaveForm && (
         <>
           <div className="sheet-overlay" onClick={() => setShowLeaveForm(false)} style={{ zIndex: 1000 }} />
           <div className="sheet" style={{ zIndex: 1001, padding: '1.5rem' }}>
@@ -808,7 +825,7 @@ export default function EmployeePage() {
       )}
 
       {/* 3. Log Trip Bottom Sheet Form */}
-      <BottomSheet isOpen={showTripSheet} onClose={() => setShowTripSheet(false)} title="Log New Trip">
+      <BottomSheet isOpen={canTrips && showTripSheet} onClose={() => setShowTripSheet(false)} title="Log New Trip">
         <form onSubmit={handleTripSubmit}>
           <div className="form-group">
             <label className="form-label">Vehicle Plate Number *</label>
@@ -1140,7 +1157,7 @@ export default function EmployeePage() {
       </BottomSheet>
 
       {/* 5. Log Expense */}
-      <BottomSheet isOpen={showExpenseSheet} onClose={() => setShowExpenseSheet(false)} title="Log Expense">
+      <BottomSheet isOpen={canCash && showExpenseSheet} onClose={() => setShowExpenseSheet(false)} title="Log Expense">
         <form onSubmit={handleExpenseSubmit}>
           <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
             Posts an outgoing entry to today&apos;s site cash book for {employee.sites?.name || 'your site'}.

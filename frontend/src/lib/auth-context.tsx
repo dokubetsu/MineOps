@@ -48,8 +48,8 @@ const AuthContext = createContext<AuthContextType>({
   siteIds: [],
   organizationId: null,
   organizationName: null,
-  features: defaultFeatureMap(true),
-  hasFeature: () => true,
+  features: defaultFeatureMap(false),
+  hasFeature: () => false,
 })
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -57,7 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
   const [organizationName, setOrganizationName] = useState<string | null>(null)
   const [isPlatformOwner, setIsPlatformOwner] = useState(false)
-  const [features, setFeatures] = useState<FeatureMap>(() => defaultFeatureMap(true))
+  const [features, setFeatures] = useState<FeatureMap>(() => defaultFeatureMap(false))
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
@@ -66,7 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserRoles([])
       setOrganizationName(null)
       setIsPlatformOwner(false)
-      setFeatures(defaultFeatureMap(true))
+      setFeatures(defaultFeatureMap(false))
       clearOfflineCache()
       return
     }
@@ -107,14 +107,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle()
       setOrganizationName(org?.name ?? null)
 
-      const { data: featRows } = await supabase
+      const { data: featRows, error: featErr } = await supabase
         .from('organization_features')
         .select('feature_key, enabled')
         .eq('organization_id', priorityRole.organization_id)
-      setFeatures(featuresFromRows(featRows))
+      // Phase B: fail-closed on load error or empty (no accidental full unlock)
+      if (featErr) {
+        console.warn('[auth] organization_features load failed:', featErr.message)
+        setFeatures(defaultFeatureMap(false))
+      } else {
+        setFeatures(featuresFromRows(featRows))
+      }
     } else {
       setOrganizationName(null)
-      setFeatures(defaultFeatureMap(true))
+      // Platform owner / no tenant org — no module entitlements to enforce
+      setFeatures(defaultFeatureMap(false))
     }
   }
 
@@ -138,7 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUserRoles([])
         setOrganizationName(null)
         setIsPlatformOwner(false)
-        setFeatures(defaultFeatureMap(true))
+        setFeatures(defaultFeatureMap(false))
         clearOfflineCache()
       }
       setLoading(false)
@@ -162,7 +169,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     userRoles.find((r) => r.role === 'site_employee') ||
     null
 
-  const hasFeature = (key: FeatureKey) => features[key] !== false
+  // Phase B: only true when explicitly enabled
+  const hasFeature = (key: FeatureKey) => features[key] === true
 
   return (
     <AuthContext.Provider

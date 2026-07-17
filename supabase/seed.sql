@@ -1,3 +1,10 @@
+-- =============================================================================
+-- LOCAL / CI SEED ONLY — DO NOT RUN AGAINST PRODUCTION
+-- Demo credentials (password123) are intentionally weak for Playwright.
+-- Production: provision platform owner via /platform/setup + PLATFORM_BOOTSTRAP_SECRET.
+-- See docs/DEPLOYMENT_CHECKLIST.md and docs/platform_owner_bootstrap.md.
+-- =============================================================================
+
 -- Seed default organization
 INSERT INTO public.organizations (id, name, active)
 VALUES ('00000000-0000-0000-0000-000000000000', 'MineOps Demo Org', true)
