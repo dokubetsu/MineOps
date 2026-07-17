@@ -10,6 +10,7 @@ import { Site, CashBook, CashEntry } from '@/lib/supabase/types'
 import { cashBookRepository } from '@/lib/repositories/cash-book'
 import { sitesRepository } from '@/lib/repositories/sites'
 import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
+import { formatInr } from '@/lib/calculations'
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
@@ -417,16 +418,35 @@ export default function CashBookPage() {
 
           {/* Balance Cards */}
           <div className="grid-2 mb-4" style={{ gap: '0.75rem' }}>
-            <div className="card" style={{ padding: '0.875rem 1rem' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Opening Balance</span>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: '0.25rem' }}>
-                ₹{(cashBook.opening_balance ?? 0).toLocaleString('en-IN')}
+            <div className="card" style={{ padding: '0.75rem 0.875rem', minWidth: 0, overflow: 'hidden' }}>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Opening Balance</span>
+              <div
+                style={{
+                  fontSize: 'clamp(0.95rem, 2vw, 1.15rem)',
+                  fontWeight: 700,
+                  marginTop: '0.25rem',
+                  overflowWrap: 'anywhere',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+                title={`₹${(cashBook.opening_balance ?? 0).toLocaleString('en-IN')}`}
+              >
+                {formatInr(cashBook.opening_balance ?? 0)}
               </div>
             </div>
-            <div className="card" style={{ padding: '0.875rem 1rem' }}>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Closing Balance</span>
-              <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--accent)', marginTop: '0.25rem' }}>
-                ₹{(cashBook.closing_balance ?? 0).toLocaleString('en-IN')}
+            <div className="card" style={{ padding: '0.75rem 0.875rem', minWidth: 0, overflow: 'hidden' }}>
+              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Closing Balance</span>
+              <div
+                style={{
+                  fontSize: 'clamp(0.95rem, 2vw, 1.15rem)',
+                  fontWeight: 700,
+                  color: (cashBook.closing_balance ?? 0) < 0 ? 'var(--danger)' : 'var(--accent)',
+                  marginTop: '0.25rem',
+                  overflowWrap: 'anywhere',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+                title={`₹${(cashBook.closing_balance ?? 0).toLocaleString('en-IN')}`}
+              >
+                {formatInr(cashBook.closing_balance ?? 0)}
               </div>
             </div>
           </div>

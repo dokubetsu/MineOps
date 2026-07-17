@@ -8,6 +8,8 @@ import {
   computeTripWorthFromRate,
   calculateClosingBalance,
   calendarDaysInRange,
+  formatInr,
+  formatMetric,
 } from '../../src/lib/calculations'
 import {
   featuresFromRows,
@@ -153,6 +155,17 @@ test.describe('Feature fail-closed + path map', () => {
   test('defaultFeatureMap(false) is fail-closed', () => {
     expect(defaultFeatureMap(false).cash_book).toBe(false)
   })
+
+  test('master_data / users / manage_employees fail-closed when missing rows', () => {
+    const map = featuresFromRows([{ feature_key: 'trips', enabled: true }])
+    expect(map.trips).toBe(true)
+    expect(map.master_data).toBe(false)
+    expect(map.users).toBe(false)
+    expect(map.manage_employees).toBe(false)
+    expect(featureForPath('/dashboard/settings')).toBe('master_data')
+    expect(featureForPath('/dashboard/users')).toBe('users')
+    expect(featureForPath('/dashboard/manage-employees')).toBe('manage_employees')
+  })
 })
 
 test.describe('Password policy (create-user / bootstrap)', () => {
@@ -170,5 +183,20 @@ test.describe('Rate limit (Phase E)', () => {
     expect(checkRateLimitMemory(key, 2, 60_000).limited).toBe(false)
     expect(checkRateLimitMemory(key, 2, 60_000).limited).toBe(false)
     expect(checkRateLimitMemory(key, 2, 60_000).limited).toBe(true)
+  })
+})
+
+test.describe('Dense UI number formatting', () => {
+  test('formatInr compact for large amounts', () => {
+    expect(formatInr(500)).toMatch(/₹5?00/)
+    const compact = formatInr(-100_000)
+    // compact or full — must not explode length for cards
+    expect(compact.length).toBeLessThan(14)
+    expect(formatInr(50_000, { compact: false })).toContain('50,000')
+  })
+
+  test('formatMetric keeps small counts readable', () => {
+    expect(formatMetric(0)).toBe('0')
+    expect(formatMetric(12.5, { maxFractionDigits: 1 })).toMatch(/12/)
   })
 })

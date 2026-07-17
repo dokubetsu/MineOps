@@ -176,20 +176,15 @@ export async function proxy(request: NextRequest) {
           'org_has_feature_for_caller',
           { p_feature_key: requiredFeature }
         )
-        // Fail closed if RPC missing/errors (except during migration rollout: allow if function absent)
-        if (featErr) {
-          const msg = featErr.message || ''
-          if (!msg.includes('Could not find the function') && !msg.includes('does not exist')) {
-            const redirectUrl = request.nextUrl.clone()
-            redirectUrl.pathname = '/dashboard'
-            redirectUrl.searchParams.set('error', 'feature_check_failed')
-            return NextResponse.redirect(redirectUrl)
-          }
-        } else if (featOk === false) {
+        // Phase F: always fail-closed — missing RPC / error / explicit false all block the route
+        if (featErr || featOk === false) {
           const redirectUrl = request.nextUrl.clone()
           redirectUrl.pathname = '/dashboard'
-          redirectUrl.searchParams.set('error', 'feature_disabled')
-          redirectUrl.searchParams.set('feature', requiredFeature)
+          redirectUrl.searchParams.set(
+            'error',
+            featErr ? 'feature_check_failed' : 'feature_disabled'
+          )
+          if (!featErr) redirectUrl.searchParams.set('feature', requiredFeature)
           return NextResponse.redirect(redirectUrl)
         }
       }

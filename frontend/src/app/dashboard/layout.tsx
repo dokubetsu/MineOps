@@ -207,87 +207,65 @@ function NavContent() {
 
       {/* Mobile Header */}
       <header className="mobile-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <span style={{ fontSize: '1.25rem' }}>⛏️</span>
-          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--accent)' }}>MineOps</span>
+        <div className="mobile-header-brand">
+          <span style={{ fontSize: '1.15rem' }} aria-hidden>⛏️</span>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--accent)', fontSize: '0.95rem' }}>
+            MineOps
+          </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <span style={{ fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '999px', background: `rgba(${isAdmin ? '245,158,11' : isSiteManager ? '59,130,246' : '16,185,129'},0.15)`, color: roleColor, fontWeight: 600 }}>
+        <div className="mobile-header-actions">
+          <span
+            className="mobile-role-badge"
+            style={{
+              background: `rgba(${isAdmin ? '245,158,11' : isSiteManager ? '59,130,246' : '16,185,129'},0.15)`,
+              color: roleColor,
+            }}
+            title={roleLabel}
+          >
             {roleLabel}
           </span>
-          <button onClick={toggleTheme} className="btn btn-ghost btn-icon" title="Toggle theme">
+          <button type="button" onClick={toggleTheme} className="btn btn-ghost btn-icon" title="Toggle theme" aria-label="Toggle theme">
             {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
           </button>
-          <button onClick={handleLogout} className="btn btn-ghost btn-icon"><LogOut size={18} /></button>
+          <button type="button" onClick={handleLogout} className="btn btn-ghost btn-icon" title="Sign out" aria-label="Sign out">
+            <LogOut size={18} />
+          </button>
         </div>
       </header>
 
-      {/* Mobile More Menu Bottom Sheet */}
+      {/* Mobile More Menu (above bottom nav) */}
       {showMoreMenu && (
         <>
-          <div 
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              background: 'rgba(0,0,0,0.5)',
-              zIndex: 999,
-              backdropFilter: 'blur(4px)',
-            }}
-            onClick={() => setShowMoreMenu(false)}
-          />
-          <div 
-            style={{
-              position: 'fixed',
-              bottom: '56px',
-              left: 0,
-              right: 0,
-              background: 'var(--bg-elevated)',
-              borderTopLeftRadius: '16px',
-              borderTopRightRadius: '16px',
-              padding: '1.25rem 1rem',
-              zIndex: 1000,
-              maxHeight: '70vh',
-              overflowY: 'auto',
-              boxShadow: '0 -4px 20px rgba(0,0,0,0.3)',
+          <div className="more-sheet-overlay" onClick={() => setShowMoreMenu(false)} aria-hidden />
+          <div className="more-sheet" role="dialog" aria-label="More operations">
+            <div style={{
               display: 'flex',
-              flexDirection: 'column',
-              gap: '0.625rem',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
-              <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>More Operations</span>
-              <button 
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '0.65rem',
+              borderBottom: '1px solid var(--border)',
+              paddingBottom: '0.5rem',
+            }}>
+              <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                More
+              </span>
+              <button
+                type="button"
                 onClick={() => setShowMoreMenu(false)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 500 }}
+                className="btn btn-ghost btn-sm"
               >
                 Close
               </button>
             </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.625rem' }}>
-              {drawerItems.map(item => {
+            <div className="more-sheet-grid">
+              {drawerItems.map((item) => {
                 const isItemActive = pathname.startsWith(item.href)
                 return (
-                  <Link 
-                    key={item.href} 
-                    href={item.href} 
+                  <Link
+                    key={item.href}
+                    href={item.href}
                     onClick={() => setShowMoreMenu(false)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.625rem',
-                      padding: '0.75rem',
-                      borderRadius: 'var(--radius)',
-                      background: isItemActive ? 'rgba(245,158,11,0.1)' : 'var(--bg-secondary)',
-                      color: isItemActive ? 'var(--accent)' : 'var(--text-secondary)',
-                      textDecoration: 'none',
-                      fontSize: '0.8rem',
-                      fontWeight: 500,
-                      border: isItemActive ? '1px solid rgba(245,158,11,0.3)' : '1px solid transparent',
-                    }}
+                    className={`more-sheet-item${isItemActive ? ' active' : ''}`}
                   >
                     <item.icon size={16} />
                     <span>{item.label}</span>
@@ -341,10 +319,12 @@ function NavContent() {
               <BookOpen size={22} />
               <span className="bottom-nav-label">Cash Book</span>
             </Link>
-            <button 
-              onClick={() => setShowMoreMenu(prev => !prev)} 
-              className={`bottom-nav-item ${showMoreMenu || drawerItems.some(item => pathname.startsWith(item.href)) ? 'active' : ''}`}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            <button
+              type="button"
+              onClick={() => setShowMoreMenu((prev) => !prev)}
+              className={`bottom-nav-item ${showMoreMenu || drawerItems.some((item) => pathname.startsWith(item.href)) ? 'active' : ''}`}
+              aria-expanded={showMoreMenu}
+              aria-label="More operations"
             >
               <Menu size={22} />
               <span className="bottom-nav-label">More</span>

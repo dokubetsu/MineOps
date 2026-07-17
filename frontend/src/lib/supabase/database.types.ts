@@ -68,7 +68,7 @@ export type Database = {
       audit_logs: {
         Row: {
           action: string
-          actor_user_id: string
+          actor_user_id: string | null
           created_at: string | null
           id: string
           metadata: Json | null
@@ -78,7 +78,7 @@ export type Database = {
         }
         Insert: {
           action: string
-          actor_user_id: string
+          actor_user_id?: string | null
           created_at?: string | null
           id?: string
           metadata?: Json | null
@@ -88,7 +88,7 @@ export type Database = {
         }
         Update: {
           action?: string
-          actor_user_id?: string
+          actor_user_id?: string | null
           created_at?: string | null
           id?: string
           metadata?: Json | null
@@ -372,6 +372,7 @@ export type Database = {
       leave_applications: {
         Row: {
           approved_by: string | null
+          attendance_snapshot: Record<string, string> | null
           created_at: string | null
           employee_id: string
           from_date: string
@@ -384,6 +385,7 @@ export type Database = {
         }
         Insert: {
           approved_by?: string | null
+          attendance_snapshot?: Record<string, string> | null
           created_at?: string | null
           employee_id: string
           from_date: string
@@ -396,6 +398,7 @@ export type Database = {
         }
         Update: {
           approved_by?: string | null
+          attendance_snapshot?: Record<string, string> | null
           created_at?: string | null
           employee_id?: string
           from_date?: string
@@ -823,6 +826,7 @@ export type Database = {
           permit_number: string | null
           photo_url: string | null
           photo_urls: string[] | null
+          rate_per_cubic: number | null
           settled: boolean
           settled_at: string | null
           settled_by: string | null
@@ -860,6 +864,7 @@ export type Database = {
           permit_number?: string | null
           photo_url?: string | null
           photo_urls?: string[] | null
+          rate_per_cubic?: number | null
           settled?: boolean
           settled_at?: string | null
           settled_by?: string | null
@@ -897,6 +902,7 @@ export type Database = {
           permit_number?: string | null
           photo_url?: string | null
           photo_urls?: string[] | null
+          rate_per_cubic?: number | null
           settled?: boolean
           settled_at?: string | null
           settled_by?: string | null
@@ -1119,6 +1125,10 @@ export type Database = {
       }
       seed_organization_features: {
         Args: { p_organization_id: string }
+        Returns: undefined
+      }
+      claim_first_platform_owner: {
+        Args: { p_user_id: string }
         Returns: undefined
       }
       propagate_cash_book_balances: {

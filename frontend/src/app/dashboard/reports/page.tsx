@@ -7,6 +7,7 @@ import { Download, FileText, Printer, Calendar } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site, Trip, CashBook, CashEntry } from '@/lib/supabase/types'
+import { formatInr } from '@/lib/calculations'
 import toast from 'react-hot-toast'
 
 interface ExtendedTrip extends Trip {
@@ -514,26 +515,26 @@ export default function ReportsPage() {
           <div className="card" style={{ padding: '0.875rem 1rem' }}>
             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>MoM Cash In</span>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.25rem' }}>
-              <span style={{ fontSize: '1.15rem', fontWeight: 700 }}>₹{totalIn.toLocaleString('en-IN')}</span>
+              <span style={{ fontSize: '1.15rem', fontWeight: 700 }} title={`₹${totalIn.toLocaleString('en-IN')}`}>{formatInr(totalIn)}</span>
               <span style={{ fontSize: '0.72rem', fontWeight: 600, color: (comparison.inDiffPct === null || comparison.inDiffPct >= 0) ? 'var(--success)' : 'var(--danger)' }}>
                 {comparison.inDiffPct === null ? 'New' : `${comparison.inDiffPct >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(comparison.inDiffPct))}%`}
               </span>
             </div>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
-              vs ₹{comparison.prevTotalIn.toLocaleString('en-IN')} last month
+              vs {formatInr(comparison.prevTotalIn)} last month
             </div>
           </div>
 
           <div className="card" style={{ padding: '0.875rem 1rem' }}>
             <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>MoM Cash Out</span>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.5rem', marginTop: '0.25rem' }}>
-              <span style={{ fontSize: '1.15rem', fontWeight: 700 }}>₹{totalOut.toLocaleString('en-IN')}</span>
+              <span style={{ fontSize: '1.15rem', fontWeight: 700 }} title={`₹${totalOut.toLocaleString('en-IN')}`}>{formatInr(totalOut)}</span>
               <span style={{ fontSize: '0.72rem', fontWeight: 600, color: (comparison.outDiffPct === null || comparison.outDiffPct <= 0) ? 'var(--success)' : 'var(--danger)' }}>
                 {comparison.outDiffPct === null ? 'New' : `${comparison.outDiffPct >= 0 ? '▲' : '▼'} ${Math.abs(Math.round(comparison.outDiffPct))}%`}
               </span>
             </div>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
-              vs ₹{comparison.prevTotalOut.toLocaleString('en-IN')} last month
+              vs {formatInr(comparison.prevTotalOut)} last month
             </div>
           </div>
         </div>
@@ -602,7 +603,7 @@ export default function ReportsPage() {
                         <td>{t.transport_contractors?.name || '—'}</td>
                         <td><span className={`badge ${t.ownership_snapshot === 'owned' ? 'badge-blue' : 'badge-gray'}`}>{t.ownership_snapshot}</span></td>
                         <td style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>{t.permit_number || '—'}</td>
-                        <td><strong style={{ color: 'var(--success)' }}>₹{(t.trip_worth ?? 0).toLocaleString('en-IN')}</strong></td>
+                        <td><strong style={{ color: 'var(--success)' }} title={`₹${Number(t.trip_worth ?? 0).toLocaleString('en-IN')}`}>{formatInr(t.trip_worth ?? 0)}</strong></td>
                       </tr>
                     ))}
                   </tbody>
@@ -620,14 +621,14 @@ export default function ReportsPage() {
                   <div className="stat-icon green"><FileText size={18} /></div>
                   <div>
                     <div className="stat-label">Total In</div>
-                    <div className="stat-value" style={{ fontSize: '1.2rem', color: 'var(--success)' }}>₹{totalIn.toLocaleString('en-IN')}</div>
+                    <div className="stat-value" style={{ fontSize: '1.2rem', color: 'var(--success)' }} title={`₹${totalIn.toLocaleString('en-IN')}`}>{formatInr(totalIn)}</div>
                   </div>
                 </div>
                 <div className="stat-card">
                   <div className="stat-icon red"><FileText size={18} /></div>
                   <div>
                     <div className="stat-label">Total Out</div>
-                    <div className="stat-value" style={{ fontSize: '1.2rem', color: 'var(--danger)' }}>₹{totalOut.toLocaleString('en-IN')}</div>
+                    <div className="stat-value" style={{ fontSize: '1.2rem', color: 'var(--danger)' }} title={`₹${totalOut.toLocaleString('en-IN')}`}>{formatInr(totalOut)}</div>
                   </div>
                 </div>
                 <div className="stat-card">
@@ -635,7 +636,7 @@ export default function ReportsPage() {
                   <div>
                     <div className="stat-label">Net</div>
                     <div className="stat-value" style={{ fontSize: '1.2rem', color: (totalIn - totalOut) >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                      {(totalIn - totalOut) < 0 ? '-' : ''}₹{Math.abs(totalIn - totalOut).toLocaleString('en-IN')}
+                      {formatInr(totalIn - totalOut)}
                     </div>
                   </div>
                 </div>

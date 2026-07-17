@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { format, subDays, startOfMonth } from 'date-fns'
 import { TrendingUp, TrendingDown, Truck, DollarSign } from 'lucide-react'
 import { Site } from '@/lib/supabase/types'
-import { calculateStakeholderShare } from '@/lib/calculations'
+import { calculateStakeholderShare, formatInr } from '@/lib/calculations'
 import toast from 'react-hot-toast'
 
 interface TrendItem {
@@ -157,7 +157,7 @@ export default function StakeholderDashboardPage() {
     setLoading(false)
   }
 
-  const fmt = (n: number) => `₹${Math.abs(n).toLocaleString('en-IN')}`
+  const fmt = (n: number) => formatInr(n)
 
   return (
     <div>
@@ -218,7 +218,7 @@ export default function StakeholderDashboardPage() {
                       {siteData.myShare >= 0 ? '' : '-'}{fmt(siteData.myShare)}
                     </div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                      {siteData.sharePercent}% of ₹{Math.abs(siteData.net).toLocaleString('en-IN')} net
+                      {siteData.sharePercent}% of {formatInr(siteData.net)} net
                     </div>
                   </div>
                 </div>
@@ -257,7 +257,7 @@ export default function StakeholderDashboardPage() {
                       Current Balance
                     </div>
                     <div style={{ fontFamily: 'var(--font-display)', fontSize: '1.5rem', fontWeight: 800, color: 'var(--accent)', marginTop: '0.2rem' }}>
-                      ₹{(siteData.latestBalance || 0).toLocaleString('en-IN')}
+                      {formatInr(siteData.latestBalance || 0)}
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>

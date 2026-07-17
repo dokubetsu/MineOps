@@ -61,7 +61,6 @@ async function upstashCheck(
   const base = process.env.UPSTASH_REDIS_REST_URL!.replace(/\/$/, '')
   const token = process.env.UPSTASH_REDIS_REST_TOKEN!
   const redisKey = `mineops:rl:${key}`
-  const windowSec = Math.max(1, Math.ceil(windowMs / 1000))
 
   try {
     const res = await fetch(`${base}/pipeline`, {

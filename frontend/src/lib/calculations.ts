@@ -159,3 +159,57 @@ export function computeTripWorthFromRate(
     cubicCapacity: cubicCapacity != null ? Number(cubicCapacity) : null,
   })
 }
+
+/**
+ * Format INR for KPI cards and dense UI.
+ * Uses compact notation (e.g. ₹1L) for |amount| ≥ 1,00,000 so values fit small cards.
+ * Full amount is still available via title tooltips in the UI.
+ */
+export function formatInr(
+  amount: number | null | undefined,
+  options?: { compact?: boolean; forceCompactAt?: number }
+): string {
+  const n = Number(amount)
+  const value = Number.isFinite(n) ? n : 0
+  const threshold = options?.forceCompactAt ?? 100_000
+  const useCompact = options?.compact !== false && Math.abs(value) >= threshold
+
+  if (useCompact) {
+    try {
+      return new Intl.NumberFormat('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        notation: 'compact',
+        maximumFractionDigits: 1,
+      }).format(value)
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const sign = value < 0 ? '-' : ''
+  return `${sign}₹${Math.abs(value).toLocaleString('en-IN')}`
+}
+
+/** Compact non-currency metric for KPI values (counts, CUM, etc.). */
+export function formatMetric(
+  amount: number | null | undefined,
+  options?: { compactAt?: number; maxFractionDigits?: number }
+): string {
+  const n = Number(amount)
+  const value = Number.isFinite(n) ? n : 0
+  const compactAt = options?.compactAt ?? 10_000
+  if (Math.abs(value) >= compactAt) {
+    try {
+      return new Intl.NumberFormat('en-IN', {
+        notation: 'compact',
+        maximumFractionDigits: options?.maxFractionDigits ?? 1,
+      }).format(value)
+    } catch {
+      /* fall through */
+    }
+  }
+  return value.toLocaleString('en-IN', {
+    maximumFractionDigits: options?.maxFractionDigits ?? 0,
+  })
+}

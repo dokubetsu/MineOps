@@ -48,9 +48,13 @@ User provisioning is decoupled from client auth to prevent unauthorized account 
 
 Helper: `write_audit_event(...)` for SECURITY DEFINER RPCs. See migrations `041` + **`045` (Phase E)**.
 
-### Phase E audit binding
+### Phase E–F audit binding
 
-`write_audit_event` stamps `organization_id` from the **actor’s org** for tenant callers (foreign `p_organization_id` is ignored and recorded in metadata). Platform owners and `service_role` may pass an explicit org. Direct `EXECUTE` is revoked from `authenticated` so clients cannot insert arbitrary audit rows.
+`write_audit_event` stamps `organization_id` from the **actor’s org** for tenant callers (foreign `p_organization_id` is ignored and recorded in metadata). Platform owners and `service_role` may pass an explicit org. Direct `EXECUTE` is revoked from `authenticated` so clients cannot insert arbitrary audit rows. `actor_user_id` may be null for pure service events (migration **046**).
+
+### Feature write gates (046)
+
+DB triggers enforce features on INSERT/UPDATE/**DELETE** for operational tables **and** `employees`, `sites`, `vehicles`, `drivers`, `contractors`, `customers`, `negotiated_rates`, `user_roles`, `stakeholder_site_access`. Bootstrap uses `claim_first_platform_owner` (advisory lock). Leave unapprove restores prior attendance from `attendance_snapshot`.
 
 ### Storage (Phase E)
 

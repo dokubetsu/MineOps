@@ -130,14 +130,27 @@ export async function POST(req: NextRequest) {
       userId = created.user.id
     }
 
-    const { error: roleError } = await supabase.from('platform_roles').insert({
-      user_id: userId,
-      role: 'platform_owner',
+    // Atomic claim (advisory lock) — prevents concurrent bootstrap double-owner (Phase F / 046)
+    const { error: roleError } = await supabase.rpc('claim_first_platform_owner', {
+      p_user_id: userId,
     })
     if (roleError) {
-      if (!roleError.message.includes('duplicate') && roleError.code !== '23505') {
-        throw new Error(roleError.message)
+      const msg = roleError.message || ''
+      if (
+        roleError.code === '23505' ||
+        /already exists|unique_violation|duplicate/i.test(msg)
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              'A platform owner already exists. Sign in with that account. Bootstrap is closed.',
+            already_bootstrapped: true,
+            code: 'ALREADY_BOOTSTRAPPED',
+          },
+          { status: 409 }
+        )
       }
+      throw new Error(msg)
     }
 
     await supabase.auth.admin.updateUserById(userId, {

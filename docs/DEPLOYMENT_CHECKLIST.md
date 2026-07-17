@@ -6,7 +6,7 @@ Use this before every production deploy. Order matters.
 
 Remote Supabase must include **all** migrations through the latest file in `supabase/migrations/`.
 
-As of this document that is **`045_phase_e_hardening.sql`** (and everything before it, including **036–044**).  
+As of this document that is **`046_phase_f_residual_hardening.sql`** (and everything before it, including **036–045**).  
 After schema changes, regenerate or hand-update `frontend/src/lib/supabase/database.types.ts` — see `docs/SCHEMA_SSOT.md`.
 
 ```bash
@@ -62,14 +62,16 @@ Alternative: Supabase Auth create user + SQL
 
 ## 6. Smoke test after deploy
 
-- [ ] Migrations list complete through **045** (and types/docs per `SCHEMA_SSOT.md`)
+- [ ] Migrations list complete through **046** (and types/docs per `SCHEMA_SSOT.md`)
 - [ ] Optional: `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` for durable API rate limits  
 - [ ] Login as platform owner → `/platform`  
 - [ ] Create org + admin (temp password)  
 - [ ] Tenant admin login → `/dashboard`  
 - [ ] `/api/platform/bootstrap` POST returns 409 if owner exists  
 - [ ] Production without secret: GET bootstrap reports `blocked_by_missing_secret` when no owners yet  
-- [ ] Disable a module on `/platform` org detail → tenant nav hides it; deep link redirects; writes raise feature error (Phase B / migration **043**)  
+- [ ] Disable a module on `/platform` org detail → tenant nav hides it; deep link redirects; writes raise feature error (**043/046**)  
+- [ ] Disable **master_data** / **manage_employees** → creates fail at DB (Phase F **046**)  
+- [ ] Leave force-approve then Undo restores prior attendance statuses (**046**)  
 - [ ] Employee my-work trip photo upload works (storage policies **045**)  
 
 ## Related docs

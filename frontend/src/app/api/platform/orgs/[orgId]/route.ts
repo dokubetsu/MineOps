@@ -51,7 +51,8 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   const features = Object.fromEntries(
     FEATURE_KEYS.map((k) => {
       const row = (feats || []).find((f) => f.feature_key === k)
-      return [k, row ? row.enabled : true]
+      // Fail-closed: missing row = disabled (matches DB org_has_feature)
+      return [k, row ? row.enabled : false]
     })
   )
 

@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Site, CashBook, CashEntry, Trip } from '@/lib/supabase/types'
+import { formatInr, formatMetric } from '@/lib/calculations'
 
 interface ExtendedTrip extends Trip {
   vehicles?: {
@@ -209,46 +210,42 @@ export default function DashboardPage() {
     <div>
       {/* Header */}
       <div className="page-header">
-        <div>
+        <div style={{ minWidth: 0 }}>
           <h1 className="page-title">Dashboard</h1>
           <p className="page-subtitle">{format(new Date(), 'EEEE, d MMMM yyyy')}</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          {sites.length > 1 && (
-            <>
-              <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden' }}>
-                <button
-                  type="button"
-                  className={`btn btn-sm ${viewMode === 'all' ? 'btn-primary' : 'btn-ghost'}`}
-                  style={{ borderRadius: 0 }}
-                  onClick={() => setViewMode('all')}
-                >
-                  All sites
-                </button>
-                <button
-                  type="button"
-                  className={`btn btn-sm ${viewMode === 'site' ? 'btn-primary' : 'btn-ghost'}`}
-                  style={{ borderRadius: 0 }}
-                  onClick={() => setViewMode('site')}
-                >
-                  One site
-                </button>
-              </div>
-              {viewMode === 'site' && (
-                <select
-                  className="form-input form-select"
-                  style={{ width: 'auto', minWidth: '160px' }}
-                  value={selectedSite}
-                  onChange={(e) => setSelectedSite(e.target.value)}
-                >
-                  {sites.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </select>
-              )}
-            </>
-          )}
-        </div>
+        {sites.length > 1 && (
+          <div className="page-header-actions">
+            <div className="segmented-control">
+              <button
+                type="button"
+                className={`btn btn-sm ${viewMode === 'all' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setViewMode('all')}
+              >
+                All sites
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${viewMode === 'site' ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setViewMode('site')}
+              >
+                One site
+              </button>
+            </div>
+            {viewMode === 'site' && (
+              <select
+                className="form-input form-select site-select"
+                value={selectedSite}
+                onChange={(e) => setSelectedSite(e.target.value)}
+                aria-label="Select site"
+              >
+                {sites.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -267,41 +264,42 @@ export default function DashboardPage() {
       ) : viewMode === 'all' && sites.length > 1 ? (
         <>
           {/* Concurrent multi-site rollup */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+          <div className="stats-grid">
             <div className="stat-card">
-              <div className="stat-icon amber"><Truck size={20} /></div>
-              <div>
+              <div className="stat-icon amber"><Truck size={18} /></div>
+              <div className="stat-body">
                 <div className="stat-label">Trips (all sites)</div>
-                <div className="stat-value">{siteRollups.reduce((s, r) => s + r.trips, 0)}</div>
+                <div className="stat-value">{formatMetric(siteRollups.reduce((s, r) => s + r.trips, 0))}</div>
               </div>
             </div>
             <div className="stat-card">
-              <div className="stat-icon info"><Activity size={20} style={{ color: 'var(--info)' }} /></div>
-              <div>
-                <div className="stat-label">Material (CUM)</div>
-                <div className="stat-value">{siteRollups.reduce((s, r) => s + r.material, 0).toLocaleString()}</div>
-              </div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-icon red"><TrendingDown size={20} style={{ color: 'var(--danger)' }} /></div>
-              <div>
-                <div className="stat-label">Advance + cash out</div>
-                <div className="stat-value" style={{ fontSize: '1rem' }}>
-                  ₹{(
-                    siteRollups.reduce((s, r) => s + r.advance + r.cash_out, 0)
-                  ).toLocaleString('en-IN')}
+              <div className="stat-icon info"><Activity size={18} /></div>
+              <div className="stat-body">
+                <div className="stat-label">Material</div>
+                <div className="stat-value-row">
+                  <div className="stat-value">{formatMetric(siteRollups.reduce((s, r) => s + r.material, 0), { maxFractionDigits: 1 })}</div>
+                  <span className="stat-unit">CUM</span>
                 </div>
               </div>
             </div>
             <div className="stat-card">
-              <div className="stat-icon green"><TrendingUp size={20} style={{ color: 'var(--success)' }} /></div>
-              <div>
-                <div className="stat-label">Inward (pending)</div>
-                <div className="stat-value" style={{ fontSize: '1rem', color: 'var(--success)' }}>
-                  ₹{siteRollups.reduce((s, r) => s + r.inward, 0).toLocaleString('en-IN')}
+              <div className="stat-icon red"><TrendingDown size={18} /></div>
+              <div className="stat-body">
+                <div className="stat-label">Advance + cash out</div>
+                <div className="stat-value">
+                  {formatInr(siteRollups.reduce((s, r) => s + r.advance + r.cash_out, 0))}
+                </div>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-icon green"><TrendingUp size={18} /></div>
+              <div className="stat-body">
+                <div className="stat-label">Inward</div>
+                <div className="stat-value" style={{ color: 'var(--success)' }}>
+                  {formatInr(siteRollups.reduce((s, r) => s + r.inward, 0))}
                 </div>
                 <div className="stat-change" style={{ color: 'var(--amber)' }}>
-                  ₹{siteRollups.reduce((s, r) => s + r.unsettled, 0).toLocaleString('en-IN')} unsettled
+                  {formatInr(siteRollups.reduce((s, r) => s + r.unsettled, 0))} unsettled
                 </div>
               </div>
             </div>
@@ -333,16 +331,16 @@ export default function DashboardPage() {
                     <div>
                       <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{r.name}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                        {r.trips} trips · {r.material.toLocaleString()} CUM · Cash out ₹{r.cash_out.toLocaleString('en-IN')}
+                        {r.trips} trips · {formatMetric(r.material, { maxFractionDigits: 1 })} CUM · Cash out {formatInr(r.cash_out)}
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 700, color: 'var(--success)' }}>
-                        ₹{r.inward.toLocaleString('en-IN')}
+                    <div style={{ textAlign: 'right', minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, color: 'var(--success)', fontSize: '0.95rem' }} title={`₹${r.inward.toLocaleString('en-IN')}`}>
+                        {formatInr(r.inward)}
                       </div>
                       {r.unsettled > 0 && (
-                        <div style={{ fontSize: '0.7rem', color: 'var(--amber)' }}>
-                          ₹{r.unsettled.toLocaleString('en-IN')} pending
+                        <div style={{ fontSize: '0.7rem', color: 'var(--amber)' }} title={`₹${r.unsettled.toLocaleString('en-IN')}`}>
+                          {formatInr(r.unsettled)} pending
                         </div>
                       )}
                     </div>
@@ -356,33 +354,19 @@ export default function DashboardPage() {
           </div>
 
           <div className="card mb-4">
-            <h3 style={{ marginBottom: '0.875rem', fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            <h3 style={{ marginBottom: '0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
               Quick Actions
             </h3>
-            <div className="grid-2" style={{ gap: '0.625rem' }}>
+            <div className="grid-2 quick-actions-grid" style={{ gap: '0.5rem' }}>
               {[
                 { href: '/dashboard/trips', icon: '🚛', label: 'Log Trip' },
                 { href: '/dashboard/cash-book', icon: '💰', label: 'Cash Entry' },
                 { href: '/dashboard/attendance', icon: '📋', label: 'Attendance' },
                 { href: '/dashboard/payroll', icon: '💵', label: 'Payroll' },
               ].map((action) => (
-                <Link
-                  key={action.href}
-                  href={action.href}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.75rem',
-                    padding: '0.875rem',
-                    background: 'var(--bg-elevated)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius)',
-                    textDecoration: 'none',
-                    color: 'var(--text-primary)',
-                  }}
-                >
-                  <span style={{ fontSize: '1.25rem' }}>{action.icon}</span>
-                  <span style={{ fontWeight: 500, fontSize: '0.875rem' }}>{action.label}</span>
+                <Link key={action.href} href={action.href} className="quick-action">
+                  <span className="quick-action-icon" aria-hidden>{action.icon}</span>
+                  <span className="quick-action-label">{action.label}</span>
                 </Link>
               ))}
             </div>
@@ -390,72 +374,81 @@ export default function DashboardPage() {
         </>
       ) : (
         <>
-          {/* Stats Grid — single site */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
+          {/* Stats Grid — single site (compact, overflow-safe) */}
+          <div className="stats-grid stats-grid-dense">
             <div className="stat-card">
               <div className="stat-icon amber">
-                <Truck size={20} />
+                <Truck size={18} />
               </div>
-              <div>
-                <div className="stat-label">Today's Trips</div>
-                <div className="stat-value">{recentTrips.length}</div>
+              <div className="stat-body">
+                <div className="stat-label">Today&apos;s Trips</div>
+                <div className="stat-value">{formatMetric(recentTrips.length)}</div>
                 <div className="stat-change">
-                  <Activity size={12} />
-                  <span style={{ color: 'var(--text-muted)' }}>Live</span>
+                  <Activity size={11} />
+                  <span>Live</span>
                 </div>
               </div>
             </div>
 
             <div className="stat-card">
               <div className="stat-icon info">
-                <Activity size={20} style={{ color: 'var(--info)' }} />
+                <Activity size={18} />
               </div>
-              <div>
+              <div className="stat-body">
                 <div className="stat-label">Material Moved</div>
-                <div className="stat-value">{totalMaterialMoved.toLocaleString()} CUM</div>
+                <div className="stat-value-row">
+                  <div className="stat-value">{formatMetric(totalMaterialMoved, { maxFractionDigits: 1 })}</div>
+                  <span className="stat-unit">CUM</span>
+                </div>
               </div>
             </div>
 
             <div className="stat-card">
               <div className="stat-icon red">
-                <TrendingDown size={20} style={{ color: 'var(--danger)' }} />
+                <TrendingDown size={18} />
               </div>
-              <div>
+              <div className="stat-body">
                 <div className="stat-label">Advance Spent</div>
-                <div className="stat-value" style={{ fontSize: '1.15rem' }}>
-                  ₹{totalSpentAdvances.toLocaleString('en-IN')}
-                </div>
+                <div className="stat-value">{formatInr(totalSpentAdvances)}</div>
               </div>
             </div>
 
             <div className="stat-card">
               <div className="stat-icon green">
-                <TrendingUp size={20} style={{ color: 'var(--success)' }} />
+                <TrendingUp size={18} />
               </div>
-              <div>
+              <div className="stat-body">
                 <div className="stat-label">Inward Revenue</div>
-                <div className="stat-value" style={{ fontSize: '1.15rem', color: 'var(--success)' }}>
-                  ₹{totalInwardRevenue.toLocaleString('en-IN')}
+                <div className="stat-value" style={{ color: 'var(--success)' }}>
+                  {formatInr(totalInwardRevenue)}
                 </div>
                 {unsettledInwardWorth > 0 && (
                   <div className="stat-change" style={{ color: 'var(--amber)' }}>
-                    ₹{unsettledInwardWorth.toLocaleString('en-IN')} pending
+                    {formatInr(unsettledInwardWorth)} pending
                   </div>
                 )}
               </div>
             </div>
 
             <div className="stat-card">
-              <div className="stat-icon green">
-                <BookOpen size={20} />
+              <div className={`stat-icon ${(cashBook?.closing_balance ?? 0) < 0 ? 'red' : 'green'}`}>
+                <BookOpen size={18} />
               </div>
-              <div>
+              <div className="stat-body">
                 <div className="stat-label">Cash Balance</div>
-                <div className="stat-value" style={{ fontSize: '1.15rem' }}>
-                  ₹{((cashBook?.closing_balance || 0)).toLocaleString('en-IN')}
+                <div
+                  className="stat-value"
+                  style={{ color: (cashBook?.closing_balance ?? 0) < 0 ? 'var(--danger)' : undefined }}
+                  title={`₹${Number(cashBook?.closing_balance || 0).toLocaleString('en-IN')}`}
+                >
+                  {formatInr(cashBook?.closing_balance || 0)}
                 </div>
-                <div className="stat-change positive">
-                  <TrendingUp size={12} />
+                <div className={`stat-change ${(cashBook?.closing_balance ?? 0) < 0 ? 'negative' : 'positive'}`}>
+                  {(cashBook?.closing_balance ?? 0) < 0 ? (
+                    <TrendingDown size={11} />
+                  ) : (
+                    <TrendingUp size={11} />
+                  )}
                   <span>Closing</span>
                 </div>
               </div>
@@ -463,12 +456,12 @@ export default function DashboardPage() {
 
             <div className="stat-card">
               <div className="stat-icon red">
-                <TrendingDown size={20} />
+                <TrendingDown size={18} />
               </div>
-              <div>
+              <div className="stat-body">
                 <div className="stat-label">Cash Outflow</div>
-                <div className="stat-value" style={{ fontSize: '1.15rem', color: 'var(--danger)' }}>
-                  ₹{totalOut.toLocaleString('en-IN')}
+                <div className="stat-value" style={{ color: 'var(--danger)' }}>
+                  {formatInr(totalOut)}
                 </div>
               </div>
             </div>
@@ -500,34 +493,19 @@ export default function DashboardPage() {
 
           {/* Quick Actions */}
           <div className="card mb-4">
-            <h3 style={{ marginBottom: '0.875rem', fontSize: '0.9rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            <h3 style={{ marginBottom: '0.75rem', fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
               Quick Actions
             </h3>
-            <div className="grid-2" style={{ gap: '0.625rem' }}>
+            <div className="grid-2 quick-actions-grid" style={{ gap: '0.5rem' }}>
               {[
-                { href: '/dashboard/trips', icon: '🚛', label: 'Log Trip', color: 'var(--accent)' },
-                { href: '/dashboard/cash-book', icon: '💰', label: 'Cash Entry', color: 'var(--success)' },
-                { href: '/dashboard/attendance', icon: '📋', label: 'Attendance', color: 'var(--info)' },
-                { href: '/dashboard/payroll', icon: '💵', label: 'Payroll', color: 'var(--text-secondary)' },
-              ].map(action => (
-                <Link
-                  key={action.href}
-                  href={action.href}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.75rem',
-                    padding: '0.875rem',
-                    background: 'var(--bg-elevated)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius)',
-                    textDecoration: 'none',
-                    transition: 'all 0.15s',
-                    color: 'var(--text-primary)',
-                  }}
-                >
-                  <span style={{ fontSize: '1.25rem' }}>{action.icon}</span>
-                  <span style={{ fontWeight: 500, fontSize: '0.875rem' }}>{action.label}</span>
+                { href: '/dashboard/trips', icon: '🚛', label: 'Log Trip' },
+                { href: '/dashboard/cash-book', icon: '💰', label: 'Cash Entry' },
+                { href: '/dashboard/attendance', icon: '📋', label: 'Attendance' },
+                { href: '/dashboard/payroll', icon: '💵', label: 'Payroll' },
+              ].map((action) => (
+                <Link key={action.href} href={action.href} className="quick-action">
+                  <span className="quick-action-icon" aria-hidden>{action.icon}</span>
+                  <span className="quick-action-label">{action.label}</span>
                 </Link>
               ))}
             </div>

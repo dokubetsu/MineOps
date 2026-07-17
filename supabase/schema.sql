@@ -3,7 +3,7 @@
 -- ==========================================
 -- WARNING: This file is a REFERENCE SNAPSHOT only (may lag live migrations).
 -- Do NOT apply schema.sql to deploy. Use ordered files in
--- supabase/migrations/ (currently through 045_phase_e_hardening.sql).
+-- supabase/migrations/ (currently through 046_phase_f_residual_hardening.sql).
 -- TypeScript types: frontend/src/lib/supabase/database.types.ts
 -- Policy: docs/SCHEMA_SSOT.md
 -- ==========================================

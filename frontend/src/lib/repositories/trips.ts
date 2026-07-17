@@ -61,17 +61,18 @@ export const tripsRepository = {
     supabase: SupabaseClient<Database>,
     payload: TripCreateInput
   ): Promise<TripRow> {
-    const { rate_per_cubic: _rate, ...rest } = payload
     const worth = normalizeWorth(payload)
     const total =
-      rest.total_shipment_cost != null && !Number.isNaN(Number(rest.total_shipment_cost))
-        ? roundMoney(Number(rest.total_shipment_cost))
+      payload.total_shipment_cost != null && !Number.isNaN(Number(payload.total_shipment_cost))
+        ? roundMoney(Number(payload.total_shipment_cost))
         : worth
 
     const { data, error } = await supabase
       .from('trips')
       .insert({
-        ...rest,
+        ...payload,
+        rate_per_cubic:
+          payload.rate_per_cubic != null ? Number(payload.rate_per_cubic) : null,
         trip_worth: worth,
         total_shipment_cost: total,
         entry_time: new Date().toISOString(),
@@ -89,18 +90,23 @@ export const tripsRepository = {
     id: string,
     payload: TripUpdate & { rate_per_cubic?: number | null }
   ): Promise<TripRow> {
-    const { rate_per_cubic, ...rest } = payload
-    const patch: TripUpdate = { ...rest }
+    const patch: TripUpdate & { rate_per_cubic?: number | null } = { ...payload }
 
-    if (rest.trip_worth != null && !Number.isNaN(Number(rest.trip_worth))) {
-      patch.trip_worth = computeTripWorth({ tripWorth: rest.trip_worth })
-    } else if (rate_per_cubic != null || rest.cubic_capacity != null) {
-      patch.trip_worth = computeTripWorthFromRate(rest.cubic_capacity, rate_per_cubic)
+    if (payload.trip_worth != null && !Number.isNaN(Number(payload.trip_worth))) {
+      patch.trip_worth = computeTripWorth({ tripWorth: payload.trip_worth })
+    } else if (payload.rate_per_cubic != null || payload.cubic_capacity != null) {
+      patch.trip_worth = computeTripWorthFromRate(
+        payload.cubic_capacity,
+        payload.rate_per_cubic
+      )
     }
-    if (rest.total_shipment_cost != null) {
-      patch.total_shipment_cost = roundMoney(Number(rest.total_shipment_cost))
+    if (payload.total_shipment_cost != null) {
+      patch.total_shipment_cost = roundMoney(Number(payload.total_shipment_cost))
     } else if (patch.trip_worth != null) {
       patch.total_shipment_cost = patch.trip_worth
+    }
+    if (payload.rate_per_cubic != null) {
+      patch.rate_per_cubic = Number(payload.rate_per_cubic)
     }
 
     const { data, error } = await supabase
