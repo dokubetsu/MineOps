@@ -16,17 +16,11 @@ ALTER TABLE public.payroll_runs ADD COLUMN IF NOT EXISTS organization_id uuid RE
 ALTER TABLE public.payroll_lines ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE RESTRICT;
 
 -- ============================================================
--- Step 2: Backfill existing records (Temporarily disable triggers to bypass lock/validation constraints)
+-- Step 2: Backfill existing records (Temporarily disable specific triggers to bypass lock/validation constraints)
 -- ============================================================
 
-ALTER TABLE public.employees DISABLE TRIGGER ALL;
-ALTER TABLE public.trips DISABLE TRIGGER ALL;
-ALTER TABLE public.cash_books DISABLE TRIGGER ALL;
-ALTER TABLE public.cash_entries DISABLE TRIGGER ALL;
-ALTER TABLE public.attendance DISABLE TRIGGER ALL;
-ALTER TABLE public.leave_applications DISABLE TRIGGER ALL;
-ALTER TABLE public.payroll_runs DISABLE TRIGGER ALL;
-ALTER TABLE public.payroll_lines DISABLE TRIGGER ALL;
+ALTER TABLE public.cash_entries DISABLE TRIGGER trg_check_cash_book_lock;
+ALTER TABLE public.payroll_lines DISABLE TRIGGER trg_check_payroll_run_lock;
 
 UPDATE public.employees e SET organization_id = COALESCE(s.organization_id, '00000000-0000-0000-0000-000000000000') FROM public.sites s WHERE e.site_id = s.id AND e.organization_id IS NULL;
 UPDATE public.trips t SET organization_id = COALESCE(s.organization_id, '00000000-0000-0000-0000-000000000000') FROM public.sites s WHERE t.site_id = s.id AND t.organization_id IS NULL;
@@ -47,14 +41,8 @@ UPDATE public.leave_applications SET organization_id = '00000000-0000-0000-0000-
 UPDATE public.payroll_runs SET organization_id = '00000000-0000-0000-0000-000000000000'::uuid WHERE organization_id IS NULL;
 UPDATE public.payroll_lines SET organization_id = '00000000-0000-0000-0000-000000000000'::uuid WHERE organization_id IS NULL;
 
-ALTER TABLE public.employees ENABLE TRIGGER ALL;
-ALTER TABLE public.trips ENABLE TRIGGER ALL;
-ALTER TABLE public.cash_books ENABLE TRIGGER ALL;
-ALTER TABLE public.cash_entries ENABLE TRIGGER ALL;
-ALTER TABLE public.attendance ENABLE TRIGGER ALL;
-ALTER TABLE public.leave_applications ENABLE TRIGGER ALL;
-ALTER TABLE public.payroll_runs ENABLE TRIGGER ALL;
-ALTER TABLE public.payroll_lines ENABLE TRIGGER ALL;
+ALTER TABLE public.cash_entries ENABLE TRIGGER trg_check_cash_book_lock;
+ALTER TABLE public.payroll_lines ENABLE TRIGGER trg_check_payroll_run_lock;
 
 -- Enforce NOT NULL constraints
 ALTER TABLE public.employees ALTER COLUMN organization_id SET NOT NULL;
