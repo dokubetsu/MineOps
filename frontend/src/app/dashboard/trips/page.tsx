@@ -793,6 +793,8 @@ export default function TripsPage() {
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <input
                 className="form-input"
+                data-testid="trip-vehicle-input"
+                aria-label="Vehicle Number"
                 style={{ textTransform: 'uppercase', flex: 1 }}
                 placeholder="e.g. KA-19-M-1234"
                 value={vehicleSearch}

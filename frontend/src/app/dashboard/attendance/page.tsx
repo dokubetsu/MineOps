@@ -38,6 +38,8 @@ export default function AttendancePage() {
   const [isDirty, setIsDirty] = useState(false)
   const [payrollLocked, setPayrollLocked] = useState(false)
   const isDirtyRef = useRef(false)
+  /** Bumped on every local mark/unmark so in-flight save/reload cannot clobber newer edits. */
+  const editEpochRef = useRef(0)
   const supabase = createClient()
 
   const loadSites = async () => {
@@ -52,7 +54,13 @@ export default function AttendancePage() {
     }
   }
 
-  const loadRoster = async () => {
+  /**
+   * Load muster for site/date.
+   * Never clobber in-progress local edits: if the user marked/unmarked while a
+   * fetch was in flight (common after Save → loadRoster), keep their draft and
+   * leave Save enabled. Realtime uses the same rule via isDirtyRef.
+   */
+  const loadRoster = async (_opts?: { force?: boolean }) => {
     if (!selectedSite) return
     setLoading(true)
     try {
@@ -60,13 +68,24 @@ export default function AttendancePage() {
         attendanceRepository.listRoster(supabase, selectedSite, selectedDate),
         attendanceRepository.isMonthFinalized(supabase, selectedSite, selectedDate),
       ])
+      // User edited while we were fetching — do not wipe their draft roster
+      // (common: Save → reload races with unmark click before second Save).
+      if (isDirtyRef.current) {
+        setPayrollLocked(locked)
+        return
+      }
       setRoster(data)
       setPayrollLocked(locked)
       setIsDirty(false)
+      isDirtyRef.current = false
       const cacheable = data.map(({ display_photo_url: _u, uploading: _up, ...rest }) => rest)
       setOfflineCache(user?.id, organizationId, `roster_${selectedSite}_${selectedDate}`, cacheable)
     } catch (error: unknown) {
       const message = toErrorMessage(error)
+      if (isDirtyRef.current) {
+        // Keep draft on transient load errors while editing
+        return
+      }
       const cached = getOfflineCache<RosterEmployee[]>(
         user?.id,
         organizationId,
@@ -75,6 +94,7 @@ export default function AttendancePage() {
       if (cached) {
         setRoster(cached)
         setIsDirty(false)
+        isDirtyRef.current = false
         setPayrollLocked(false)
         toast('Serving cached muster roll (offline mode)', { icon: '📶' })
       } else {
@@ -101,7 +121,11 @@ export default function AttendancePage() {
   }, [authLoading, isAdmin, isSiteManager])
 
   useEffect(() => {
-    if (selectedSite) void loadRoster()
+    if (!selectedSite) return
+    // Site/date change discards in-progress marks for the previous context
+    isDirtyRef.current = false
+    setIsDirty(false)
+    void loadRoster({ force: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSite, selectedDate])
 
@@ -138,6 +162,10 @@ export default function AttendancePage() {
       toast.error('This month is payroll-finalized — attendance is read-only')
       return
     }
+    // Sync refs immediately so in-flight save/load cannot clobber this edit
+    editEpochRef.current += 1
+    isDirtyRef.current = true
+    setIsDirty(true)
     setRoster((prev) =>
       prev.map((emp) => {
         if (emp.id !== employeeId) return emp
@@ -145,7 +173,6 @@ export default function AttendancePage() {
         return { ...emp, status }
       })
     )
-    setIsDirty(true)
   }
 
   const handlePhotoUpload = async (employeeId: string, file: File) => {
@@ -226,6 +253,7 @@ export default function AttendancePage() {
       )
     }
     setSaving(true)
+    const epochAtSave = editEpochRef.current
     try {
       const records = roster.map((emp) => ({
         employee_id: emp.id,
@@ -239,8 +267,15 @@ export default function AttendancePage() {
       if (result.upserted > 0) parts.push(`${result.upserted} mark(s) saved`)
       if (result.cleared > 0) parts.push(`${result.cleared} cleared`)
       toast.success(parts.length ? parts.join(', ') : 'Attendance updated')
+
+      // If the user marked/unmarked while save was in flight, keep their draft
+      // and leave Save enabled for the next persist.
+      if (editEpochRef.current !== epochAtSave) {
+        return
+      }
+      isDirtyRef.current = false
       setIsDirty(false)
-      await loadRoster()
+      await loadRoster({ force: true })
     } catch (error: unknown) {
       const message = toErrorMessage(error)
       console.error('Attendance save failed:', message)
@@ -248,8 +283,9 @@ export default function AttendancePage() {
       // Re-check lock state if DB rejected due to finalize
       if (/finalized/i.test(message)) {
         setPayrollLocked(true)
+        isDirtyRef.current = false
         setIsDirty(false)
-        await loadRoster()
+        await loadRoster({ force: true })
       }
     } finally {
       setSaving(false)
@@ -267,8 +303,10 @@ export default function AttendancePage() {
       toast.error('This month is payroll-finalized — attendance is read-only')
       return
     }
-    setRoster((prev) => prev.map((emp) => ({ ...emp, status: 'present' as const })))
+    editEpochRef.current += 1
+    isDirtyRef.current = true
     setIsDirty(true)
+    setRoster((prev) => prev.map((emp) => ({ ...emp, status: 'present' as const })))
     toast.success("All marked Present (don't forget to click Save)")
   }
 
@@ -290,7 +328,9 @@ export default function AttendancePage() {
               Mark All Present
             </button>
             <button
+              type="button"
               className="btn btn-primary"
+              data-testid="attendance-save"
               onClick={saveAttendance}
               disabled={saving || roster.length === 0 || payrollLocked || !isDirty}
             >

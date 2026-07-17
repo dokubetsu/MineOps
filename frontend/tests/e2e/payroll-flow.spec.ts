@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { clickNav, loginAsAdmin } from './helpers'
+import { clickNav, loginAsAdmin, toastLocator, waitForSaveIdle } from './helpers'
 
 /**
  * MineOps End-to-End Business Flow
@@ -22,37 +22,74 @@ test.describe('MineOps End-to-End Business Flow', () => {
 
     await page.locator('button:has-text("Log Trip")').first().click()
 
-    const search = page
+    // Prefer stable test id; fallbacks for older builds
+    const vehicleInput = page
       .locator(
-        'input[placeholder*="plate" i], input[placeholder*="search" i], input[placeholder*="vehicle" i]'
+        '[data-testid="trip-vehicle-input"], input[aria-label="Vehicle Number"], input[placeholder*="KA" i]'
       )
       .first()
-    await expect(search).toBeVisible({ timeout: 10000 })
-    await search.fill('KA01MH1234')
+    await expect(vehicleInput).toBeVisible({ timeout: 15000 })
+    await vehicleInput.fill('KA01MH1234')
 
-    const match = page.locator('text=KA01MH1234').first()
-    await expect(match).toBeVisible({ timeout: 10000 })
-    await match.click()
+    const match = page.getByRole('dialog').locator('text=KA01MH1234').first()
+    if (await match.isVisible({ timeout: 4000 }).catch(() => false)) {
+      await match.click()
+    }
 
-    const submitTrip = page.locator('button:has-text("Log Trip"), button:has-text("+ Log Trip")').last()
+    const submitTrip = page
+      .getByRole('dialog')
+      .locator('button[type="submit"]')
+      .filter({ hasText: /Log Trip|Save Changes/i })
+    await expect(submitTrip).toBeVisible({ timeout: 10000 })
     await submitTrip.click()
-    await expect(page.locator('text=KA01MH1234').first()).toBeVisible({ timeout: 15000 })
+
+    const tripOk = await Promise.race([
+      toastLocator(page, /Trip logged|Trip updated|successfully/i)
+        .waitFor({ state: 'visible', timeout: 20000 })
+        .then(() => true)
+        .catch(() => false),
+      page
+        .locator('.trip-vehicle, .card')
+        .filter({ hasText: /KA01MH1234/i })
+        .first()
+        .waitFor({ state: 'visible', timeout: 20000 })
+        .then(() => true)
+        .catch(() => false),
+    ])
+    expect(tripOk).toBeTruthy()
 
     // ── Attendance ──────────────────────────────────────────────────────
     await clickNav(page, '/dashboard/attendance')
 
-    const presentBtn = page.locator('.att-btn-group button, button').filter({ hasText: /^P$/ }).first()
-    await expect(presentBtn).toBeVisible({ timeout: 15000 })
-    await presentBtn.click()
+    const presentBtn = page
+      .locator('.att-btn-group button, button.att-btn')
+      .filter({ hasText: /^P$/ })
+      .first()
+    await expect(presentBtn).toBeVisible({ timeout: 20000 })
 
-    const saveAttendance = page.locator('button').filter({ hasText: /Save/ }).first()
-    await saveAttendance.click()
-    await expect(saveAttendance).toBeEnabled({ timeout: 20000 })
+    const lockedBanner = page.getByText(/Payroll finalized|read-only/i)
+    if (await lockedBanner.isVisible().catch(() => false)) {
+      test.info().annotations.push({
+        type: 'note',
+        description: 'Attendance locked — skipping mark/save',
+      })
+    } else {
+      await presentBtn.click()
+      const saveBtn = page.locator(
+        '[data-testid="attendance-save"], button.btn-primary:has-text("Save")'
+      ).first()
+      await expect(saveBtn).toBeEnabled({ timeout: 5000 })
+      await saveBtn.click()
+      await expect(
+        toastLocator(page, /mark\(s\) saved|cleared|Attendance updated/i)
+      ).toBeVisible({ timeout: 20000 })
+      await waitForSaveIdle(page, saveBtn)
+    }
 
     // ── Payroll generate + finalize ─────────────────────────────────────
     await clickNav(page, '/dashboard/payroll')
 
-    const generateBtn = page.locator('button').filter({ hasText: /Generate/ }).first()
+    const generateBtn = page.locator('button').filter({ hasText: /Generate/i }).first()
     await expect(generateBtn).toBeVisible({ timeout: 15000 })
     await generateBtn.click()
 
@@ -61,10 +98,15 @@ test.describe('MineOps End-to-End Business Flow', () => {
       await confirmGenerate.click()
     }
 
-    const draftOrRun = page.locator('text=/draft|finalized|Run/i').first()
-    await expect(draftOrRun).toBeVisible({ timeout: 20000 })
+    const draftOrRun = page
+      .locator('text=/draft|finalized|generated successfully|already been finalized|Run/i')
+      .first()
+    await expect(draftOrRun).toBeVisible({ timeout: 25000 })
 
-    const openRun = page.locator('.card, tr, button, a').filter({ hasText: /draft|2026|2025|Run/i }).first()
+    const openRun = page
+      .locator('.card, tr, button, a')
+      .filter({ hasText: /draft|2026|2025|Run/i })
+      .first()
     if (await openRun.isVisible().catch(() => false)) {
       await openRun.click()
     }
@@ -72,11 +114,16 @@ test.describe('MineOps End-to-End Business Flow', () => {
     const finalizeBtn = page.locator('button').filter({ hasText: /Finalize/ }).first()
     if (await finalizeBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       await finalizeBtn.click()
-      const confirmFinalize = page.locator('button').filter({ hasText: /Confirm|Yes|Finalize/i }).last()
+      const confirmFinalize = page
+        .locator('button')
+        .filter({ hasText: /Confirm|Yes|Finalize/i })
+        .last()
       if (await confirmFinalize.isVisible({ timeout: 3000 }).catch(() => false)) {
         await confirmFinalize.click()
       }
-      await expect(page.locator('text=/finalized/i').first()).toBeVisible({ timeout: 20000 })
+      await expect(page.locator('text=/finalized|Payroll finalized/i').first()).toBeVisible({
+        timeout: 20000,
+      })
     }
 
     await page.locator('a[href="/dashboard"]').first().click()

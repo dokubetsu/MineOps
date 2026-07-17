@@ -65,6 +65,7 @@ function PlatformShell({ children }: { children: React.ReactNode }) {
   if (!isPlatformOwner) {
     return (
       <div
+        data-testid="platform-access-denied"
         style={{
           minHeight: '100vh',
           display: 'flex',

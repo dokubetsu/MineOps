@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { clickNav, loginAsAdmin } from './helpers'
+import { clickNav, loginAsAdmin, toastLocator, waitForSaveIdle } from './helpers'
 
 /**
  * Phase 5 critical browser paths (desktop chromium + mobile Pixel 5 project).
@@ -7,36 +7,55 @@ import { clickNav, loginAsAdmin } from './helpers'
  */
 test.describe('Phase 5 critical flows', () => {
   test('attendance mark → unmark → save clears mark', async ({ page }) => {
+    test.setTimeout(60_000)
+
     await loginAsAdmin(page)
     await clickNav(page, '/dashboard/attendance')
 
-    const presentBtn = page.locator('button').filter({ hasText: /^P$/ }).first()
+    const presentBtn = page
+      .locator('.att-btn-group button, button.att-btn')
+      .filter({ hasText: /^P$/ })
+      .first()
     await expect(presentBtn).toBeVisible({ timeout: 20000 })
 
-    // Mark present
-    await presentBtn.click()
-    // Toggle off (unmark) if UI supports re-click
-    await presentBtn.click()
+    if (
+      await page
+        .getByText(/Payroll finalized|read-only for finalized/i)
+        .isVisible()
+        .catch(() => false)
+    ) {
+      test.skip(true, 'Current month is payroll-finalized; attendance is read-only')
+    }
 
-    // Mark present again and save
+    const saveBtn = page
+      .locator('[data-testid="attendance-save"], button.btn-primary')
+      .filter({ hasText: /Save/i })
+      .first()
+
+    // Mark present and save
     await presentBtn.click()
-    const saveBtn = page.locator('button').filter({ hasText: /Save/i }).first()
     await expect(saveBtn).toBeEnabled({ timeout: 5000 })
     await saveBtn.click()
-    await expect(page.getByText(/Saved|mark|cleared|updated/i).first()).toBeVisible({
-      timeout: 20000,
-    })
-
-    // Unmark and save again — Phase 0/1 fix: clear persists
-    await presentBtn.click()
-    await saveBtn.click()
-    // Success toast or reload without error
     await expect(
-      page.getByText(/Saved|cleared|updated|No existing attendance|Error/i).first()
+      toastLocator(page, /mark\(s\) saved|Attendance updated|\d+ mark/i)
     ).toBeVisible({ timeout: 20000 })
-    // Must not leave a hard failure banner for RLS-only regressions
+    await waitForSaveIdle(page, saveBtn)
+    // After successful save Save is disabled until the next edit
+    await expect(saveBtn).toBeDisabled({ timeout: 10000 })
+
+    // Unmark (toggle P off) — must re-enable Save (also covered by loadRoster race fix)
+    await presentBtn.click()
+    await expect(saveBtn).toBeEnabled({ timeout: 10000 })
+    await saveBtn.click()
+    await expect(
+      toastLocator(page, /cleared|Attendance updated|mark\(s\) saved/i)
+    ).toBeVisible({ timeout: 20000 })
+    await waitForSaveIdle(page, saveBtn)
+
     const fatal = await page.getByText(/Permission denied saving attendance/i).count()
     expect(fatal).toBe(0)
+    const saveError = await toastLocator(page, /Error saving attendance/i).count()
+    expect(saveError).toBe(0)
   })
 
   test('cash book page loads and lock control is available for admin', async ({ page }) => {
@@ -50,7 +69,6 @@ test.describe('Phase 5 critical flows', () => {
     const lockBtn = page.locator('button').filter({ hasText: /Lock Book|Unlock Book/i }).first()
     await expect(lockBtn).toBeVisible({ timeout: 15000 })
 
-    // Toggle lock once if unlocked
     const label = await lockBtn.innerText()
     if (/Lock Book/i.test(label)) {
       await lockBtn.click()

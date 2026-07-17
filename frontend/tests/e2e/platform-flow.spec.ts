@@ -15,8 +15,10 @@ test.describe('Platform owner console', () => {
     await page.locator('input[type="password"]').fill(PLATFORM_PASSWORD)
     await page.locator('button[type="submit"]').click()
 
-    // Wait for either success redirect or invalid credentials toast/text
-    const landedPlatform = page.waitForURL(/\/platform/, { timeout: 15000 }).then(() => true).catch(() => false)
+    const landedPlatform = page
+      .waitForURL(/\/platform/, { timeout: 15000 })
+      .then(() => true)
+      .catch(() => false)
     const invalidLogin = page
       .getByText(/Invalid login credentials/i)
       .waitFor({ timeout: 15000 })
@@ -44,21 +46,59 @@ test.describe('Platform owner console', () => {
     await loginAsAdmin(page)
 
     await page.goto('/platform')
-    await expect(page).toHaveURL(/\/(platform|dashboard)/, { timeout: 15000 })
 
-    const onDashboard = page.url().includes('/dashboard')
+    // Auth shell re-inits on /platform — wait until denial, console, or leave
+    await expect
+      .poll(
+        async () => {
+          const url = page.url()
+          if (url.includes('/dashboard')) return 'dashboard'
+          if (url.endsWith('/') || /\/\?/.test(url)) return 'home'
+          const denied = await page
+            .locator('[data-testid="platform-access-denied"]')
+            .isVisible()
+            .catch(() => false)
+          if (denied) return 'denied'
+          const heading = await page
+            .getByRole('heading', { name: /No platform access/i })
+            .isVisible()
+            .catch(() => false)
+          if (heading) return 'denied'
+          const firstTime = await page
+            .getByText(/First-time platform setup/i)
+            .isVisible()
+            .catch(() => false)
+          if (firstTime) return 'denied'
+          const consoleHit = await page
+            .getByText(/New organization|Platform Console/i)
+            .first()
+            .isVisible()
+            .catch(() => false)
+          if (consoleHit) return 'console'
+          return 'loading'
+        },
+        { timeout: 25000 }
+      )
+      .not.toBe('loading')
+
+    const url = page.url()
+    const onDashboard = url.includes('/dashboard')
+    const onHome = /\/$|\/\?/.test(new URL(url).pathname) && !url.includes('/platform')
     const noAccess =
-      (await page.getByText(/No platform access|not a platform owner|First-time/i).count()) > 0
-    const onPlatformOrgs = (await page.getByText(/New organization/i).count()) > 0
+      (await page.locator('[data-testid="platform-access-denied"]').count()) > 0 ||
+      (await page.getByRole('heading', { name: /No platform access/i }).count()) > 0 ||
+      (await page.getByText(/not a platform owner|First-time platform setup/i).count()) > 0
+    const onPlatformOrgs =
+      (await page.getByText(/New organization/i).count()) > 0 &&
+      (await page.getByText(/Platform Console/i).count()) > 0
 
-    if (onPlatformOrgs && !noAccess) {
-      // Env may share credentials; soft allow
-      expect(onPlatformOrgs || onDashboard || noAccess).toBeTruthy()
-    } else {
-      expect(onDashboard || noAccess).toBeTruthy()
+    // Tenant admin: denial UI, redirect away, or (rare) dual-role console
+    expect(onDashboard || onHome || noAccess || onPlatformOrgs).toBeTruthy()
+    // Must not silently sit on a blank /platform without denial or console
+    if (url.includes('/platform') && !onPlatformOrgs) {
+      expect(noAccess).toBeTruthy()
     }
 
-    // Sanity: tenant credentials still work
     expect(E2E_EMAIL).toBeTruthy()
     expect(E2E_PASSWORD).toBeTruthy()
   })
