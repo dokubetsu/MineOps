@@ -25,6 +25,7 @@ Local development (`NODE_ENV !== production` and not `VERCEL_ENV=production`) ma
 | `E2E_ADMIN_EMAIL` | Playwright admin email (default `admin@mineops.com`) — **local/CI only** |
 | `E2E_ADMIN_PASSWORD` | Playwright admin password — **local/CI only; never production** |
 | `NODE_ENV` / `VERCEL_ENV` | Controls CSP, PWA, and bootstrap secret enforcement |
+| `CSP_ALLOW_LOCAL_SUPABASE` | Set to `1` for production builds that must call local Supabase (`127.0.0.1:54321`) — used by CI e2e. Also auto-enabled when `NEXT_PUBLIC_SUPABASE_URL` host is localhost/127.0.0.1 (evaluated at **build** time). |
 | `UPSTASH_REDIS_REST_URL` | Phase E5 durable rate limit (Upstash REST). With token, proxy uses Redis counters. |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token — **server only**, never `NEXT_PUBLIC_` |
 

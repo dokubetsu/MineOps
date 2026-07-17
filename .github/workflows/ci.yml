@@ -118,10 +118,16 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
 
+      # CSP + Next embed NEXT_PUBLIC_* at build time — must match local Supabase for e2e
       - name: Production Build Verification
         run: |
           cd frontend
           npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          # Explicit: allow connect-src to local Supabase even when NODE_ENV=production
+          CSP_ALLOW_LOCAL_SUPABASE: '1'
 
       - name: E2E (desktop chromium)
         run: |
@@ -133,6 +139,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
           E2E_ADMIN_EMAIL: admin@mineops.com
           E2E_ADMIN_PASSWORD: password123
+          CSP_ALLOW_LOCAL_SUPABASE: '1'
 
       - name: E2E mobile smoke (Pixel 5)
         run: |
@@ -144,3 +151,4 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
           E2E_ADMIN_EMAIL: admin@mineops.com
           E2E_ADMIN_PASSWORD: password123
+          CSP_ALLOW_LOCAL_SUPABASE: '1'

@@ -53,6 +53,13 @@ export default defineConfig({
             NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
             NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
             SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
+            // next.config CSP: allow local Supabase connect-src when NODE_ENV=production
+            CSP_ALLOW_LOCAL_SUPABASE:
+              process.env.CSP_ALLOW_LOCAL_SUPABASE ||
+              (process.env.NEXT_PUBLIC_SUPABASE_URL?.includes('127.0.0.1') ||
+              process.env.NEXT_PUBLIC_SUPABASE_URL?.includes('localhost')
+                ? '1'
+                : ''),
           },
         },
       }),

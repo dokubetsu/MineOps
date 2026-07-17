@@ -55,6 +55,7 @@ const eslintConfig = defineConfig([
       "src/lib/rate-limit.ts",
       "src/lib/errors.ts",
       "src/lib/trip-constants.ts",
+      "src/lib/csp.ts",
       "src/components/**/*.{ts,tsx}",
     ],
     rules: {

@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 import { Database } from './lib/supabase/database.types'
 import { checkRateLimit, pruneRateLimitStore } from './lib/rate-limit'
 import { featureForPath } from './lib/features'
+import { buildContentSecurityPolicy } from './lib/csp'
 
 function clientIp(request: NextRequest): string {
   return (
@@ -10,6 +11,12 @@ function clientIp(request: NextRequest): string {
     request.headers.get('x-real-ip') ||
     '127.0.0.1'
   )
+}
+
+/** Ensure CSP is set at request time (CI production + local Supabase). */
+function withCsp(response: NextResponse): NextResponse {
+  response.headers.set('Content-Security-Policy', buildContentSecurityPolicy())
+  return response
 }
 
 export async function proxy(request: NextRequest) {
@@ -39,15 +46,17 @@ export async function proxy(request: NextRequest) {
     const rlKey = isBootstrap ? `bootstrap:${ip}` : `api:${ip}`
     const rl = await checkRateLimit(rlKey, limit, windowMs)
     if (rl.limited) {
-      return NextResponse.json(
-        { error: 'Too many requests. Please try again later.' },
-        {
-          status: 429,
-          headers: {
-            'Retry-After': String(Math.max(1, Math.ceil((rl.resetAt - Date.now()) / 1000))),
-            'X-RateLimit-Backend': rl.backend,
-          },
-        }
+      return withCsp(
+        NextResponse.json(
+          { error: 'Too many requests. Please try again later.' },
+          {
+            status: 429,
+            headers: {
+              'Retry-After': String(Math.max(1, Math.ceil((rl.resetAt - Date.now()) / 1000))),
+              'X-RateLimit-Backend': rl.backend,
+            },
+          }
+        )
       )
     }
   }
@@ -85,7 +94,7 @@ export async function proxy(request: NextRequest) {
   ) {
     const redirectUrl = request.nextUrl.clone()
     redirectUrl.pathname = '/'
-    return NextResponse.redirect(redirectUrl)
+    return withCsp(NextResponse.redirect(redirectUrl))
   }
 
   // ── Authenticated: resolve platform vs tenant ──────────────────────────
@@ -109,14 +118,14 @@ export async function proxy(request: NextRequest) {
     if (path === '/') {
       const redirectUrl = request.nextUrl.clone()
       redirectUrl.pathname = isPlatformOwner ? '/platform' : '/dashboard'
-      return NextResponse.redirect(redirectUrl)
+      return withCsp(NextResponse.redirect(redirectUrl))
     }
 
     // Platform owners stay in /platform (not tenant dashboard), except setup
     if (isPlatformOwner && path.startsWith('/dashboard')) {
       const redirectUrl = request.nextUrl.clone()
       redirectUrl.pathname = '/platform'
-      return NextResponse.redirect(redirectUrl)
+      return withCsp(NextResponse.redirect(redirectUrl))
     }
 
     // Non-platform users: allow /platform UI to show "no access" + setup link
@@ -132,7 +141,7 @@ export async function proxy(request: NextRequest) {
         redirectUrl.searchParams.set('error', 'org_inactive')
         // Clear session so they do not bounce on /
         await supabase.auth.signOut()
-        return NextResponse.redirect(redirectUrl)
+        return withCsp(NextResponse.redirect(redirectUrl))
       }
 
       // Phase 2: always resolve role from user_roles (DB), never trust JWT app_metadata alone.
@@ -158,13 +167,13 @@ export async function proxy(request: NextRequest) {
       if ((role === 'employee' || role === 'site_employee') && path !== '/dashboard/my-work') {
         const redirectUrl = request.nextUrl.clone()
         redirectUrl.pathname = '/dashboard/my-work'
-        return NextResponse.redirect(redirectUrl)
+        return withCsp(NextResponse.redirect(redirectUrl))
       }
 
       if (role === 'stakeholder' && path !== '/dashboard/stakeholder') {
         const redirectUrl = request.nextUrl.clone()
         redirectUrl.pathname = '/dashboard/stakeholder'
-        return NextResponse.redirect(redirectUrl)
+        return withCsp(NextResponse.redirect(redirectUrl))
       }
 
       // Phase B: block module routes when org feature is disabled (server-side)
@@ -183,13 +192,13 @@ export async function proxy(request: NextRequest) {
             featErr ? 'feature_check_failed' : 'feature_disabled'
           )
           if (!featErr) redirectUrl.searchParams.set('feature', requiredFeature)
-          return NextResponse.redirect(redirectUrl)
+          return withCsp(NextResponse.redirect(redirectUrl))
         }
       }
     }
   }
 
-  return supabaseResponse
+  return withCsp(supabaseResponse)
 }
 
 export const config = {

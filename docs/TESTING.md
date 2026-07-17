@@ -41,11 +41,16 @@ supabase start
 
 # Terminal B — frontend
 cd frontend
+# CSP is baked at build time — set local Supabase URL before build
+export NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+export CSP_ALLOW_LOCAL_SUPABASE=1   # optional if URL host is already localhost
 npm run build
 npm run test:e2e
 # optional:
 npm run test:e2e:mobile
 ```
+
+If login fails with **Content Security Policy** / `connect-src` errors for `127.0.0.1:54321`, the production build did not include local Supabase in CSP. Rebuild with the env vars above.
 
 ## Critical coverage map
 
