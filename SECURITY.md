@@ -72,7 +72,7 @@ Attendance INSERT/UPDATE/DELETE blocked when the employee’s site has a **final
 - **Manager/employee policies** add `organization_id = get_user_organization_id()` defense-in-depth on operational tables.
 - **Indexes:** customers(org), leave (org,status) / (employee,status), attendance (employee,date), trips (site,date) partial active.
 - **Types:** hand-patched + `npm run gen:types` documented in `docs/SCHEMA_SSOT.md`.
-- **051:** feature write gate no longer reads `NEW.site_id` on `sites` (column does not exist — broke seed/CI).
+- **051–052:** feature write gate never uses static `NEW.site_id` on multi-table triggers (use `to_jsonb`); skip gate when `auth.uid()` is null so seed/CI works.
 
 ### Phase 4 (frontend quality)
 
