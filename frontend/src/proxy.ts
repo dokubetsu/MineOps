@@ -92,15 +92,18 @@ export async function proxy(request: NextRequest) {
   // ── Authenticated: resolve platform vs tenant ──────────────────────────
   if (user) {
     let isPlatformOwner = false
-    // Table may be missing if migration 036 not applied — treat as non-owner
-    const { data: pr, error: prError } = await supabase
-      .from('platform_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .eq('role', 'platform_owner')
-      .maybeSingle()
-    if (!prError) {
-      isPlatformOwner = !!pr
+    // Prefer SECURITY DEFINER RPC (bypasses RLS quirks)
+    const { data: ownerFlag, error: ownerErr } = await supabase.rpc('is_platform_owner')
+    if (!ownerErr && ownerFlag === true) {
+      isPlatformOwner = true
+    } else {
+      const { data: pr, error: prError } = await supabase
+        .from('platform_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .eq('role', 'platform_owner')
+        .maybeSingle()
+      if (!prError) isPlatformOwner = !!pr
     }
 
     // Login page → platform console or tenant dashboard

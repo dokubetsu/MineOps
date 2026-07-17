@@ -107,20 +107,37 @@ export async function POST(req: NextRequest) {
       role: 'platform_owner',
     })
     if (roleError) {
-      throw new Error(roleError.message)
+      // Unique conflict = already platform owner
+      if (!roleError.message.includes('duplicate') && roleError.code !== '23505') {
+        throw new Error(roleError.message)
+      }
     }
 
-    // Stamp app_metadata for convenience (proxy still uses platform_roles table)
+    // Stamp app_metadata for convenience
     await supabase.auth.admin.updateUserById(userId, {
       app_metadata: { platform_role: 'platform_owner' },
     })
+
+    // Verify row is readable
+    const { data: verify } = await supabase
+      .from('platform_roles')
+      .select('user_id')
+      .eq('user_id', userId)
+      .maybeSingle()
+
+    if (!verify) {
+      throw new Error(
+        'platform_roles row was not found after insert. Apply migrations 036+037 (supabase db push) and retry.'
+      )
+    }
 
     return NextResponse.json(
       {
         success: true,
         user_id: userId,
         email,
-        message: 'Platform owner created. Sign in at / with this email and password, then open /platform.',
+        message:
+          'Platform owner created. Sign out if needed, then sign in at / with this email and password. You should land on /platform.',
       },
       { status: 201 }
     )

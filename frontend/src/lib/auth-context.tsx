@@ -71,18 +71,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    const [rolesRes, platformRes, ownerRpcRes] = await Promise.all([
+    // RPC first (SECURITY DEFINER — reliable). Table select is secondary.
+    const [rolesRes, ownerRpcRes, platformRes] = await Promise.all([
       supabase.from('user_roles').select('*').eq('user_id', userId),
-      supabase.from('platform_roles').select('role').eq('user_id', userId).maybeSingle(),
       supabase.rpc('is_platform_owner'),
+      supabase.from('platform_roles').select('role').eq('user_id', userId).maybeSingle(),
     ])
+
+    if (ownerRpcRes.error) {
+      console.warn('[auth] is_platform_owner failed — is migration 036 applied?', ownerRpcRes.error.message)
+    }
+    if (platformRes.error) {
+      console.warn('[auth] platform_roles select failed:', platformRes.error.message)
+    }
 
     const loadedRoles = (rolesRes.data as UserRole[] | null) || []
     setUserRoles(loadedRoles)
-    // If migration 036 is missing, platform_roles/RPC error → not platform owner
-    const platformOk = !platformRes.error && !!platformRes.data
     const rpcOk = !ownerRpcRes.error && ownerRpcRes.data === true
-    setIsPlatformOwner(platformOk || rpcOk)
+    const platformOk = !platformRes.error && !!platformRes.data
+    setIsPlatformOwner(rpcOk || platformOk)
 
     const priorityRole =
       loadedRoles.find((r) => r.role === 'admin') ||

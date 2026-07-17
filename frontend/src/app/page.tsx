@@ -16,13 +16,27 @@ export default function LoginPage() {
   const { theme, toggleTheme } = useTheme()
 
   const resolvePostLoginPath = async (userId: string) => {
+    // Prefer SECURITY DEFINER RPC — works even if table RLS is picky
+    const { data: isOwner, error: rpcError } = await supabase.rpc('is_platform_owner')
+    if (!rpcError && isOwner === true) return '/platform'
+
     const { data: platformRow } = await supabase
       .from('platform_roles')
       .select('role')
       .eq('user_id', userId)
       .eq('role', 'platform_owner')
       .maybeSingle()
-    return platformRow ? '/platform' : '/dashboard'
+    if (platformRow) return '/platform'
+
+    // No tenant role either → send to setup (not empty dashboard)
+    const { data: roles } = await supabase
+      .from('user_roles')
+      .select('id')
+      .eq('user_id', userId)
+      .limit(1)
+    if (!roles || roles.length === 0) return '/platform/setup'
+
+    return '/dashboard'
   }
 
   useEffect(() => {

@@ -16,10 +16,21 @@ import {
 function NavContent() {
   const pathname = usePathname()
   const router = useRouter()
-  const { user, isAdmin, isSiteManager, isStakeholder, isSiteEmployee, isEmployee, organizationName, hasFeature } = useAuth()
+  const {
+    user, isAdmin, isSiteManager, isStakeholder, isSiteEmployee, isEmployee,
+    isPlatformOwner, organizationName, hasFeature, loading: authLoading, userRole,
+  } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const supabase = createClient()
   const [showMoreMenu, setShowMoreMenu] = useState(false)
+
+  // Platform owners should never live in the tenant shell
+  useEffect(() => {
+    if (authLoading) return
+    if (isPlatformOwner) {
+      router.replace('/platform')
+    }
+  }, [authLoading, isPlatformOwner, router])
 
   const handleLogout = async () => {
     clearOfflineCache()
@@ -79,12 +90,14 @@ function NavContent() {
   const roleColor = isAdmin ? 'var(--accent)' : isSiteManager ? 'var(--info)' : (isSiteEmployee || isEmployee) ? 'var(--success)' : 'var(--success)'
   
   const rolesList: string[] = []
+  if (isPlatformOwner) rolesList.push('Platform owner')
   if (isAdmin) rolesList.push('Admin')
   if (isSiteManager) rolesList.push('Site Manager')
   if (isStakeholder) rolesList.push('Stakeholder')
   if (isSiteEmployee) rolesList.push('Site Employee')
   else if (isEmployee) rolesList.push('Employee')
   const roleLabel = rolesList.join(' + ') || 'No Role Assigned'
+  const hasNoTenantRole = !userRole && !isPlatformOwner
 
   return (
     <>
@@ -101,6 +114,29 @@ function NavContent() {
         </div>
 
         <div className="sidebar-nav">
+          {hasNoTenantRole && (
+            <div style={{
+              margin: '0.5rem 0.75rem 1rem',
+              padding: '0.75rem',
+              borderRadius: 'var(--radius)',
+              background: 'rgba(245,158,11,0.1)',
+              border: '1px solid rgba(245,158,11,0.3)',
+              fontSize: '0.75rem',
+              color: 'var(--text-secondary)',
+              lineHeight: 1.4,
+            }}>
+              <strong style={{ color: 'var(--accent)' }}>No tenant role</strong>
+              <p style={{ margin: '0.35rem 0 0.5rem' }}>
+                This account is not a site admin. If you are the platform operator, open the platform console or complete setup.
+              </p>
+              <Link href="/platform" className="btn btn-primary btn-sm" style={{ width: '100%', marginBottom: 6 }}>
+                Open /platform
+              </Link>
+              <Link href="/platform/setup" className="btn btn-secondary btn-sm" style={{ width: '100%' }}>
+                First-time setup
+              </Link>
+            </div>
+          )}
           <span className="sidebar-section-label">Operations</span>
           {visibleOps.map(item => (
             <Link key={item.href} href={item.href}
