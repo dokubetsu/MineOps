@@ -30,7 +30,7 @@ $env:PW_SKIP_WEBSERVER='1'; npm run test:unit
 PW_SKIP_WEBSERVER=1 npm run test:unit
 ```
 
-Multi-tenant DB cases in `phase5-multi-tenant.spec.ts` **skip** if `SUPABASE_SERVICE_ROLE_KEY` is unset.
+Multi-tenant DB cases in `phase5-multi-tenant.spec.ts` **skip** if `SUPABASE_SERVICE_ROLE_KEY` is unset, or if `service_role` lacks table GRANTs (apply migration **053**).
 
 ## Local full e2e
 

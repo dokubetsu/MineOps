@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test'
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient, type PostgrestError } from '@supabase/supabase-js'
 import { randomUUID } from 'crypto'
 import { partitionAttendanceSave } from '../../src/lib/repositories/attendance'
 import { featureForPath, featuresFromRows, defaultFeatureMap } from '../../src/lib/features'
 
 /**
  * Phase 5 — multi-tenant / security helpers.
- * DB cases skip cleanly when SUPABASE_SERVICE_ROLE_KEY is not set (local pure CI without stack).
+ * DB cases skip when service role is missing OR lacks table GRANTs (migration 053).
  */
 
 function serviceClient(): SupabaseClient | null {
@@ -16,6 +16,15 @@ function serviceClient(): SupabaseClient | null {
   return createClient(url, key, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
+}
+
+function isPermissionDenied(err: PostgrestError | null | undefined): boolean {
+  if (!err) return false
+  return (
+    err.code === '42501' ||
+    /permission denied/i.test(err.message || '') ||
+    /GRANT .+ TO service_role/i.test(err.hint || '')
+  )
 }
 
 test.describe('Phase 5 pure guards (no DB)', () => {
@@ -50,6 +59,16 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
 
     const orgA = randomUUID()
     const orgB = randomUUID()
+    const createdUserIds: string[] = []
+
+    const cleanup = async () => {
+      for (const uid of createdUserIds) {
+        await supabase!.from('user_roles').delete().eq('user_id', uid)
+        await supabase!.auth.admin.deleteUser(uid).catch(() => null)
+      }
+      await supabase!.from('organizations').delete().eq('id', orgA)
+      await supabase!.from('organizations').delete().eq('id', orgB)
+    }
 
     try {
       const { error: oA } = await supabase!.from('organizations').insert({
@@ -57,6 +76,13 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
         name: `E2E Org A ${orgA.slice(0, 8)}`,
         active: true,
       })
+      if (isPermissionDenied(oA)) {
+        test.skip(
+          true,
+          'service_role lacks table GRANTs — apply migration 053_grant_api_role_table_privileges.sql'
+        )
+        return
+      }
       if (oA) throw oA
 
       const { error: oB } = await supabase!.from('organizations').insert({
@@ -66,7 +92,6 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
       })
       if (oB) throw oB
 
-      // Auth users for FK if required — user_roles may not FK auth.users on all setups
       const { data: userA, error: cA } = await supabase!.auth.admin.createUser({
         email: `e2e-a-${orgA.slice(0, 8)}@mineops.test`,
         password: 'TestPass1234',
@@ -74,6 +99,7 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
       })
       if (cA || !userA.user) throw cA || new Error('create user A failed')
       const uidA = userA.user.id
+      createdUserIds.push(uidA)
 
       const { data: userB, error: cB } = await supabase!.auth.admin.createUser({
         email: `e2e-b-${orgB.slice(0, 8)}@mineops.test`,
@@ -82,6 +108,7 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
       })
       if (cB || !userB.user) throw cB || new Error('create user B failed')
       const uidB = userB.user.id
+      createdUserIds.push(uidB)
 
       const { error: rA } = await supabase!.from('user_roles').insert({
         user_id: uidA,
@@ -89,6 +116,11 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
         site_id: null,
         organization_id: orgA,
       })
+      if (isPermissionDenied(rA)) {
+        await cleanup()
+        test.skip(true, 'service_role lacks user_roles GRANT — apply migration 053')
+        return
+      }
       if (rA) throw rA
 
       const { error: rB } = await supabase!.from('user_roles').insert({
@@ -109,7 +141,6 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
       expect(delA).toBeTruthy()
       expect(delA!.message).toMatch(/last admin|organization/i)
 
-      // Confirm role still present
       const { data: still } = await supabase!
         .from('user_roles')
         .select('id')
@@ -117,33 +148,26 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
         .eq('role', 'admin')
       expect(still?.length).toBeGreaterThan(0)
 
-      // Cleanup — add second admin to A so delete of first is allowed, or delete org cascade
-      // Prefer delete auth users (roles may block); service path: insert second admin then delete
+      // Cleanup: second admin so last-admin allows delete of first
       const { data: userA2 } = await supabase!.auth.admin.createUser({
         email: `e2e-a2-${orgA.slice(0, 8)}@mineops.test`,
         password: 'TestPass1234',
         email_confirm: true,
       })
       if (userA2?.user) {
+        createdUserIds.push(userA2.user.id)
         await supabase!.from('user_roles').insert({
           user_id: userA2.user.id,
           role: 'admin',
           site_id: null,
           organization_id: orgA,
         })
-        await supabase!.from('user_roles').delete().eq('user_id', uidA)
-        await supabase!.from('user_roles').delete().eq('user_id', userA2.user.id)
-        await supabase!.auth.admin.deleteUser(userA2.user.id)
       }
 
-      await supabase!.from('user_roles').delete().eq('user_id', uidB)
-      await supabase!.auth.admin.deleteUser(uidA)
-      await supabase!.auth.admin.deleteUser(uidB)
-      await supabase!.from('organizations').delete().eq('id', orgA)
-      await supabase!.from('organizations').delete().eq('id', orgB)
+      await cleanup()
     } catch (err) {
-      // Best-effort cleanup ids if partially created
       console.error('[phase5 multi-tenant]', err)
+      await cleanup().catch(() => null)
       throw err
     }
   })
@@ -152,12 +176,9 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
     const supabase = serviceClient()
     test.skip(!supabase, 'Supabase service role not configured')
 
-    // Soft probe: try to call RPC finalize path existence via empty finalize rejection
-    // Full employee/attendance setup is heavy; assert trigger function exists via SQL if available
     const { data, error } = await supabase!.rpc('finalize_payroll_run', {
       p_run_id: '00000000-0000-0000-0000-000000000000',
     })
-    // Expect error (not found / check) — proves RPC is deployed
     expect(error || data === null || data === undefined).toBeTruthy()
     if (error) {
       expect(error.message.length).toBeGreaterThan(0)

@@ -6,7 +6,7 @@ Use this before every production deploy. Order matters.
 
 Remote Supabase must include **all** migrations through the latest file in `supabase/migrations/`.
 
-As of this document that is **`052_feature_gate_jsonb_safe_fields.sql`** (and everything before it, including **036–051**).  
+As of this document that is **`053_grant_api_role_table_privileges.sql`** (and everything before it, including **036–052**).  
 After schema changes, regenerate or hand-update `frontend/src/lib/supabase/database.types.ts` — see `docs/SCHEMA_SSOT.md` (`npm run gen:types` when CLI is available).
 
 ```bash
@@ -63,7 +63,7 @@ Alternative: Supabase Auth create user + SQL
 
 ## 6. Smoke test after deploy
 
-- [ ] Migrations list complete through **052** (and types/docs per `SCHEMA_SSOT.md`)  
+- [ ] Migrations list complete through **053** (and types/docs per `SCHEMA_SSOT.md`)  
 - [ ] Last admin per org: cannot delete/demote sole admin of org A while org B still has admins (**047**)  
 - [ ] Attendance frozen after payroll finalize for that month; empty finalize blocked; leave net-charge; settled amount &gt; 0 (**048**)  
 - [ ] Tenant admin cannot set `organizations.active`; only platform can (**049**)  

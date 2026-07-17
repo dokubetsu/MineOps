@@ -73,6 +73,7 @@ Attendance INSERT/UPDATE/DELETE blocked when the employee’s site has a **final
 - **Indexes:** customers(org), leave (org,status) / (employee,status), attendance (employee,date), trips (site,date) partial active.
 - **Types:** hand-patched + `npm run gen:types` documented in `docs/SCHEMA_SSOT.md`.
 - **051–052:** feature write gate never uses static `NEW.site_id` on multi-table triggers (use `to_jsonb`); skip gate when `auth.uid()` is null so seed/CI works.
+- **053:** explicit `GRANT` of public tables to `service_role` / `authenticated` (Supabase no longer auto-exposes new tables).
 
 ### Phase 4 (frontend quality)
 

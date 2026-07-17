@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
       {
         error:
           `Cannot access platform_roles: ${countError.message}. ` +
-          'Apply migrations through 052 (supabase db push) first. See docs/DEPLOYMENT_CHECKLIST.md.',
+          'Apply migrations through 053 (supabase db push) first. See docs/DEPLOYMENT_CHECKLIST.md.',
       },
       { status: 500 }
     )
@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
         }
       }
       throw new Error(
-        'platform_roles row was not found after claim. Apply migrations 036–052 and retry.'
+        'platform_roles row was not found after claim. Apply migrations 036–053 and retry.'
       )
     }
 
