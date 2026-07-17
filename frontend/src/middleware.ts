@@ -99,8 +99,8 @@ export async function middleware(request: NextRequest) {
   if (user && request.nextUrl.pathname.startsWith('/dashboard')) {
     const pathname = request.nextUrl.pathname
 
-    // Attempt to get user role from cached cookie to prevent DB round-trip latency
-    let role = request.cookies.get('user-role')?.value || null
+    // Attempt to get user role from app_metadata (JWT claims), falling back to cookie
+    let role = (user.app_metadata?.role as string) || request.cookies.get('user-role')?.value || null
 
     if (!role) {
       // Fallback: Fetch all roles of the user from DB to check priority

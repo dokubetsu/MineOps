@@ -48,34 +48,6 @@ export async function GET(req: NextRequest) {
   // project — Auth itself has no concept of organization — so this allow-list
   // is the only thing standing between "admin" and "every user across every
   // tenant". Every branch below is scoped to the caller's own organization_id.
-  const allowedUserIds = new Set<string>()
-  if (isAdmin) {
-    const { data: orgUsers } = await supabase
-      .from('user_roles')
-      .select('user_id')
-      .eq('organization_id', callerOrganizationId)
-    for (const row of orgUsers || []) allowedUserIds.add(row.user_id)
-  } else if (isSiteManager) {
-    const managedSiteIds = rolesData
-      ?.filter(r => r.role === 'site_manager' && r.site_id)
-      .map(r => r.site_id) || []
-
-    if (managedSiteIds.length > 0) {
-      const { data: siteUsers } = await supabase
-        .from('user_roles')
-        .select('user_id')
-        .eq('organization_id', callerOrganizationId)
-        .in('site_id', managedSiteIds)
-
-      if (siteUsers) {
-        for (const row of siteUsers) {
-          allowedUserIds.add(row.user_id)
-        }
-      }
-    }
-    allowedUserIds.add(callerData.user.id)
-  }
-
   // Parse query parameters for pagination
   const { searchParams } = new URL(req.url)
   const pageParam = parseInt(searchParams.get('page') || '1')
@@ -84,22 +56,46 @@ export async function GET(req: NextRequest) {
   const page = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam
   const perPage = isNaN(perPageParam) || perPageParam < 1 || perPageParam > 1000 ? 1000 : perPageParam
 
-  // Fetch users from auth.users (service key required)
-  const { data: usersData, error: usersError } = await supabase.auth.admin.listUsers({
-    page,
-    perPage,
-  })
+  // Fetch users from public.org_users view
+  let query = supabase
+    .from('org_users')
+    .select('id, email, created_at, role, site_id')
+    .eq('organization_id', callerOrganizationId)
+
+  if (isSiteManager) {
+    const managedSiteIds = rolesData
+      ?.filter(r => r.role === 'site_manager' && r.site_id)
+      .map(r => r.site_id) || []
+
+    if (managedSiteIds.length > 0) {
+      query = query.or(`site_id.in.(${managedSiteIds.join(',')}),id.eq.${callerData.user.id}`)
+    } else {
+      query = query.eq('id', callerData.user.id)
+    }
+  }
+
+  const from = (page - 1) * perPage
+  const to = from + perPage - 1
+
+  const { data: usersData, error: usersError } = await query
+    .range(from, to)
+    .order('created_at', { ascending: false })
+
   if (usersError) {
     return NextResponse.json({ error: usersError.message }, { status: 500 })
   }
 
-  const users = (usersData?.users || [])
-    .filter(u => allowedUserIds.has(u.id))
-    .map(u => ({
+  // Deduplicate user records in case they have multiple roles
+  const uniqueUsersMap = new Map<string, { id: string; email: string; created_at: string }>()
+  for (const u of usersData || []) {
+    uniqueUsersMap.set(u.id, {
       id: u.id,
       email: u.email ?? '',
       created_at: u.created_at,
-    }))
+    })
+  }
+
+  const users = Array.from(uniqueUsersMap.values())
 
   return NextResponse.json({ users }, { status: 200 })
 }

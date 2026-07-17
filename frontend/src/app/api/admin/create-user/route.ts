@@ -97,6 +97,22 @@ export async function POST(req: NextRequest) {
     employee_wage_rate
   } = result.data
 
+  // Explicitly validate site_id belongs to the caller's organization before user creation
+  if (site_id) {
+    const { data: siteData, error: siteError } = await supabase
+      .from('sites')
+      .select('organization_id')
+      .eq('id', site_id)
+      .single()
+
+    if (siteError || !siteData || siteData.organization_id !== callerOrganizationId) {
+      return NextResponse.json(
+        { error: 'Invalid site ID: site does not belong to your organization' },
+        { status: 400 }
+      )
+    }
+  }
+
   // Create the user without sending a confirmation email
   const { data: newUser, error: createError } = await supabase.auth.admin.createUser({
     email,
@@ -187,6 +203,20 @@ export async function POST(req: NextRequest) {
         console.error('Failed to create employee profile:', createEmpError)
       }
     }
+  }
+
+  // Create audit log for user creation
+  const { error: auditError } = await supabase.from('audit_logs').insert({
+    organization_id: callerOrganizationId,
+    actor_user_id: callerData.user.id,
+    action: 'create_user',
+    target_type: 'user',
+    target_id: newUserId,
+    metadata: { email, role, site_id },
+  })
+
+  if (auditError) {
+    console.error('Failed to create audit log for user creation:', auditError.message)
   }
 
   return NextResponse.json({ user_id: newUserId }, { status: 201 })

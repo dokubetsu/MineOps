@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS public.employees (
   join_date date,
   user_id uuid UNIQUE REFERENCES auth.users(id) ON DELETE SET NULL,
   leave_balance integer NOT NULL DEFAULT 15,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
 );
@@ -133,7 +134,8 @@ CREATE TABLE IF NOT EXISTS public.trips (
   settled_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   payment_status text CHECK (payment_status IN ('pending', 'settled')) DEFAULT 'pending',
   payment_method text CHECK (payment_method IN ('cash', 'upi')),
-  payment_reference text
+  payment_reference text,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT
 );
 
 -- Trip Photos
@@ -153,6 +155,7 @@ CREATE TABLE IF NOT EXISTS public.cash_books (
   opening_balance numeric NOT NULL DEFAULT 0.0,
   closing_balance numeric NOT NULL DEFAULT 0.0,
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','locked')),
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT uq_cash_books_site_date UNIQUE (site_id, book_date)
@@ -168,6 +171,7 @@ CREATE TABLE IF NOT EXISTS public.cash_entries (
   note text,
   receipt_url text,
   created_by uuid,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   active boolean NOT NULL DEFAULT true
@@ -183,6 +187,7 @@ CREATE TABLE IF NOT EXISTS public.attendance (
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   photo_url text,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   CONSTRAINT uq_attendance_employee_date UNIQUE (employee_id, att_date)
 );
 
@@ -195,6 +200,7 @@ CREATE TABLE IF NOT EXISTS public.leave_applications (
   reason text,
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
   approved_by uuid,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
 );
@@ -205,6 +211,7 @@ CREATE TABLE IF NOT EXISTS public.payroll_runs (
   site_id uuid NOT NULL REFERENCES public.sites(id) ON DELETE RESTRICT,
   period_month date NOT NULL CHECK (date_trunc('month', period_month) = period_month),
   status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','finalized')),
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT uq_payroll_runs_site_month UNIQUE (site_id, period_month)
@@ -223,6 +230,7 @@ CREATE TABLE IF NOT EXISTS public.payroll_lines (
   adjustment numeric NOT NULL DEFAULT 0.0,
   final_amount numeric NOT NULL,
   notes text,
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE RESTRICT,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now()
 );
@@ -250,6 +258,18 @@ CREATE TABLE IF NOT EXISTS public.stakeholder_site_access (
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT uq_stakeholder_site UNIQUE (stakeholder_user_id, site_id)
+);
+
+-- Audit Logs
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  actor_user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  action text NOT NULL,
+  target_type text NOT NULL,
+  target_id text,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone DEFAULT now()
 );
 
 -- ------------------------------------------
@@ -680,6 +700,195 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
+-- Trigger Function: Auto-populate child organization_id based on parent relations
+CREATE OR REPLACE FUNCTION public.set_child_organization_id()
+RETURNS trigger AS $$
+DECLARE
+  v_org_id uuid;
+BEGIN
+  IF NEW.organization_id IS NULL THEN
+    IF TG_TABLE_NAME = 'employees' THEN
+      SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
+    ELSIF TG_TABLE_NAME = 'trips' THEN
+      SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
+    ELSIF TG_TABLE_NAME = 'cash_books' THEN
+      SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
+    ELSIF TG_TABLE_NAME = 'cash_entries' THEN
+      SELECT organization_id INTO v_org_id FROM public.cash_books WHERE id = NEW.cash_book_id;
+    ELSIF TG_TABLE_NAME = 'attendance' THEN
+      SELECT organization_id INTO v_org_id FROM public.employees WHERE id = NEW.employee_id;
+    ELSIF TG_TABLE_NAME = 'leave_applications' THEN
+      SELECT organization_id INTO v_org_id FROM public.employees WHERE id = NEW.employee_id;
+    ELSIF TG_TABLE_NAME = 'payroll_runs' THEN
+      SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
+    ELSIF TG_TABLE_NAME = 'payroll_lines' THEN
+      SELECT organization_id INTO v_org_id FROM public.payroll_runs WHERE id = NEW.payroll_run_id;
+    END IF;
+    NEW.organization_id := v_org_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+-- Attach set_child_organization_id triggers
+DROP TRIGGER IF EXISTS trg_employees_set_org ON public.employees;
+CREATE TRIGGER trg_employees_set_org BEFORE INSERT ON public.employees
+FOR EACH ROW EXECUTE FUNCTION public.set_child_organization_id();
+
+DROP TRIGGER IF EXISTS trg_trips_set_org ON public.trips;
+CREATE TRIGGER trg_trips_set_org BEFORE INSERT ON public.trips
+FOR EACH ROW EXECUTE FUNCTION public.set_child_organization_id();
+
+DROP TRIGGER IF EXISTS trg_cashbooks_set_org ON public.cash_books;
+CREATE TRIGGER trg_cashbooks_set_org BEFORE INSERT ON public.cash_books
+FOR EACH ROW EXECUTE FUNCTION public.set_child_organization_id();
+
+DROP TRIGGER IF EXISTS trg_cashentries_set_org ON public.cash_entries;
+CREATE TRIGGER trg_cashentries_set_org BEFORE INSERT ON public.cash_entries
+FOR EACH ROW EXECUTE FUNCTION public.set_child_organization_id();
+
+DROP TRIGGER IF EXISTS trg_attendance_set_org ON public.attendance;
+CREATE TRIGGER trg_attendance_set_org BEFORE INSERT ON public.attendance
+FOR EACH ROW EXECUTE FUNCTION public.set_child_organization_id();
+
+DROP TRIGGER IF EXISTS trg_leave_set_org ON public.leave_applications;
+CREATE TRIGGER trg_leave_set_org BEFORE INSERT ON public.leave_applications
+FOR EACH ROW EXECUTE FUNCTION public.set_child_organization_id();
+
+DROP TRIGGER IF EXISTS trg_payroll_runs_set_org ON public.payroll_runs;
+CREATE TRIGGER trg_payroll_runs_set_org BEFORE INSERT ON public.payroll_runs
+FOR EACH ROW EXECUTE FUNCTION public.set_child_organization_id();
+
+DROP TRIGGER IF EXISTS trg_payroll_lines_set_org ON public.payroll_lines;
+CREATE TRIGGER trg_payroll_lines_set_org BEFORE INSERT ON public.payroll_lines
+FOR EACH ROW EXECUTE FUNCTION public.set_child_organization_id();
+
+-- Trigger Function: Sync user role and organization to auth.users raw_app_meta_data for JWT claims
+CREATE OR REPLACE FUNCTION public.sync_user_app_metadata()
+RETURNS trigger AS $$
+DECLARE
+  v_org_id uuid;
+  v_role text;
+BEGIN
+  SELECT organization_id, role INTO v_org_id, v_role
+  FROM public.user_roles
+  WHERE user_id = COALESCE(NEW.user_id, OLD.user_id)
+  ORDER BY CASE role
+    WHEN 'admin' THEN 1
+    WHEN 'site_manager' THEN 2
+    WHEN 'stakeholder' THEN 3
+    WHEN 'employee' THEN 4
+    ELSE 5
+  END
+  LIMIT 1;
+
+  UPDATE auth.users
+  SET raw_app_meta_data = COALESCE(raw_app_meta_data, '{}'::jsonb) || 
+    jsonb_build_object('organization_id', v_org_id, 'role', v_role)
+  WHERE id = COALESCE(NEW.user_id, OLD.user_id);
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+DROP TRIGGER IF EXISTS trg_sync_user_app_metadata ON public.user_roles;
+CREATE TRIGGER trg_sync_user_app_metadata
+AFTER INSERT OR UPDATE OR DELETE ON public.user_roles
+FOR EACH ROW EXECUTE FUNCTION public.sync_user_app_metadata();
+
+-- Trigger Function: Audit table actions (Settle Trip, Lock Cash Book, Finalize Payroll)
+CREATE OR REPLACE FUNCTION public.audit_table_action()
+RETURNS trigger AS $$
+DECLARE
+  v_org_id uuid;
+  v_actor uuid;
+  v_action text;
+  v_target_type text;
+  v_target_id text;
+  v_metadata jsonb := '{}'::jsonb;
+BEGIN
+  v_actor := auth.uid();
+  IF v_actor IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_org_id := public.get_user_organization_id();
+  IF v_org_id IS NULL THEN
+    IF TG_TABLE_NAME = 'sites' THEN
+      v_org_id := NEW.organization_id;
+    ELSIF TG_TABLE_NAME = 'trips' THEN
+      v_org_id := NEW.organization_id;
+    ELSIF TG_TABLE_NAME = 'cash_books' THEN
+      v_org_id := NEW.organization_id;
+    ELSIF TG_TABLE_NAME = 'payroll_runs' THEN
+      v_org_id := NEW.organization_id;
+    END IF;
+  END IF;
+
+  IF v_org_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  v_target_type := TG_TABLE_NAME;
+  v_target_id := NEW.id::text;
+
+  IF TG_TABLE_NAME = 'trips' THEN
+    IF OLD.payment_status IS DISTINCT FROM NEW.payment_status AND NEW.payment_status = 'settled' THEN
+      v_action := 'settle_trip';
+      v_metadata := jsonb_build_object(
+        'payment_method', NEW.payment_method,
+        'payment_reference', NEW.payment_reference,
+        'trip_worth', NEW.trip_worth
+      );
+    ELSE
+      RETURN NEW;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'cash_books' THEN
+    IF OLD.status IS DISTINCT FROM NEW.status AND NEW.status = 'locked' THEN
+      v_action := 'lock_cash_book';
+      v_metadata := jsonb_build_object(
+        'book_date', NEW.book_date,
+        'closing_balance', NEW.closing_balance
+      );
+    ELSE
+      RETURN NEW;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'payroll_runs' THEN
+    IF OLD.status IS DISTINCT FROM NEW.status AND NEW.status = 'finalized' THEN
+      v_action := 'finalize_payroll';
+      v_metadata := jsonb_build_object(
+        'period_month', NEW.period_month
+      );
+    ELSE
+      RETURN NEW;
+    END IF;
+  ELSE
+    RETURN NEW;
+  END IF;
+
+  INSERT INTO public.audit_logs (organization_id, actor_user_id, action, target_type, target_id, metadata)
+  VALUES (v_org_id, v_actor, v_action, v_target_type, v_target_id, v_metadata);
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+-- Attach triggers for audits
+DROP TRIGGER IF EXISTS trg_audit_trips ON public.trips;
+CREATE TRIGGER trg_audit_trips
+AFTER UPDATE ON public.trips
+FOR EACH ROW EXECUTE FUNCTION public.audit_table_action();
+
+DROP TRIGGER IF EXISTS trg_audit_cash_books ON public.cash_books;
+CREATE TRIGGER trg_audit_cash_books
+AFTER UPDATE ON public.cash_books
+FOR EACH ROW EXECUTE FUNCTION public.audit_table_action();
+
+DROP TRIGGER IF EXISTS trg_audit_payroll_runs ON public.payroll_runs;
+CREATE TRIGGER trg_audit_payroll_runs
+AFTER UPDATE ON public.payroll_runs
+FOR EACH ROW EXECUTE FUNCTION public.audit_table_action();
+
 -- ------------------------------------------
 -- 4. Database Views
 -- ------------------------------------------
@@ -690,9 +899,24 @@ SELECT cb.site_id, cb.book_date,
   COALESCE(SUM(CASE WHEN ce.entry_type='in'  AND ce.active IS NOT FALSE THEN ce.amount ELSE 0 END),0) AS total_in,
   COALESCE(SUM(CASE WHEN ce.entry_type='out' AND ce.active IS NOT FALSE THEN ce.amount ELSE 0 END),0) AS total_out,
   cb.opening_balance, cb.closing_balance,
-  (SELECT count(*) FROM trips t WHERE t.site_id=cb.site_id AND t.trip_date=cb.book_date AND t.active IS NOT FALSE) AS trip_count
-FROM cash_books cb LEFT JOIN cash_entries ce ON ce.cash_book_id=cb.id
-GROUP BY cb.id, cb.site_id, cb.book_date, cb.opening_balance, cb.closing_balance;
+  (SELECT count(*) FROM trips t WHERE t.site_id=cb.site_id AND t.trip_date=cb.book_date AND t.active IS NOT FALSE) AS trip_count,
+  s.organization_id
+FROM cash_books cb 
+  JOIN public.sites s ON cb.site_id = s.id
+  LEFT JOIN cash_entries ce ON ce.cash_book_id=cb.id
+WHERE s.organization_id = get_user_organization_id()
+GROUP BY cb.id, cb.site_id, cb.book_date, cb.opening_balance, cb.closing_balance, s.organization_id;
+
+CREATE OR REPLACE VIEW public.org_users WITH (security_invoker = true) AS
+SELECT 
+  u.id,
+  u.email,
+  u.created_at,
+  ur.role,
+  ur.site_id,
+  ur.organization_id
+FROM auth.users u
+JOIN public.user_roles ur ON u.id = ur.user_id;
 
 -- ------------------------------------------
 -- 5. Row Level Security (RLS) Policies
@@ -755,15 +979,15 @@ CREATE POLICY drivers_read ON public.drivers FOR SELECT TO authenticated USING (
 -- Employees Policies
 ALTER TABLE public.employees ENABLE ROW LEVEL SECURITY;
 CREATE POLICY employees_admin ON public.employees TO authenticated
-  USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()))
-  WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()));
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
 CREATE POLICY employees_manager ON public.employees TO authenticated USING (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids())) WITH CHECK (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids()));
 
 -- Trips Policies
 ALTER TABLE public.trips ENABLE ROW LEVEL SECURITY;
 CREATE POLICY trips_admin ON public.trips TO authenticated
-  USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()))
-  WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()));
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
 CREATE POLICY trips_manager ON public.trips TO authenticated USING (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids())) WITH CHECK (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids()));
 CREATE POLICY trips_stakeholder_read ON public.trips FOR SELECT TO authenticated USING (get_user_role() = 'stakeholder' AND site_id IN (SELECT site_id FROM stakeholder_site_access WHERE stakeholder_user_id = auth.uid()));
 CREATE POLICY trips_employee_read ON public.trips FOR SELECT TO authenticated
@@ -785,15 +1009,15 @@ CREATE POLICY trip_photos_write ON public.trip_photos FOR ALL TO authenticated
 -- Cash Books Policies
 ALTER TABLE public.cash_books ENABLE ROW LEVEL SECURITY;
 CREATE POLICY cashbooks_admin ON public.cash_books TO authenticated
-  USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()))
-  WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()));
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
 CREATE POLICY cashbooks_manager ON public.cash_books TO authenticated USING (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids())) WITH CHECK (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids()));
 
 -- Cash Entries Policies
 ALTER TABLE public.cash_entries ENABLE ROW LEVEL SECURITY;
 CREATE POLICY cashentries_admin ON public.cash_entries TO authenticated
-  USING (get_user_role() = 'admin' AND cash_book_id IN (SELECT id FROM cash_books WHERE site_id = ANY (get_org_site_ids())))
-  WITH CHECK (get_user_role() = 'admin' AND cash_book_id IN (SELECT id FROM cash_books WHERE site_id = ANY (get_org_site_ids())));
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
 CREATE POLICY cashentries_manager ON public.cash_entries TO authenticated USING (get_user_role() = 'site_manager' AND cash_book_id IN (SELECT id FROM cash_books WHERE site_id = ANY (get_user_site_ids()))) WITH CHECK (get_user_role() = 'site_manager' AND cash_book_id IN (SELECT id FROM cash_books WHERE site_id = ANY (get_user_site_ids())));
 CREATE POLICY cashentries_employee ON public.cash_entries TO authenticated
   USING ((get_user_role() = 'employee' OR get_user_role() = 'site_employee') AND cash_book_id IN (SELECT id FROM cash_books WHERE site_id = ANY (get_user_site_ids())))
@@ -802,8 +1026,8 @@ CREATE POLICY cashentries_employee ON public.cash_entries TO authenticated
 -- Attendance Policies
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 CREATE POLICY attendance_admin ON public.attendance TO authenticated
-  USING (get_user_role() = 'admin' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_org_site_ids())))
-  WITH CHECK (get_user_role() = 'admin' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_org_site_ids())));
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
 CREATE POLICY attendance_manager ON public.attendance TO authenticated USING (get_user_role() = 'site_manager' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_user_site_ids()))) WITH CHECK (get_user_role() = 'site_manager' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_user_site_ids())));
 CREATE POLICY attendance_self_insert ON public.attendance FOR INSERT TO authenticated
   WITH CHECK (employee_id IN (SELECT id FROM public.employees WHERE user_id = auth.uid()) AND att_date = CURRENT_DATE);
@@ -813,8 +1037,8 @@ CREATE POLICY attendance_self_read ON public.attendance FOR SELECT TO authentica
 -- Leave Applications Policies
 ALTER TABLE public.leave_applications ENABLE ROW LEVEL SECURITY;
 CREATE POLICY leave_admin ON public.leave_applications TO authenticated
-  USING (get_user_role() = 'admin' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_org_site_ids())))
-  WITH CHECK (get_user_role() = 'admin' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_org_site_ids())));
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
 CREATE POLICY leave_manager ON public.leave_applications TO authenticated USING (get_user_role() = 'site_manager' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_user_site_ids()))) WITH CHECK (get_user_role() = 'site_manager' AND employee_id IN (SELECT id FROM employees WHERE site_id = ANY (get_user_site_ids())));
 CREATE POLICY leave_self_insert ON public.leave_applications FOR INSERT TO authenticated
   WITH CHECK (employee_id IN (SELECT id FROM public.employees WHERE user_id = auth.uid()));
@@ -824,15 +1048,15 @@ CREATE POLICY leave_self_read ON public.leave_applications FOR SELECT TO authent
 -- Payroll Runs Policies
 ALTER TABLE public.payroll_runs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY payroll_runs_admin ON public.payroll_runs TO authenticated
-  USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()))
-  WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()));
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
 CREATE POLICY payroll_runs_manager ON public.payroll_runs TO authenticated USING (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids())) WITH CHECK (get_user_role() = 'site_manager' AND site_id = ANY (get_user_site_ids()));
 
 -- Payroll Lines Policies
 ALTER TABLE public.payroll_lines ENABLE ROW LEVEL SECURITY;
 CREATE POLICY payroll_lines_admin ON public.payroll_lines TO authenticated
-  USING (get_user_role() = 'admin' AND payroll_run_id IN (SELECT id FROM payroll_runs WHERE site_id = ANY (get_org_site_ids())))
-  WITH CHECK (get_user_role() = 'admin' AND payroll_run_id IN (SELECT id FROM payroll_runs WHERE site_id = ANY (get_org_site_ids())));
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id())
+  WITH CHECK (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
 CREATE POLICY payroll_lines_manager ON public.payroll_lines TO authenticated USING (get_user_role() = 'site_manager' AND payroll_run_id IN (SELECT id FROM payroll_runs WHERE site_id = ANY (get_user_site_ids()))) WITH CHECK (get_user_role() = 'site_manager' AND payroll_run_id IN (SELECT id FROM payroll_runs WHERE site_id = ANY (get_user_site_ids())));
 
 -- User Roles Policies
@@ -848,6 +1072,11 @@ CREATE POLICY stakeholder_access_admin ON public.stakeholder_site_access TO auth
   USING (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()) AND organization_id = get_user_organization_id())
   WITH CHECK (get_user_role() = 'admin' AND site_id = ANY (get_org_site_ids()) AND organization_id = get_user_organization_id());
 CREATE POLICY stakeholder_access_self_read ON public.stakeholder_site_access FOR SELECT TO authenticated USING (stakeholder_user_id = auth.uid());
+
+-- Audit Logs Policies
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY audit_logs_admin_read ON public.audit_logs FOR SELECT TO authenticated
+  USING (get_user_role() = 'admin' AND organization_id = get_user_organization_id());
 
 -- ------------------------------------------
 -- 6. Indexes
@@ -865,3 +1094,11 @@ CREATE INDEX IF NOT EXISTS idx_user_roles_org ON public.user_roles (organization
 CREATE INDEX IF NOT EXISTS idx_vehicles_org ON public.vehicles (organization_id);
 CREATE INDEX IF NOT EXISTS idx_drivers_org ON public.drivers (organization_id);
 CREATE INDEX IF NOT EXISTS idx_transport_contractors_org ON public.transport_contractors (organization_id);
+CREATE INDEX IF NOT EXISTS idx_employees_org ON public.employees (organization_id);
+CREATE INDEX IF NOT EXISTS idx_trips_org ON public.trips (organization_id);
+CREATE INDEX IF NOT EXISTS idx_cash_books_org ON public.cash_books (organization_id);
+CREATE INDEX IF NOT EXISTS idx_cash_entries_org ON public.cash_entries (organization_id);
+CREATE INDEX IF NOT EXISTS idx_attendance_org ON public.attendance (organization_id);
+CREATE INDEX IF NOT EXISTS idx_leave_applications_org ON public.leave_applications (organization_id);
+CREATE INDEX IF NOT EXISTS idx_payroll_runs_org ON public.payroll_runs (organization_id);
+CREATE INDEX IF NOT EXISTS idx_payroll_lines_org ON public.payroll_lines (organization_id);
