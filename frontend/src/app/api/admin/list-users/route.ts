@@ -65,19 +65,7 @@ export async function GET(req: NextRequest) {
         .from('user_roles')
         .select('user_id')
         .eq('organization_id', callerOrganizationId)
-        .or(`site_id.in.(${managedSiteIds.join(',')}),role.eq.admin`)
-
-      if (siteUsers) {
-        for (const row of siteUsers) {
-          allowedUserIds.add(row.user_id)
-        }
-      }
-    } else {
-      const { data: siteUsers } = await supabase
-        .from('user_roles')
-        .select('user_id')
-        .eq('organization_id', callerOrganizationId)
-        .eq('role', 'admin')
+        .in('site_id', managedSiteIds)
 
       if (siteUsers) {
         for (const row of siteUsers) {

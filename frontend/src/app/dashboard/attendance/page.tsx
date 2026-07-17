@@ -164,7 +164,7 @@ export default function AttendancePage() {
         photo_url: emp.photo_url,
       }))
 
-      await attendanceRepository.saveRoster(supabase, records)
+      await attendanceRepository.saveRoster(supabase, records, selectedSite)
       toast.success('Attendance records saved successfully')
       setIsDirty(false)
       loadRoster()

@@ -42,7 +42,7 @@ interface ExtendedTrip extends Trip {
 }
 
 export default function TripsPage() {
-  const { isAdmin, isSiteManager, organizationId, loading: authLoading } = useAuth()
+  const { user, isAdmin, isSiteManager, organizationId, loading: authLoading } = useAuth()
   const router = useRouter()
   const supabase = createClient()
   const PAGE_LIMIT = 20
@@ -567,7 +567,8 @@ export default function TripsPage() {
         settlement_account: settleAccount.trim(),
         payment_status: 'settled',
         payment_method: settleMethod,
-        payment_reference: settleRef.trim() || undefined
+        payment_reference: settleRef.trim() || undefined,
+        settled_by: user?.id
       })
       toast.success('Trip settled successfully')
       setSettleTripId(null)

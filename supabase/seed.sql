@@ -1,8 +1,13 @@
-﻿-- Seed sites
-INSERT INTO public.sites (id, name, location, active)
+-- Seed default organization
+INSERT INTO public.organizations (id, name, active)
+VALUES ('00000000-0000-0000-0000-000000000000', 'MineOps Demo Org', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Seed sites
+INSERT INTO public.sites (id, name, location, active, organization_id)
 VALUES 
-  ('00000000-0000-0000-0000-000000000001', 'Test Mine Site 1', 'North Quarry', true),
-  ('00000000-0000-0000-0000-000000000002', 'Test Mine Site 2', 'South Quarry', true)
+  ('00000000-0000-0000-0000-000000000001', 'Test Mine Site 1', 'North Quarry', true, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000002', 'Test Mine Site 2', 'South Quarry', true, '00000000-0000-0000-0000-000000000000')
 ON CONFLICT (id) DO NOTHING;
 
 -- Seed an auth user in Supabase Auth (using pre-computed bcrypt hash for 'password123')
@@ -70,35 +75,35 @@ INSERT INTO auth.identities (
 ) ON CONFLICT (provider_id, provider) DO NOTHING;
 
 -- Grant admin role to the user in user_roles
-INSERT INTO public.user_roles (id, user_id, role, site_id)
-VALUES ('00000000-0000-0000-0000-000000000100', 'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0', 'admin', null)
+INSERT INTO public.user_roles (id, user_id, role, site_id, organization_id)
+VALUES ('00000000-0000-0000-0000-000000000100', 'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0', 'admin', null, '00000000-0000-0000-0000-000000000000')
 ON CONFLICT (id) DO NOTHING;
 
 -- Add transport contractors
-INSERT INTO public.transport_contractors (id, name, active)
+INSERT INTO public.transport_contractors (id, name, active, organization_id)
 VALUES 
-  ('00000000-0000-0000-0000-000000000201', 'Deccan Logistics Co', true),
-  ('00000000-0000-0000-0000-000000000202', 'Vanguard Haulers Ltd', true),
-  ('00000000-0000-0000-0000-000000000203', 'Speedways Transport', true)
+  ('00000000-0000-0000-0000-000000000201', 'Deccan Logistics Co', true, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000202', 'Vanguard Haulers Ltd', true, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000203', 'Speedways Transport', true, '00000000-0000-0000-0000-000000000000')
 ON CONFLICT (id) DO NOTHING;
 
 -- Add vehicles
-INSERT INTO public.vehicles (id, plate_number, vehicle_type, ownership, default_contractor_id, active)
+INSERT INTO public.vehicles (id, plate_number, vehicle_type, ownership, default_contractor_id, active, organization_id)
 VALUES 
-  ('00000000-0000-0000-0000-000000000301', 'KA01MH1234', '12WH', 'rented', '00000000-0000-0000-0000-000000000201', true),
-  ('00000000-0000-0000-0000-000000000302', 'KA01MH5678', '10WH', 'rented', '00000000-0000-0000-0000-000000000202', true),
-  ('00000000-0000-0000-0000-000000000303', 'KA01MH9999', '6WH', 'owned', null, true),
-  ('00000000-0000-0000-0000-000000000304', 'MH02XY1111', '12WH', 'rented', '00000000-0000-0000-0000-000000000203', true),
-  ('00000000-0000-0000-0000-000000000305', 'MH02XY2222', '10WH', 'rented', '00000000-0000-0000-0000-000000000201', true),
-  ('00000000-0000-0000-0000-000000000306', 'MH02XY3333', 'Other', 'owned', null, true)
+  ('00000000-0000-0000-0000-000000000301', 'KA01MH1234', '12WH', 'rented', '00000000-0000-0000-0000-000000000201', true, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000302', 'KA01MH5678', '10WH', 'rented', '00000000-0000-0000-0000-000000000202', true, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000303', 'KA01MH9999', '6WH', 'owned', null, true, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000304', 'MH02XY1111', '12WH', 'rented', '00000000-0000-0000-0000-000000000203', true, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000305', 'MH02XY2222', '10WH', 'rented', '00000000-0000-0000-0000-000000000201', true, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000306', 'MH02XY3333', 'Other', 'owned', null, true, '00000000-0000-0000-0000-000000000000')
 ON CONFLICT (id) DO NOTHING;
 
 -- Add default drivers
-INSERT INTO public.drivers (id, name, license_number, active)
+INSERT INTO public.drivers (id, name, license_number, active, organization_id)
 VALUES 
-  ('00000000-0000-0000-0000-000000000401', 'Rajesh Kumar', 'DL-12345', true),
-  ('00000000-0000-0000-0000-000000000402', 'Suresh Singh', 'DL-67890', true),
-  ('00000000-0000-0000-0000-000000000403', 'Amit Patel', 'DL-11223', true)
+  ('00000000-0000-0000-0000-000000000401', 'Rajesh Kumar', 'DL-12345', true, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000402', 'Suresh Singh', 'DL-67890', true, '00000000-0000-0000-0000-000000000000'),
+  ('00000000-0000-0000-0000-000000000403', 'Amit Patel', 'DL-11223', true, '00000000-0000-0000-0000-000000000000')
 ON CONFLICT (id) DO NOTHING;
 
 -- Add employees to sites

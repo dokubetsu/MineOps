@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
-import { Employee, Attendance } from '../supabase/types'
+import { Employee } from '../supabase/types'
 
 export interface RosterEmployee extends Employee {
   att_id: string | null
@@ -16,12 +16,12 @@ export const attendanceRepository = {
     siteId: string,
     date: string
   ): Promise<RosterEmployee[]> {
-    // Get employees
+    // Get employees filtered by siteId
     const { data: employees, error: empError } = await supabase
-
       .from('employees')
       .select('id, name, role, wage_type, wage_rate, site_id, phone, active, join_date, created_at, updated_at, leave_balance, user_id')
       .eq('active', true)
+      .eq('site_id', siteId)
       .order('name')
       .limit(500)
 
@@ -77,12 +77,29 @@ export const attendanceRepository = {
       att_date: string
       status: 'present' | 'absent' | 'half-day' | 'leave'
       photo_url: string | null
-    }>
+    }>,
+    siteId: string
   ): Promise<void> {
-    const { error } = await supabase
-      .from('attendance')
-      .upsert(records, { onConflict: 'employee_id,att_date' })
+    const empIds = records.map(r => r.employee_id)
+    if (empIds.length > 0) {
+      // Verify all employee_ids belong to this site before writing
+      const { data: valid, error: validError } = await supabase
+        .from('employees')
+        .select('id')
+        .in('id', empIds)
+        .eq('site_id', siteId)
 
-    if (error) throw error
+      if (validError) throw validError
+
+      const validIds = new Set((valid || []).map(e => e.id))
+      const safeRecords = records.filter(r => validIds.has(r.employee_id))
+
+      if (safeRecords.length > 0) {
+        const { error } = await supabase
+          .from('attendance')
+          .upsert(safeRecords, { onConflict: 'employee_id,att_date' })
+        if (error) throw error
+      }
+    }
   }
 }

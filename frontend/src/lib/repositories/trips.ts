@@ -54,6 +54,7 @@ export const tripsRepository = {
       payment_status?: string
       payment_method?: string
       payment_reference?: string
+      settled_by?: string
     }
   ): Promise<void> {
     const { error } = await supabase
@@ -61,6 +62,7 @@ export const tripsRepository = {
       .update({
         settled: true,
         settled_at: new Date().toISOString(),
+        settled_by: payload.settled_by || null,
         payment_status: 'settled',
         payment_method: payload.payment_method,
         payment_reference: payload.payment_reference,

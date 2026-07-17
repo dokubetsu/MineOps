@@ -157,8 +157,10 @@ export const payrollRepository = {
       let computed = 0
       if (wageType === 'monthly') {
         const totalDays = Math.round((periodEnd.getTime() - periodStart.getTime()) / 86400000) + 1
+        // Monthly workers are prorated for absences and half-days
         computed = emp.wage_rate * Math.max(0, 1 - (absent + halfDay * 0.5) / totalDays)
       } else {
+        // Daily workers get paid for present days, half-days, and leave days
         computed = (present + halfDay * 0.5 + leave) * emp.wage_rate
       }
       const finalComputed = Math.round((computed + 1e-9) * 100) / 100

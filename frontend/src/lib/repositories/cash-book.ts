@@ -85,7 +85,7 @@ export const cashBookRepository = {
       .insert({
         ...payload,
         active: true,
-      } as any)
+      })
 
     if (error) throw error
   },
