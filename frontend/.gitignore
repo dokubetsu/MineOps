@@ -42,3 +42,9 @@ yarn-error.log*
 next-env.d.ts
 playwright-report/
 test-results/
+
+# PWA / Workbox — generated on `npm run build` (do not commit hashed precache)
+/public/sw.js
+/public/workbox-*.js
+/public/swe-worker-*.js
+/public/fallback-*.js

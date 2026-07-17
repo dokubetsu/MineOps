@@ -3,6 +3,9 @@ INSERT INTO public.organizations (id, name, active)
 VALUES ('00000000-0000-0000-0000-000000000000', 'MineOps Demo Org', true)
 ON CONFLICT (id) DO NOTHING;
 
+-- Seed org feature entitlements (migration 036 creates table + seed_organization_features)
+SELECT public.seed_organization_features('00000000-0000-0000-0000-000000000000');
+
 -- Seed sites
 INSERT INTO public.sites (id, name, location, active, organization_id)
 VALUES 

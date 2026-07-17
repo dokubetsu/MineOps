@@ -148,10 +148,10 @@ export default function PlatformOrgsPage() {
                 className="form-input"
                 type="password"
                 required
-                minLength={6}
+                minLength={10}
                 value={form.adminPassword}
                 onChange={(e) => setForm((f) => ({ ...f, adminPassword: e.target.value }))}
-                placeholder="Min 6 characters"
+                placeholder="Min 10 chars, letter + number"
               />
             </div>
 

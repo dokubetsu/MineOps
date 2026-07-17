@@ -45,8 +45,12 @@ export function roundMoney(value: number): number {
 
 /**
  * Payroll wage for one employee in a period.
- * - daily: (present + halfDay*0.5 + leave) * rate
- * - monthly: rate prorated for absences and half-days over calendar days in period
+ *
+ * Policy (see docs/wage_policy.md):
+ * - daily: (present + halfDay*0.5 + leave) * rate  — leave is paid; only marked days pay
+ * - monthly: rate * (1 - (absent + halfDay*0.5) / periodDays)
+ *   Leave does NOT reduce monthly salary (treated as paid leave).
+ *   Days with no attendance row are NOT treated as absent — mark A explicitly.
  */
 export function computePayrollWage(
   emp: EmployeeWageConfig,

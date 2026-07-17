@@ -8,7 +8,9 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site } from '@/lib/supabase/types'
 import { attendanceRepository, RosterEmployee } from '@/lib/repositories/attendance'
+import { sitesRepository } from '@/lib/repositories/sites'
 import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
+import PageHeader from '@/components/PageHeader'
 import toast from 'react-hot-toast'
 
 const STATUSES = [
@@ -33,8 +35,7 @@ export default function AttendancePage() {
 
   const loadSites = async () => {
     try {
-      const { data } = await supabase.from('sites').select('*').eq('active', true).order('name')
-      const loadedSites = data || []
+      const loadedSites = await sitesRepository.listActive(supabase)
       setSites(loadedSites)
       if (loadedSites.length > 0) {
         setSelectedSite(loadedSites[0].id)
@@ -119,7 +120,14 @@ export default function AttendancePage() {
   }, [selectedSite, selectedDate])
 
   const handleStatusChange = (employeeId: string, status: 'present' | 'absent' | 'half-day' | 'leave') => {
-    setRoster(prev => prev.map(emp => emp.id === employeeId ? { ...emp, status } : emp))
+    setRoster((prev) =>
+      prev.map((emp) => {
+        if (emp.id !== employeeId) return emp
+        // Toggle off if re-clicking the same mark → back to unmarked
+        if (emp.status === status) return { ...emp, status: null }
+        return { ...emp, status }
+      })
+    )
     setIsDirty(true)
   }
 
@@ -172,9 +180,20 @@ export default function AttendancePage() {
       toast.error('No employees on the roster to save')
       return
     }
+    const unmarked = roster.filter((e) => !e.status).length
+    if (unmarked === roster.length) {
+      toast.error('Mark attendance for at least one employee before saving')
+      return
+    }
+    if (unmarked > 0) {
+      toast(
+        `${unmarked} employee(s) still unmarked will not be saved (unmarked ≠ present)`,
+        { icon: '⚠️' }
+      )
+    }
     setSaving(true)
     try {
-      const records = roster.map(emp => ({
+      const records = roster.map((emp) => ({
         employee_id: emp.id,
         att_date: selectedDate,
         status: emp.status,
@@ -182,7 +201,8 @@ export default function AttendancePage() {
       }))
 
       await attendanceRepository.saveRoster(supabase, records, selectedSite)
-      toast.success('Attendance records saved successfully')
+      const saved = roster.length - unmarked
+      toast.success(`Saved ${saved} attendance mark(s)${unmarked ? ` (${unmarked} left unmarked)` : ''}`)
       setIsDirty(false)
       await loadRoster()
     } catch (error: unknown) {
@@ -209,20 +229,20 @@ export default function AttendancePage() {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Attendance</h1>
-          <p className="page-subtitle">Daily Muster Roll</p>
-        </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button className="btn btn-secondary" onClick={markAllPresent} disabled={roster.length === 0}>
-            Mark All Present
-          </button>
-          <button className="btn btn-primary" onClick={saveAttendance} disabled={saving || roster.length === 0}>
-            {saving ? <><Loader2 className="spinner" size={16} /> Saving</> : <><Save size={16} /> Save</>}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Attendance"
+        subtitle="Daily Muster Roll"
+        actions={
+          <>
+            <button className="btn btn-secondary" onClick={markAllPresent} disabled={roster.length === 0}>
+              Mark All Present
+            </button>
+            <button className="btn btn-primary" onClick={saveAttendance} disabled={saving || roster.length === 0}>
+              {saving ? <><Loader2 className="spinner" size={16} /> Saving</> : <><Save size={16} /> Save</>}
+            </button>
+          </>
+        }
+      />
 
       {/* Date Navigation */}
       <div className="card mb-4" style={{ padding: '0.875rem 1rem' }}>
@@ -308,6 +328,7 @@ export default function AttendancePage() {
                     <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{emp.name}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textTransform: 'capitalize' }}>
                       {emp.role} • {emp.wage_type === 'monthly' ? 'Monthly' : `₹${emp.wage_rate}/day`}
+                      {!emp.status ? ' • Unmarked' : ''}
                     </div>
                   </div>
                 </div>

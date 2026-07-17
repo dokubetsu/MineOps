@@ -147,10 +147,10 @@ export default function PlatformSetupPage() {
                   className="form-input"
                   type="password"
                   required
-                  minLength={6}
+                  minLength={10}
                   value={form.password}
                   onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                  placeholder="Min 6 characters"
+                  placeholder="Min 10 chars, letter + number"
                 />
               </div>
               {requiresSecret && (

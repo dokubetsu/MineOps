@@ -1,11 +1,12 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { passwordSchema } from '@/lib/password-policy'
 
 // Zod schema for validating the incoming request body
 const createUserSchema = z.object({
   email: z.string().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters long'),
+  password: passwordSchema,
   role: z.enum(['admin', 'site_manager', 'stakeholder', 'employee', 'site_employee']),
   site_id: z.string().uuid('Invalid site ID format').nullable().optional(),
   share_percent: z.union([z.number(), z.string()]).transform((val) => {

@@ -6,8 +6,18 @@ import { format, subDays } from 'date-fns'
 import { Plus, Image as ImageIcon, Check, X, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { computeTripWorthFromRate } from '@/lib/calculations'
+import { cashBookRepository } from '@/lib/repositories/cash-book'
 import BottomSheet from '@/components/BottomSheet'
 import toast from 'react-hot-toast'
+
+const EXPENSE_CATEGORIES = [
+  'Fuel/Diesel Purchase',
+  'Driver Wage payment',
+  'Supervisor payment',
+  'Meal & Food expense',
+  'Repair & Spares',
+  'Other outgoing',
+] as const
 
 interface EmployeeData {
   id: string
@@ -58,7 +68,27 @@ export default function EmployeePage() {
     settlement_method: 'upi',
     settlement_ref: '',
   })
+  const [entryPhoto, setEntryPhoto] = useState<File | null>(null)
   const [tripPhotos, setTripPhotos] = useState<File[]>([])
+
+  // Expense logger
+  const [showExpenseSheet, setShowExpenseSheet] = useState(false)
+  const [submittingExpense, setSubmittingExpense] = useState(false)
+  const [expenseForm, setExpenseForm] = useState({
+    category: EXPENSE_CATEGORIES[0] as string,
+    amount: '',
+    note: '',
+  })
+  const [expenseReceipt, setExpenseReceipt] = useState<File | null>(null)
+  const [todayExpenses, setTodayExpenses] = useState<
+    Array<{ id: string; category: string; amount: number; note: string | null; created_at: string | null }>
+  >([])
+
+  // Settle sheet (proper UX vs window.prompt)
+  const [settleTrip, setSettleTrip] = useState<any | null>(null)
+  const [settleMethod, setSettleMethod] = useState<'upi' | 'cash'>('upi')
+  const [settleRef, setSettleRef] = useState('')
+  const [submittingSettle, setSubmittingSettle] = useState(false)
 
   // Edit / Settle states
   const [editingTrip, setEditingTrip] = useState<any | null>(null)
@@ -168,6 +198,28 @@ export default function EmployeePage() {
       setNegotiatedRates(rates || [])
       setTodayTrips(trips || [])
 
+      // Today's expenses logged by this user
+      try {
+        if (!empData.site_id) throw new Error('no site')
+        const myExp = await cashBookRepository.listMyEntriesForDate(
+          supabase,
+          empData.site_id,
+          todayStr,
+          user.id
+        )
+        setTodayExpenses(
+          (myExp || []).map((e) => ({
+            id: e.id,
+            category: e.category,
+            amount: Number(e.amount),
+            note: e.note,
+            created_at: e.created_at,
+          }))
+        )
+      } catch {
+        setTodayExpenses([])
+      }
+
       // 3. Prompt attendance check
       const { data: todayAtt } = await supabase
         .from('attendance')
@@ -265,8 +317,9 @@ export default function EmployeePage() {
   const handleTripSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!employee || !user) return
-    if (tripPhotos.length > 10) {
-      toast.error('You can upload a maximum of 10 photos per trip')
+    const allPhotoFiles = [...(entryPhoto ? [entryPhoto] : []), ...tripPhotos]
+    if (allPhotoFiles.length > 10) {
+      toast.error('You can upload a maximum of 10 photos per trip (1 entry + up to 9 trip photos)')
       return
     }
 
@@ -285,7 +338,7 @@ export default function EmployeePage() {
           .insert({
             plate_number: upperPlate,
             vehicle_type: tripForm.vehicle_type,
-            ownership: tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership, // Map lease/rented appropriately
+            ownership: tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership,
             default_contractor_id: tripForm.contractor_id || null,
             active: true,
             organization_id: organizationId!
@@ -297,16 +350,15 @@ export default function EmployeePage() {
         vehicleId = newVeh.id
       }
 
-      // Upload photos
-      const uploadedUrls = await uploadPhotos(tripPhotos, employee.site_id)
+      // Entry photo first, then in-trip photos (max 10 total)
+      const uploadedUrls = await uploadPhotos(allPhotoFiles, employee.site_id)
+      const entryPhotoUrl = uploadedUrls[0] || null
 
-      // Get calculated negotiated rate (shared module)
       const rate = negotiatedRates.find(r => r.vehicle_type === tripForm.vehicle_type)?.rate_per_cubic || 0
       const capacity = parseFloat(tripForm.cubic_capacity) || 0
       const worth = computeTripWorthFromRate(capacity, rate)
 
-      // Create trip record
-      const { error } = await supabase
+      const { data: newTrip, error } = await supabase
         .from('trips')
         .insert({
           site_id: employee.site_id,
@@ -315,12 +367,14 @@ export default function EmployeePage() {
           trip_date: todayStr,
           cubic_capacity: capacity,
           advance_amount: parseFloat(tripForm.advance_amount) || 0,
+          photo_url: entryPhotoUrl,
           photo_urls: uploadedUrls,
           customer_id: tripForm.customer_id || null,
           drop_location: tripForm.drop_location || null,
           distance_km: parseFloat(tripForm.distance_km) || null,
           total_shipment_cost: parseFloat(tripForm.total_shipment_cost) || worth,
           trip_worth: worth,
+          permit_number: tripForm.permit_number || null,
           notes: tripForm.notes || null,
           created_by: user.id,
           ownership_snapshot: tripForm.ownership,
@@ -329,11 +383,29 @@ export default function EmployeePage() {
           settlement_ref: tripForm.settled ? tripForm.settlement_ref : null,
           settled_at: tripForm.settled ? new Date().toISOString() : null,
           settled_by: tripForm.settled ? user.id : null,
+          payment_status: tripForm.settled ? 'settled' : 'pending',
+          payment_method: tripForm.settled ? tripForm.settlement_method : null,
+          payment_reference: tripForm.settled ? tripForm.settlement_ref : null,
         })
+        .select('id')
+        .single()
 
       if (error) throw error
+
+      // Sync trip_photos rows for managers / multi-photo views
+      if (newTrip?.id && uploadedUrls.length > 0) {
+        await supabase.from('trip_photos').insert(
+          uploadedUrls.map((url, idx) => ({
+            trip_id: newTrip.id,
+            photo_url: url,
+            sort_order: idx,
+          }))
+        )
+      }
+
       toast.success('Trip logged successfully')
       setShowTripSheet(false)
+      setEntryPhoto(null)
       setTripPhotos([])
       setTripForm({
         vehicle_plate: '',
@@ -353,10 +425,35 @@ export default function EmployeePage() {
         settlement_ref: '',
       })
       loadInitialData()
-    } catch (err: any) {
-      toast.error(`Failed to log trip: ${err.message}`)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      toast.error(`Failed to log trip: ${message}`)
     } finally {
       setSubmittingTrip(false)
+    }
+  }
+
+  const handleExpenseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!employee || !user) return
+    setSubmittingExpense(true)
+    try {
+      await cashBookRepository.logSiteExpense(supabase, employee.site_id, todayStr, {
+        category: expenseForm.category,
+        amount: parseFloat(expenseForm.amount),
+        note: expenseForm.note || null,
+        receiptFile: expenseReceipt,
+      })
+      toast.success('Expense logged to site cash book')
+      setShowExpenseSheet(false)
+      setExpenseForm({ category: EXPENSE_CATEGORIES[0], amount: '', note: '' })
+      setExpenseReceipt(null)
+      void loadInitialData()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      toast.error(`Failed to log expense: ${message}`)
+    } finally {
+      setSubmittingExpense(false)
     }
   }
 
@@ -465,29 +562,45 @@ export default function EmployeePage() {
     }
   }
 
-  const handleSettleTripQuick = async (tripId: string, method: 'cash' | 'upi', ref: string) => {
-    if (!ref.trim()) {
+  const openSettleSheet = (trip: any, method: 'upi' | 'cash' = 'upi') => {
+    setSettleTrip(trip)
+    setSettleMethod(method)
+    setSettleRef(trip.settlement_ref || '')
+  }
+
+  const handleSettleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!settleTrip || !user) return
+    if (!settleRef.trim()) {
       toast.error('Please enter a transaction reference number')
       return
     }
-    if (!user) return
+    setSubmittingSettle(true)
     try {
       const { error } = await supabase
         .from('trips')
         .update({
           settled: true,
-          settlement_method: method,
-          settlement_ref: ref,
+          settlement_method: settleMethod,
+          settlement_ref: settleRef.trim(),
           settled_at: new Date().toISOString(),
-          settled_by: user.id
+          settled_by: user.id,
+          payment_status: 'settled',
+          payment_method: settleMethod,
+          payment_reference: settleRef.trim(),
         })
-        .eq('id', tripId)
+        .eq('id', settleTrip.id)
 
       if (error) throw error
       toast.success('Trip marked as settled')
-      loadInitialData()
-    } catch (err: any) {
-      toast.error(`Settlement failed: ${err.message}`)
+      setSettleTrip(null)
+      setSettleRef('')
+      void loadInitialData()
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      toast.error(`Settlement failed: ${message}`)
+    } finally {
+      setSubmittingSettle(false)
     }
   }
 
@@ -576,22 +689,24 @@ export default function EmployeePage() {
                   </div>
                   {trip.settled ? (
                     <span className="badge badge-success" style={{ marginTop: '0.375rem', display: 'inline-block' }}>
-                      Settled ({trip.settlement_method} - {trip.settlement_ref})
+                      Settled ({trip.settlement_method} · {trip.settlement_ref})
                     </span>
                   ) : (
-                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                      <button className="btn btn-sm btn-ghost" style={{ padding: '0.125rem 0.5rem', border: '1px solid var(--accent)', color: 'var(--accent)' }}
-                        onClick={() => {
-                          const ref = prompt(`Enter UPI or Cash reference for trip worth ₹${trip.total_shipment_cost}:`)
-                          if (ref !== null) handleSettleTripQuick(trip.id, 'upi', ref)
-                        }}>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        style={{ padding: '0.125rem 0.5rem', border: '1px solid var(--accent)', color: 'var(--accent)' }}
+                        onClick={() => openSettleSheet(trip, 'upi')}
+                      >
                         Settle UPI
                       </button>
-                      <button className="btn btn-sm btn-ghost" style={{ padding: '0.125rem 0.5rem', border: '1px solid var(--success)', color: 'var(--success)' }}
-                        onClick={() => {
-                          const ref = prompt(`Enter Cash reference/note for trip worth ₹${trip.total_shipment_cost}:`)
-                          if (ref !== null) handleSettleTripQuick(trip.id, 'cash', ref)
-                        }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        style={{ padding: '0.125rem 0.5rem', border: '1px solid var(--success)', color: 'var(--success)' }}
+                        onClick={() => openSettleSheet(trip, 'cash')}
+                      >
                         Settle Cash
                       </button>
                     </div>
@@ -603,6 +718,28 @@ export default function EmployeePage() {
           </div>
         )}
       </div>
+
+      {/* Today's expenses (own entries) */}
+      {todayExpenses.length > 0 && (
+        <div style={{ marginBottom: '1.5rem' }}>
+          <h3 style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.5rem' }}>Today&apos;s Expenses</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {todayExpenses.map((ex) => (
+              <div key={ex.id} className="card" style={{ padding: '0.75rem', display: 'flex', justifyContent: 'space-between', gap: '0.5rem' }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{ex.category}</div>
+                  {ex.note && (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{ex.note}</div>
+                  )}
+                </div>
+                <div style={{ fontWeight: 700, color: 'var(--danger)' }}>
+                  −₹{ex.amount.toLocaleString('en-IN')}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Floating Bottom Major Action Buttons */}
       <div style={{
@@ -617,10 +754,10 @@ export default function EmployeePage() {
         gap: '0.75rem',
         zIndex: 99
       }}>
-        <button className="btn btn-secondary w-full btn-lg" onClick={() => toast.error('Expense logger to be implemented in Module 2')}>
+        <button className="btn btn-secondary w-full btn-lg" type="button" onClick={() => setShowExpenseSheet(true)}>
           Log Expense
         </button>
-        <button className="btn btn-primary w-full btn-lg" onClick={() => setShowTripSheet(true)}>
+        <button className="btn btn-primary w-full btn-lg" type="button" onClick={() => setShowTripSheet(true)}>
           + Log Trip
         </button>
       </div>
@@ -769,15 +906,38 @@ export default function EmployeePage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Upload Photos (Max 10)</label>
-            <input className="form-input" type="file" multiple accept="image/*"
-              onChange={e => {
-                if (e.target.files) {
-                  setTripPhotos(Array.from(e.target.files))
-                }
-              }} />
+            <label className="form-label">Entry photo (gate / entry capture)</label>
+            <input
+              className="form-input"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => setEntryPhoto(e.target.files?.[0] || null)}
+            />
             <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-              Selected {tripPhotos.length} files. Maximum 10 photos.
+              {entryPhoto ? `Selected: ${entryPhoto.name}` : 'Optional. First photo is stored as the entry capture.'}
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Trip photos (max 9 more · 10 total)</label>
+            <input
+              className="form-input"
+              type="file"
+              multiple
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => {
+                if (e.target.files) {
+                  const files = Array.from(e.target.files).slice(0, entryPhoto ? 9 : 10)
+                  setTripPhotos(files)
+                }
+              }}
+            />
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+              Trip photos: {tripPhotos.length}
+              {entryPhoto ? ' + 1 entry' : ''}
+              {' '}(max 10 total)
             </div>
           </div>
 
@@ -977,6 +1137,120 @@ export default function EmployeePage() {
             </button>
           </div>
         </form>
+      </BottomSheet>
+
+      {/* 5. Log Expense */}
+      <BottomSheet isOpen={showExpenseSheet} onClose={() => setShowExpenseSheet(false)} title="Log Expense">
+        <form onSubmit={handleExpenseSubmit}>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+            Posts an outgoing entry to today&apos;s site cash book for {employee.sites?.name || 'your site'}.
+          </p>
+          <div className="form-group">
+            <label className="form-label">Category *</label>
+            <select
+              className="form-input form-select"
+              value={expenseForm.category}
+              onChange={(e) => setExpenseForm((f) => ({ ...f, category: e.target.value }))}
+              required
+            >
+              {EXPENSE_CATEGORIES.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Amount (₹) *</label>
+            <input
+              className="form-input"
+              type="number"
+              min="0.01"
+              step="0.01"
+              placeholder="e.g. 500"
+              value={expenseForm.amount}
+              onChange={(e) => setExpenseForm((f) => ({ ...f, amount: e.target.value }))}
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Note</label>
+            <textarea
+              className="form-input"
+              rows={2}
+              placeholder="Optional details"
+              value={expenseForm.note}
+              onChange={(e) => setExpenseForm((f) => ({ ...f, note: e.target.value }))}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Receipt photo</label>
+            <input
+              className="form-input"
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => setExpenseReceipt(e.target.files?.[0] || null)}
+            />
+          </div>
+          <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.5rem' }}>
+            <button type="button" className="btn btn-secondary w-full" onClick={() => setShowExpenseSheet(false)}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-primary w-full" disabled={submittingExpense}>
+              {submittingExpense ? <span className="spinner" /> : 'Save Expense'}
+            </button>
+          </div>
+        </form>
+      </BottomSheet>
+
+      {/* 6. Settle payment */}
+      <BottomSheet
+        isOpen={!!settleTrip}
+        onClose={() => { setSettleTrip(null); setSettleRef('') }}
+        title="Settle trip payment"
+      >
+        {settleTrip && (
+          <form onSubmit={handleSettleSubmit}>
+            <p style={{ fontSize: '0.85rem', marginBottom: '0.75rem' }}>
+              Collect shipment payment for{' '}
+              <strong>{settleTrip.vehicles?.plate_number || 'trip'}</strong>
+              {' · '}
+              Worth ₹{Number(settleTrip.total_shipment_cost || settleTrip.trip_worth || 0).toLocaleString('en-IN')}
+            </p>
+            <div className="form-group">
+              <label className="form-label">Payment method *</label>
+              <select
+                className="form-input form-select"
+                value={settleMethod}
+                onChange={(e) => setSettleMethod(e.target.value as 'upi' | 'cash')}
+              >
+                <option value="upi">UPI / Online</option>
+                <option value="cash">Cash</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Reference / transaction number *</label>
+              <input
+                className="form-input"
+                placeholder={settleMethod === 'upi' ? 'UPI ref / UTR' : 'Cash receipt #'}
+                value={settleRef}
+                onChange={(e) => setSettleRef(e.target.value)}
+                required
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', paddingTop: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary w-full"
+                onClick={() => { setSettleTrip(null); setSettleRef('') }}
+              >
+                Cancel
+              </button>
+              <button type="submit" className="btn btn-primary w-full" disabled={submittingSettle}>
+                {submittingSettle ? <span className="spinner" /> : 'Mark settled'}
+              </button>
+            </div>
+          </form>
+        )}
       </BottomSheet>
     </div>
   )

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { serviceClient } from '@/lib/platform-auth'
+import { passwordSchema } from '@/lib/password-policy'
 
 const bootstrapSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
+  password: passwordSchema,
   secret: z.string().optional(),
 })
 

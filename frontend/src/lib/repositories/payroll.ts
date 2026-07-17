@@ -121,8 +121,12 @@ export const payrollRepository = {
         // Clean slate - atomically check status and delete lines using PG lock
         const { error: regenError } = await supabase.rpc('regenerate_payroll_run', { p_run_id: retryRun.id })
         if (regenError) {
-          if (regenError.message.includes('finalized')) {
+          const msg = regenError.message || ''
+          if (msg.includes('finalized')) {
             throw new Error('Payroll has already been finalized for this period by another user.')
+          }
+          if (/forbidden|outside your|insufficient_privilege/i.test(msg)) {
+            throw new Error('You do not have permission to regenerate this payroll run.')
           }
           throw regenError
         }
@@ -185,6 +189,7 @@ export const payrollRepository = {
         payroll_run_id: activeRun.id,
         employee_id: emp.id,
         days_present: present,
+        days_half_day: halfDay,
         days_leave: leave,
         days_absent: absent,
         base_rate: emp.wage_rate,
@@ -196,7 +201,7 @@ export const payrollRepository = {
 
     const { data: insertedLines, error: linesError } = await supabase
       .from('payroll_lines')
-      .insert(linesToInsert)
+      .upsert(linesToInsert, { onConflict: 'payroll_run_id,employee_id' })
       .select('*, employees(name, phone)')
 
     if (linesError) {
@@ -216,5 +221,49 @@ export const payrollRepository = {
     // Atomic draft → finalized with row lock + role checks inside the RPC
     const { error } = await supabase.rpc('finalize_payroll_run', { p_run_id: runId })
     if (error) throw error
-  }
+  },
+
+  /**
+   * Adjust a draft payroll line. final_amount = computed_amount + adjustment.
+   * Finalized runs are blocked by DB trigger check_payroll_run_not_finalized.
+   */
+  async updateLineAdjustment(
+    supabase: SupabaseClient<Database>,
+    lineId: string,
+    adjustment: number,
+    runStatus?: string | null
+  ): Promise<PayrollLineWithEmployee> {
+    const adj = Number(adjustment)
+    if (Number.isNaN(adj)) {
+      throw new Error('Adjustment must be a number')
+    }
+    if (runStatus === 'finalized') {
+      throw new Error('Cannot adjust a finalized payroll run')
+    }
+
+    const { data: line, error: loadError } = await supabase
+      .from('payroll_lines')
+      .select('id, payroll_run_id, computed_amount')
+      .eq('id', lineId)
+      .maybeSingle()
+
+    if (loadError) throw loadError
+    if (!line) throw new Error('Payroll line not found')
+
+    const computed = Number(line.computed_amount) || 0
+    const finalAmount = Math.round((computed + adj + 1e-9) * 100) / 100
+
+    const { data: updated, error: updateError } = await supabase
+      .from('payroll_lines')
+      .update({
+        adjustment: adj,
+        final_amount: finalAmount,
+      })
+      .eq('id', lineId)
+      .select('*, employees(name, phone)')
+      .single()
+
+    if (updateError) throw updateError
+    return updated as PayrollLineWithEmployee
+  },
 }

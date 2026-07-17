@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site, CashBook, CashEntry } from '@/lib/supabase/types'
 import { cashBookRepository } from '@/lib/repositories/cash-book'
+import { sitesRepository } from '@/lib/repositories/sites'
 import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
@@ -88,8 +89,7 @@ export default function CashBookPage() {
 
   const loadSites = async () => {
     try {
-      const { data } = await supabase.from('sites').select('*').eq('active', true).order('name')
-      const loadedSites = data || []
+      const loadedSites = await sitesRepository.listActive(supabase)
       setSites(loadedSites)
       if (loadedSites.length > 0) {
         setSelectedSite(loadedSites[0].id)
@@ -234,9 +234,9 @@ export default function CashBookPage() {
     try {
       let receiptUrl: string | null = null
       if (photoFile) {
+        // Path must start with cash_book_id for storage RLS (migration 026/042)
         const ext = photoFile.name.split('.').pop() || 'jpg'
-        const fileUuid = crypto.randomUUID()
-        const path = `${selectedSite}/${selectedDate}/${fileUuid}.${ext}`
+        const path = `${cashBook.id}/${crypto.randomUUID()}.${ext}`
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('cash-receipts')
           .upload(path, photoFile, { upsert: true })
@@ -288,11 +288,17 @@ export default function CashBookPage() {
   const executeToggleLock = async () => {
     if (!cashBook) return
     try {
-      const nextStatus = await cashBookRepository.toggleLock(supabase, cashBook.id, cashBook.status)
+      const nextStatus = await cashBookRepository.toggleLock(
+        supabase,
+        cashBook.id,
+        cashBook.status,
+        { isAdmin }
+      )
       toast.success(`Cash book is now ${nextStatus}`)
       loadCashBook()
-    } catch (error: any) {
-      toast.error(`Error toggling lock status: ${error.message}`)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Error toggling lock status: ${message}`)
     } finally {
       setConfirmLock(false)
     }
@@ -345,12 +351,15 @@ export default function CashBookPage() {
         </div>
         {cashBook && (
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button
-              className={`btn ${isLocked ? 'btn-secondary' : 'btn-primary'}`}
-              onClick={() => setConfirmLock(true)}
-            >
-              {isLocked ? <><Unlock size={16} /> Unlock Book</> : <><Lock size={16} /> Lock Book</>}
-            </button>
+            {(!isLocked || isAdmin) && (
+              <button
+                className={`btn ${isLocked ? 'btn-secondary' : 'btn-primary'}`}
+                onClick={() => setConfirmLock(true)}
+                title={isLocked && !isAdmin ? 'Only admins can unlock' : undefined}
+              >
+                {isLocked ? <><Unlock size={16} /> Unlock Book</> : <><Lock size={16} /> Lock Book</>}
+              </button>
+            )}
             <button className="btn btn-primary" onClick={() => setShowForm(true)} disabled={isLocked}>
               <Plus size={18} /> Add Entry
             </button>
@@ -397,7 +406,12 @@ export default function CashBookPage() {
               color: 'var(--danger)', marginBottom: '1rem', fontSize: '0.875rem',
             }}>
               <Lock size={16} />
-              <span><strong>Locked:</strong> This ledger is locked. Actions are blocked until unlocked by admin.</span>
+              <span>
+                <strong>Locked:</strong> This ledger is locked.
+                {isAdmin
+                  ? ' You can unlock as admin if corrections are required.'
+                  : ' Only an organization admin can unlock it.'}
+              </span>
             </div>
           )}
 

@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requirePlatformOwner } from '@/lib/platform-auth'
 import { FEATURE_KEYS, type FeatureKey } from '@/lib/features'
+import { passwordSchema } from '@/lib/password-policy'
 
 const createOrgSchema = z.object({
   companyName: z.string().min(2, 'Company name must be at least 2 characters'),
   adminEmail: z.string().email('Invalid admin email'),
-  adminPassword: z.string().min(6, 'Password must be at least 6 characters'),
+  adminPassword: passwordSchema,
   /** Optional feature overrides; omitted keys default to enabled */
   features: z.record(z.string(), z.boolean()).optional(),
 })

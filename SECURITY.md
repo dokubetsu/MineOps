@@ -33,3 +33,21 @@ User provisioning is decoupled from client auth to prevent unauthorized account 
 - **Location**: `/api/admin/create-user/route.ts`
 - **Security Check**: This route validates the caller's JWT bearer token, checks the caller's `user_roles` entry to ensure they are an active **admin**, and only executes the user creation if authorized.
 - **Key Protection**: `SUPABASE_SERVICE_ROLE_KEY` is kept strictly server-side and is never exposed in browser headers.
+
+## 📋 Audit logging
+
+`public.audit_logs` records sensitive operational events (admins can SELECT within their org):
+
+| Action | Source |
+|--------|--------|
+| `settle_trip`, `lock_cash_book`, `unlock_cash_book`, `finalize_payroll` | Table triggers (`audit_table_action`) |
+| `approve_leave` / `reject_leave` | Leave application status updates |
+| `approve_leave_rpc` | Leave approve RPC (extra detail: days, site) |
+| `assign_role` / `update_role` / `revoke_role` | `user_roles` INSERT/UPDATE/DELETE |
+| `create_user`, `platform_create_org`, … | Explicit inserts from API routes |
+
+Helper: `write_audit_event(...)` for SECURITY DEFINER RPCs. See migration `041_phase3_audit_and_polish.sql`.
+
+## 🛡 CSP notes
+
+Production CSP drops `unsafe-eval` and localhost Supabase. Inline scripts remain required by Next.js bootstrapping until a nonce pipeline is adopted. PWA workers are allowed via `worker-src 'self' blob:`.

@@ -91,6 +91,86 @@ export const cashBookRepository = {
     if (error) throw error
   },
 
+  /**
+   * Employee/manager helper: ensure today's draft cash book exists, then insert an OUT expense.
+   * Receipt path must start with cash_book_id for storage RLS (migration 026/042).
+   */
+  async logSiteExpense(
+    supabase: SupabaseClient<Database>,
+    siteId: string,
+    bookDate: string,
+    payload: {
+      category: string
+      amount: number
+      note: string | null
+      receiptFile?: File | null
+    }
+  ): Promise<void> {
+    if (!siteId) throw new Error('Site is required')
+    const amount = Number(payload.amount)
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error('Please enter a valid amount greater than zero')
+    }
+
+    const book = await this.getOrCreate(supabase, siteId, bookDate)
+    if (book.status === 'locked') {
+      throw new Error('Today\'s cash book is locked. Ask an admin to unlock it before adding expenses.')
+    }
+
+    let receiptUrl: string | null = null
+    if (payload.receiptFile) {
+      const file = payload.receiptFile
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error('Receipt photo must be 5MB or smaller')
+      }
+      const ext = file.name.split('.').pop() || 'jpg'
+      const path = `${book.id}/${crypto.randomUUID()}.${ext}`
+      const { error: uploadError } = await supabase.storage
+        .from('cash-receipts')
+        .upload(path, file, { upsert: true })
+      if (uploadError) throw uploadError
+      receiptUrl = path
+    }
+
+    await this.createEntry(supabase, {
+      cash_book_id: book.id,
+      entry_type: 'out',
+      category: payload.category,
+      amount,
+      note: payload.note,
+      receipt_url: receiptUrl,
+    })
+  },
+
+  async listMyEntriesForDate(
+    supabase: SupabaseClient<Database>,
+    siteId: string,
+    bookDate: string,
+    userId: string
+  ): Promise<CashEntry[]> {
+    const { data: book, error: bookError } = await supabase
+      .from('cash_books')
+      .select('id')
+      .eq('site_id', siteId)
+      .eq('book_date', bookDate)
+      .maybeSingle()
+
+    if (bookError) throw bookError
+    if (!book) return []
+
+    const { data, error } = await supabase
+      .from('cash_entries')
+      .select('*')
+      .eq('cash_book_id', book.id)
+      .eq('active', true)
+      .eq('created_by', userId)
+      .order('created_at', { ascending: false })
+      .limit(50)
+
+    if (error) throw error
+    return data || []
+  },
+
   async deleteEntry(supabase: SupabaseClient<Database>, id: string): Promise<void> {
     const { error } = await supabase
       .from('cash_entries')
@@ -100,14 +180,33 @@ export const cashBookRepository = {
     if (error) throw error
   },
 
-  async toggleLock(supabase: SupabaseClient<Database>, cashBookId: string, currentStatus: string): Promise<string> {
+  /**
+   * Lock or unlock a cash book.
+   * Unlock (locked → draft) is admin-only at DB (migration 040) and should be gated in UI.
+   */
+  async toggleLock(
+    supabase: SupabaseClient<Database>,
+    cashBookId: string,
+    currentStatus: string,
+    options?: { isAdmin?: boolean }
+  ): Promise<string> {
     const newStatus = currentStatus === 'locked' ? 'draft' : 'locked'
+    if (newStatus === 'draft' && options?.isAdmin === false) {
+      throw new Error('Only organization admins can unlock a cash book')
+    }
+
     const { error } = await supabase
       .from('cash_books')
       .update({ status: newStatus })
       .eq('id', cashBookId)
 
-    if (error) throw error
+    if (error) {
+      const msg = error.message || ''
+      if (/only organization admins can unlock|insufficient_privilege/i.test(msg)) {
+        throw new Error('Only organization admins can unlock a cash book')
+      }
+      throw error
+    }
     return newStatus
   },
 

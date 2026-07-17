@@ -15,7 +15,7 @@ export default function LoginPage() {
   const supabase = createClient()
   const { theme, toggleTheme } = useTheme()
 
-  const resolvePostLoginPath = async (userId: string) => {
+  const resolvePostLoginPath = async (userId: string): Promise<string | null> => {
     // Prefer SECURITY DEFINER RPC — works even if table RLS is picky
     const { data: isOwner, error: rpcError } = await supabase.rpc('is_platform_owner')
     if (!rpcError && isOwner === true) return '/platform'
@@ -36,14 +36,34 @@ export default function LoginPage() {
       .limit(1)
     if (!roles || roles.length === 0) return '/platform/setup'
 
+    // Deactivated tenant org — block access
+    const { data: orgActive, error: orgErr } = await supabase.rpc('is_user_org_active')
+    if (!orgErr && orgActive === false) {
+      await supabase.auth.signOut()
+      return null
+    }
+
     return '/dashboard'
   }
 
   useEffect(() => {
+    // Surface proxy redirect for inactive orgs
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('error') === 'org_inactive') {
+        setError('This organization has been deactivated. Contact your MineOps operator.')
+      }
+    }
+
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         const dest = await resolvePostLoginPath(session.user.id)
-        router.push(dest)
+        if (dest) {
+          router.push(dest)
+        } else {
+          setError('This organization has been deactivated. Contact your MineOps operator.')
+          setCheckingSession(false)
+        }
       } else {
         setCheckingSession(false)
       }
@@ -62,6 +82,11 @@ export default function LoginPage() {
       setLoading(false)
     } else if (data.user) {
       const dest = await resolvePostLoginPath(data.user.id)
+      if (!dest) {
+        setError('This organization has been deactivated. Contact your MineOps operator.')
+        setLoading(false)
+        return
+      }
       router.push(dest)
       router.refresh()
     }

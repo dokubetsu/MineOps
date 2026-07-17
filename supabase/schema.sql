@@ -1,6 +1,10 @@
 -- ==========================================
 -- MineOps Database Schema & Security Blueprints
--- Complete schema definition, triggers, views, and RLS policies
+-- ==========================================
+-- WARNING: This file is a REFERENCE SNAPSHOT only.
+-- Do NOT apply schema.sql to deploy. Use ordered files in
+-- supabase/migrations/ (through 041_phase3_audit_and_polish.sql).
+-- After major schema changes, regenerate or update this snapshot carefully.
 -- ==========================================
 
 -- ------------------------------------------
@@ -845,32 +849,49 @@ REVOKE ALL ON FUNCTION public.finalize_payroll_run(uuid) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.finalize_payroll_run(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.finalize_payroll_run(uuid) TO service_role;
 
--- Trigger Function: Auto-populate child organization_id based on parent relations
+-- Trigger Function: Always stamp child organization_id from parent (ignore client spoof)
+-- Canonical body: migrations/038_phase0_security_hotfix.sql
 CREATE OR REPLACE FUNCTION public.set_child_organization_id()
 RETURNS trigger AS $$
 DECLARE
   v_org_id uuid;
 BEGIN
-  IF NEW.organization_id IS NULL THEN
-    IF TG_TABLE_NAME = 'employees' THEN
-      SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
-    ELSIF TG_TABLE_NAME = 'trips' THEN
-      SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
-    ELSIF TG_TABLE_NAME = 'cash_books' THEN
-      SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
-    ELSIF TG_TABLE_NAME = 'cash_entries' THEN
-      SELECT organization_id INTO v_org_id FROM public.cash_books WHERE id = NEW.cash_book_id;
-    ELSIF TG_TABLE_NAME = 'attendance' THEN
-      SELECT organization_id INTO v_org_id FROM public.employees WHERE id = NEW.employee_id;
-    ELSIF TG_TABLE_NAME = 'leave_applications' THEN
-      SELECT organization_id INTO v_org_id FROM public.employees WHERE id = NEW.employee_id;
-    ELSIF TG_TABLE_NAME = 'payroll_runs' THEN
-      SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
-    ELSIF TG_TABLE_NAME = 'payroll_lines' THEN
-      SELECT organization_id INTO v_org_id FROM public.payroll_runs WHERE id = NEW.payroll_run_id;
+  IF TG_TABLE_NAME = 'employees' THEN
+    SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
+  ELSIF TG_TABLE_NAME = 'trips' THEN
+    SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
+  ELSIF TG_TABLE_NAME = 'cash_books' THEN
+    SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
+  ELSIF TG_TABLE_NAME = 'cash_entries' THEN
+    SELECT organization_id INTO v_org_id FROM public.cash_books WHERE id = NEW.cash_book_id;
+  ELSIF TG_TABLE_NAME = 'attendance' THEN
+    SELECT organization_id INTO v_org_id FROM public.employees WHERE id = NEW.employee_id;
+    IF v_org_id IS NULL THEN
+      SELECT s.organization_id INTO v_org_id
+      FROM public.employees e
+      JOIN public.sites s ON s.id = e.site_id
+      WHERE e.id = NEW.employee_id;
     END IF;
-    NEW.organization_id := v_org_id;
+  ELSIF TG_TABLE_NAME = 'leave_applications' THEN
+    SELECT organization_id INTO v_org_id FROM public.employees WHERE id = NEW.employee_id;
+    IF v_org_id IS NULL THEN
+      SELECT s.organization_id INTO v_org_id
+      FROM public.employees e
+      JOIN public.sites s ON s.id = e.site_id
+      WHERE e.id = NEW.employee_id;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'payroll_runs' THEN
+    SELECT organization_id INTO v_org_id FROM public.sites WHERE id = NEW.site_id;
+  ELSIF TG_TABLE_NAME = 'payroll_lines' THEN
+    SELECT organization_id INTO v_org_id FROM public.payroll_runs WHERE id = NEW.payroll_run_id;
   END IF;
+
+  IF v_org_id IS NULL THEN
+    RAISE EXCEPTION 'Cannot resolve organization_id for %. Check parent row exists.', TG_TABLE_NAME
+      USING ERRCODE = 'not_null_violation';
+  END IF;
+
+  NEW.organization_id := v_org_id;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
@@ -1052,6 +1073,7 @@ FROM cash_books cb
 WHERE s.organization_id = get_user_organization_id()
 GROUP BY cb.id, cb.site_id, cb.book_date, cb.opening_balance, cb.closing_balance, s.organization_id;
 
+-- Tenant-scoped user directory (038). Full definition: migrations/038_phase0_security_hotfix.sql
 CREATE OR REPLACE VIEW public.org_users WITH (security_invoker = false) AS
 SELECT 
   u.id,
@@ -1061,7 +1083,11 @@ SELECT
   ur.site_id,
   ur.organization_id
 FROM auth.users u
-JOIN public.user_roles ur ON u.id = ur.user_id;
+JOIN public.user_roles ur ON u.id = ur.user_id
+WHERE
+  coalesce(auth.role(), '') = 'service_role'
+  OR public.is_platform_owner()
+  OR ur.organization_id = public.get_user_organization_id();
 
 GRANT SELECT ON public.org_users TO authenticated;
 GRANT SELECT ON public.org_users TO service_role;
@@ -1251,5 +1277,14 @@ CREATE INDEX IF NOT EXISTS idx_leave_applications_org ON public.leave_applicatio
 CREATE INDEX IF NOT EXISTS idx_payroll_runs_org ON public.payroll_runs (organization_id);
 CREATE INDEX IF NOT EXISTS idx_payroll_lines_org ON public.payroll_lines (organization_id);
 
--- See migrations/034_atomic_finalize_and_leave_balance.sql for finalize_payroll_run + updated approve_leave_application
+-- See migrations/034_atomic_finalize_and_leave_balance.sql for finalize_payroll_run
+-- See migrations/038_phase0_security_hotfix.sql for:
+--   approve_leave_application (authz + balance reject)
+--   regenerate_payroll_run (authz)
+--   org_users row filter, vehicles/drivers manager org policies,
+--   set_child_organization_id force-stamp
+-- See migrations/039_phase1_business_correctness.sql for:
+--   payroll_lines.days_half_day + unique (run, employee)
+--   leave approve blocked when payroll finalized
+--   is_user_org_active(); site_employee write narrowing
 

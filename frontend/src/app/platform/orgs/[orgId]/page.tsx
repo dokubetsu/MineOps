@@ -191,9 +191,10 @@ export default function PlatformOrgDetailPage() {
                 className="form-input"
                 type="password"
                 required
-                minLength={6}
+                minLength={10}
                 value={adminForm.password}
                 onChange={(e) => setAdminForm((f) => ({ ...f, password: e.target.value }))}
+                placeholder="Min 10 chars, letter + number"
               />
             </div>
             <button type="submit" className="btn btn-primary" disabled={addingAdmin}>

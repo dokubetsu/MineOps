@@ -1,24 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { Database } from './lib/supabase/database.types'
-
-const rateLimitCache = new Map<string, { count: number; resetTime: number }>()
-
-function isRateLimited(ip: string, limit: number, windowMs: number): boolean {
-  const now = Date.now()
-  const record = rateLimitCache.get(ip)
-
-  if (!record || now > record.resetTime) {
-    rateLimitCache.set(ip, { count: 1, resetTime: now + windowMs })
-    return false
-  }
-
-  record.count++
-  if (record.count > limit) {
-    return true
-  }
-  return false
-}
+import { checkRateLimit, pruneRateLimitStore } from './lib/rate-limit'
 
 function clientIp(request: NextRequest): string {
   return (
@@ -44,11 +27,19 @@ export async function proxy(request: NextRequest) {
     path.startsWith('/api/platform/') ||
     path === '/api/auth/register-tenant'
   ) {
+    // Soft per-isolate limit (see lib/rate-limit.ts). Not a durable WAF substitute.
+    if (Math.random() < 0.01) pruneRateLimitStore()
     const ip = clientIp(request)
-    if (isRateLimited(ip, 60, 60 * 1000)) {
+    const rl = checkRateLimit(`api:${ip}`, 60, 60 * 1000)
+    if (rl.limited) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },
-        { status: 429 }
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(Math.max(1, Math.ceil((rl.resetAt - Date.now()) / 1000))),
+          },
+        }
       )
     }
   }
@@ -125,6 +116,17 @@ export async function proxy(request: NextRequest) {
 
     // Tenant role guards
     if (path.startsWith('/dashboard') && !isPlatformOwner) {
+      // Deactivated organizations cannot use the tenant app
+      const { data: orgActive, error: orgActiveErr } = await supabase.rpc('is_user_org_active')
+      if (!orgActiveErr && orgActive === false) {
+        const redirectUrl = request.nextUrl.clone()
+        redirectUrl.pathname = '/'
+        redirectUrl.searchParams.set('error', 'org_inactive')
+        // Clear session so they do not bounce on /
+        await supabase.auth.signOut()
+        return NextResponse.redirect(redirectUrl)
+      }
+
       let role = (user.app_metadata?.role as string) || null
 
       if (!role) {

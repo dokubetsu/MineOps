@@ -13,9 +13,10 @@ const withPWA = withPWAInit({
 const isDev = process.env.NODE_ENV !== 'production'
 
 function buildCsp(): string {
-  // Production tightens scripts (no unsafe-eval). Next still injects some inline
-  // bootstrapping, so 'unsafe-inline' remains for scripts/styles until nonce
-  // wiring is adopted app-wide. Localhost Supabase is dev-only.
+  // Production tightens scripts (no unsafe-eval). Next still injects inline
+  // bootstrap scripts, so 'unsafe-inline' remains for script-src until a full
+  // nonce pipeline (middleware rewrite + Next experimental) is adopted.
+  // See docs/ENV.md / SECURITY.md.
   const scriptSrc = isDev
     ? "script-src 'self' 'unsafe-eval' 'unsafe-inline'"
     : "script-src 'self' 'unsafe-inline'"
@@ -35,6 +36,10 @@ function buildCsp(): string {
     imgSrc,
     "font-src 'self' https://fonts.gstatic.com",
     connectSrc,
+    // PWA service worker + Workbox
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
+    "media-src 'self'",
     "frame-src 'none'",
     "frame-ancestors 'none'",
     "object-src 'none'",

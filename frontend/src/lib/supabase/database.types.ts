@@ -473,12 +473,14 @@ export type Database = {
           base_rate: number | null
           computed_amount: number | null
           days_absent: number | null
+          days_half_day: number | null
           days_leave: number | null
           days_present: number | null
           employee_id: string
           final_amount: number | null
           id: string
           notes: string | null
+          organization_id?: string | null
           payroll_run_id: string
           updated_at: string | null
         }
@@ -487,12 +489,14 @@ export type Database = {
           base_rate?: number | null
           computed_amount?: number | null
           days_absent?: number | null
+          days_half_day?: number | null
           days_leave?: number | null
           days_present?: number | null
           employee_id: string
           final_amount?: number | null
           id?: string
           notes?: string | null
+          organization_id?: string | null
           payroll_run_id: string
           updated_at?: string | null
         }
@@ -501,12 +505,14 @@ export type Database = {
           base_rate?: number | null
           computed_amount?: number | null
           days_absent?: number | null
+          days_half_day?: number | null
           days_leave?: number | null
           days_present?: number | null
           employee_id?: string
           final_amount?: number | null
           id?: string
           notes?: string | null
+          organization_id?: string | null
           payroll_run_id?: string
           updated_at?: string | null
         }
@@ -984,6 +990,17 @@ export type Database = {
       get_user_role: { Args: never; Returns: string }
       get_user_site_ids: { Args: never; Returns: string[] }
       is_platform_owner: { Args: never; Returns: boolean }
+      is_user_org_active: { Args: never; Returns: boolean }
+      write_audit_event: {
+        Args: {
+          p_action: string
+          p_target_type: string
+          p_target_id: string
+          p_organization_id?: string | null
+          p_metadata?: Record<string, unknown> | null
+        }
+        Returns: undefined
+      }
       seed_organization_features: {
         Args: { p_organization_id: string }
         Returns: undefined

@@ -2,21 +2,22 @@ import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
 import { Employee } from '../supabase/types'
 
+export type AttendanceStatus = 'present' | 'absent' | 'half-day' | 'leave'
+
+/** Roster row — status is null until explicitly marked (never invent "present"). */
 export interface RosterEmployee extends Employee {
   att_id: string | null
-  status: 'present' | 'absent' | 'half-day' | 'leave'
+  status: AttendanceStatus | null
   photo_url: string | null
   display_photo_url: string | null
   uploading: boolean
 }
 
-type AttendanceStatus = RosterEmployee['status']
-
-function normalizeStatus(status: string | null | undefined): AttendanceStatus {
+function normalizeStatus(status: string | null | undefined): AttendanceStatus | null {
   if (status === 'present' || status === 'absent' || status === 'half-day' || status === 'leave') {
     return status
   }
-  return 'present'
+  return null
 }
 
 export const attendanceRepository = {
@@ -88,7 +89,7 @@ export const attendanceRepository = {
     records: Array<{
       employee_id: string
       att_date: string
-      status: AttendanceStatus
+      status: AttendanceStatus | null
       photo_url: string | null
     }>,
     siteId: string
@@ -108,7 +109,21 @@ export const attendanceRepository = {
       throw new Error('Site is missing organization_id — cannot save attendance')
     }
 
-    const empIds = records.map((r) => r.employee_id)
+    // Never persist invent-present rows — only explicitly marked statuses
+    const markedRecords = records.filter(
+      (r): r is typeof r & { status: AttendanceStatus } =>
+        r.status === 'present' ||
+        r.status === 'absent' ||
+        r.status === 'half-day' ||
+        r.status === 'leave'
+    )
+    if (markedRecords.length === 0) {
+      throw new Error(
+        'No attendance marks to save. Mark each employee Present / Absent / Half / Leave first.'
+      )
+    }
+
+    const empIds = markedRecords.map((r) => r.employee_id)
     const { data: valid, error: validError } = await supabase
       .from('employees')
       .select('id, organization_id, site_id')
@@ -122,7 +137,7 @@ export const attendanceRepository = {
       data: { user },
     } = await supabase.auth.getUser()
 
-    const safeRecords = records
+    const safeRecords = markedRecords
       .filter((r) => validById.has(r.employee_id))
       .map((r) => {
         const emp = validById.get(r.employee_id)!

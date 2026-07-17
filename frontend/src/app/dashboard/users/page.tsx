@@ -38,7 +38,9 @@ export default function UsersPage() {
   const [userRoleRows, setUserRoleRows] = useState<ExtendedUserRole[]>([])
   const [authUsers, setAuthUsers] = useState<Record<string, string>>({}) // id → email
   const [sites, setSites] = useState<Site[]>([])
-  const [employees, setEmployees] = useState<any[]>([])
+  const [employees, setEmployees] = useState<
+    Array<{ id: string; name: string; site_id: string | null; phone: string | null }>
+  >([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingRow, setEditingRow] = useState<ExtendedUserRole | null>(null) // row being edited
@@ -77,7 +79,7 @@ export default function UsersPage() {
       const [{ data: rolesData, error: rolesError }, { data: sitesData, error: sitesError }, { data: employeesData, error: employeesError }] = await Promise.all([
         supabase.from('user_roles').select('*, sites(name)').order('created_at').limit(500),
         supabase.from('sites').select('*').eq('active', true).order('name').limit(500),
-        supabase.from('employees').select('*').eq('active', true).is('user_id', null).limit(1000)
+        supabase.from('employees').select('id, name, site_id, phone').eq('active', true).is('user_id', null).limit(1000)
       ])
 
       if (rolesError) throw new Error(`User roles: ${rolesError.message}`)
@@ -404,9 +406,9 @@ export default function UsersPage() {
               </div>
               <div className="form-group">
                 <label className="form-label">Password *</label>
-                <input className="form-input" type="password" placeholder="Min 6 characters"
+                <input className="form-input" type="password" placeholder="Min 10 chars, letter + number"
                   value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                  required minLength={6} />
+                  required minLength={10} />
               </div>
               <div className="form-group">
                 <label className="form-label">Role *</label>

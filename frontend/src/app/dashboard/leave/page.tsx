@@ -7,29 +7,17 @@ import { Plus, Check, X, Clock } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site } from '@/lib/supabase/types'
-import { leaveDaysBetween } from '@/lib/calculations'
+import {
+  leaveRepository,
+  LeaveError,
+  type LeaveApplicationRow,
+  type LeaveEmployeeOption,
+} from '@/lib/repositories/leave'
+import { sitesRepository } from '@/lib/repositories/sites'
 import toast from 'react-hot-toast'
 
-interface LeaveApplication {
-  id: string
-  employee_id: string
-  from_date: string
-  to_date: string
-  reason: string | null
-  status: 'pending' | 'approved' | 'rejected'
-  created_at: string | null
-  updated_at: string | null
-  employees?: {
-    name: string
-    site_id: string
-  } | null
-}
-
-interface LeaveEmployee {
-  id: string
-  name: string
-  site_id: string | null
-}
+type LeaveApplication = LeaveApplicationRow
+type LeaveEmployee = LeaveEmployeeOption
 
 export default function LeavePage() {
   const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
@@ -60,96 +48,93 @@ export default function LeavePage() {
   useEffect(() => { if (selectedSite) loadApplications() }, [selectedSite, activeTab])
 
   const loadInitialData = async () => {
-    const [{ data: sitesData, error: sitesError }, { data: empsData, error: empsError }] = await Promise.all([
-      supabase.from('sites').select('*').eq('active', true).order('name').limit(500),
-      supabase.from('employees').select('id, name, site_id').eq('active', true).order('name').limit(500),
-    ])
+    try {
+      const [sitesData, empsData] = await Promise.all([
+        sitesRepository.listActive(supabase),
+        leaveRepository.listEmployees(supabase),
+      ])
 
-    if (sitesError) toast.error(`Error loading sites: ${sitesError.message}`)
-    if (empsError) toast.error(`Error loading employees: ${empsError.message}`)
-
-    setSites(sitesData || [])
-    setEmployees(empsData || [])
-    if (sitesData && sitesData.length > 0) setSelectedSite(sitesData[0].id)
+      setSites(sitesData)
+      setEmployees(empsData)
+      if (sitesData.length > 0) setSelectedSite(sitesData[0].id)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      toast.error(`Error loading leave data: ${message}`)
+    }
   }
 
   const loadApplications = async () => {
     setLoading(true)
     const siteEmpIds = employees
-      .filter(e => e.site_id === selectedSite)
-      .map(e => e.id)
+      .filter((e) => e.site_id === selectedSite)
+      .map((e) => e.id)
 
-    if (siteEmpIds.length === 0) { setApplications([]); setLoading(false); return }
-
-    let query = supabase
-      .from('leave_applications')
-      .select('*, employees(name, site_id)')
-      .in('employee_id', siteEmpIds)
-      .order('created_at', { ascending: false })
-      .limit(500)
-
-    if (activeTab !== 'all') query = query.eq('status', activeTab)
-
-    const { data, error } = await query
-    if (error) {
-      toast.error(`Error loading leave applications: ${error.message}`)
-    } else {
-      setApplications((data as any) || [])
+    if (siteEmpIds.length === 0) {
+      setApplications([])
+      setLoading(false)
+      return
     }
-    setLoading(false)
+
+    try {
+      const data = await leaveRepository.listApplications(supabase, siteEmpIds, activeTab)
+      setApplications(data)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      toast.error(`Error loading leave applications: ${message}`)
+    } finally {
+      setLoading(false)
+    }
   }
 
   const submitLeave = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
 
-    const diffDays = leaveDaysBetween(form.from_date, form.to_date)
-    if (diffDays < 1) {
-      toast.error('From Date must be less than or equal to To Date')
-      setSubmitting(false)
-      return
-    }
-    if (diffDays > 30) {
-      toast.error('Leave duration cannot exceed 30 days per application')
-      setSubmitting(false)
-      return
-    }
-
-    const { error } = await supabase.from('leave_applications').insert({
-      employee_id: form.employee_id,
-      from_date: form.from_date,
-      to_date: form.to_date,
-      reason: form.reason || null,
-      status: 'pending',
-    })
-    
-    if (error) {
-      toast.error(`Error submitting leave: ${error.message}`)
-    } else {
+    try {
+      await leaveRepository.submit(supabase, {
+        employee_id: form.employee_id,
+        from_date: form.from_date,
+        to_date: form.to_date,
+        reason: form.reason || null,
+      })
       toast.success('Leave application submitted')
-      setForm({ employee_id: '', from_date: format(new Date(), 'yyyy-MM-dd'), to_date: format(new Date(), 'yyyy-MM-dd'), reason: '' })
+      setForm({
+        employee_id: '',
+        from_date: format(new Date(), 'yyyy-MM-dd'),
+        to_date: format(new Date(), 'yyyy-MM-dd'),
+        reason: '',
+      })
       setShowForm(false)
-      loadApplications()
+      void loadApplications()
+    } catch (err: unknown) {
+      if (err instanceof LeaveError) {
+        toast.error(err.message)
+      } else {
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        toast.error(`Error submitting leave: ${message}`)
+      }
+    } finally {
+      setSubmitting(false)
     }
-    setSubmitting(false)
   }
 
   const updateStatus = async (id: string, status: 'approved' | 'rejected') => {
-    if (status === 'approved') {
-      const { error: rpcError } = await supabase.rpc('approve_leave_application', { p_application_id: id })
-      if (rpcError) {
-        toast.error(`Error approving leave: ${rpcError.message}`)
-        return
+    try {
+      if (status === 'approved') {
+        await leaveRepository.approve(supabase, id)
+      } else {
+        await leaveRepository.reject(supabase, id)
       }
-    } else {
-      const { error: updateError } = await supabase.from('leave_applications').update({ status }).eq('id', id)
-      if (updateError) {
-        toast.error(`Error updating status: ${updateError.message}`)
-        return
+      toast.success(`Leave application ${status}`)
+      void loadApplications()
+    } catch (err: unknown) {
+      if (err instanceof LeaveError) {
+        toast.error(err.message)
+      } else {
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        toast.error(`Error updating status: ${message}`)
       }
     }
-    toast.success(`Leave application ${status}`)
-    loadApplications()
   }
 
   const siteEmployees = employees.filter(e => e.site_id === selectedSite)

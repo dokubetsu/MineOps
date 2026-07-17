@@ -12,6 +12,8 @@ import {
   DollarSign, Settings, LogOut, TrendingUp, FileText,
   UserCheck, Shield, Sun, Moon, Menu
 } from 'lucide-react'
+import { featureForPath } from '@/lib/features'
+import toast from 'react-hot-toast'
 
 function NavContent() {
   const pathname = usePathname()
@@ -31,6 +33,16 @@ function NavContent() {
       router.replace('/platform')
     }
   }, [authLoading, isPlatformOwner, router])
+
+  // Enforce org feature entitlements on deep links (nav already hides disabled modules)
+  useEffect(() => {
+    if (authLoading || isPlatformOwner) return
+    const required = featureForPath(pathname)
+    if (required && !hasFeature(required)) {
+      toast.error('This module is not enabled for your organization')
+      router.replace('/dashboard')
+    }
+  }, [authLoading, isPlatformOwner, pathname, hasFeature, router])
 
   const handleLogout = async () => {
     clearOfflineCache()

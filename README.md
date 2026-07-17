@@ -70,7 +70,10 @@ For security, production credentials are not stored in source control. Access is
 
 ### 1. Database Setup
 
-Apply all Supabase migrations (currently through **`034_atomic_finalize_and_leave_balance.sql`**, covering master tables, multi-tenant RLS, storage, payroll locks, JWT claim sync, register/provision lockdown, atomic payroll finalize, leave balance deduction, and more):
+Apply all Supabase migrations (currently through **`041_phase3_audit_and_polish.sql`**).  
+Wage rules: [`docs/wage_policy.md`](docs/wage_policy.md). Platform bootstrap: [`docs/platform_owner_bootstrap.md`](docs/platform_owner_bootstrap.md). Env: [`docs/ENV.md`](docs/ENV.md).
+
+**Source of truth for the database is `supabase/migrations/`** — do not apply `schema.sql` alone (it is a reference snapshot).
 
 ```bash
 # From repo root — requires Docker + Supabase CLI
@@ -79,7 +82,7 @@ supabase start
 supabase db push
 ```
 
-Local seed (`supabase/seed.sql`) creates a demo organization, sites, employees, vehicles, and the E2E admin user.
+Local seed (`supabase/seed.sql`) creates a demo organization (with feature flags), sites, employees, vehicles, E2E admin (`admin@mineops.com` / `password123`), and platform owner (`platform@mineops.com` / `password123`).
 
 ### 2. Run the Frontend (Next.js)
 
@@ -91,15 +94,16 @@ npm run dev
 # → http://localhost:3000
 ```
 
-Recommended env for local:
+Full env matrix: [`docs/ENV.md`](docs/ENV.md). Quick local set:
 
 | Variable | Purpose |
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser client key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-only admin routes / E2E setup |
-| `REGISTRATION_INVITE_CODE` | Required to enable tenant registration |
-| `REGISTRATION_DISABLED` | Set `true` to force-disable registration |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Browser client key (RLS-bound) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only admin/platform routes + E2E setup |
+| `PLATFORM_BOOTSTRAP_SECRET` | Optional: required body secret for first platform owner setup |
+
+Public tenant self-registration is **disabled** (platform owner provisions orgs).
 
 ---
 

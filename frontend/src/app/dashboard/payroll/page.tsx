@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site, PayrollRun, PayrollLine } from '@/lib/supabase/types'
 import { payrollRepository } from '@/lib/repositories/payroll'
+import { sitesRepository } from '@/lib/repositories/sites'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
 
@@ -41,6 +42,7 @@ export default function PayrollPage() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmFinalizeId, setConfirmFinalizeId] = useState<string | null>(null)
   const [confirmGenerate, setConfirmGenerate] = useState(false)
+  const [savingAdjId, setSavingAdjId] = useState<string | null>(null)
 
   useEffect(() => {
     if (authLoading) return
@@ -57,14 +59,14 @@ export default function PayrollPage() {
 
   const loadSites = async () => {
     try {
-      const { data } = await supabase.from('sites').select('*').eq('active', true).order('name')
-      const loadedSites = data || []
+      const loadedSites = await sitesRepository.listActive(supabase)
       setSites(loadedSites)
       if (loadedSites.length > 0) {
         setSelectedSite(loadedSites[0].id)
       }
-    } catch (err: any) {
-      toast.error(`Error loading sites: ${err.message}`)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      toast.error(`Error loading sites: ${message}`)
     }
   }
 
@@ -87,11 +89,40 @@ export default function PayrollPage() {
     try {
       const data = await payrollRepository.listLines(supabase, run.id)
       setLines(data)
-    } catch (error: any) {
-      toast.error(`Error loading payroll breakdown: ${error.message}`)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Error loading payroll breakdown: ${message}`)
       setLines([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleAdjustmentBlur = async (line: ExtendedPayrollLine, raw: string) => {
+    if (!selectedRun || selectedRun.status !== 'draft') return
+    const adj = parseFloat(raw)
+    if (Number.isNaN(adj)) {
+      toast.error('Enter a valid adjustment amount')
+      return
+    }
+    const prev = Number(line.adjustment) || 0
+    if (adj === prev) return
+
+    setSavingAdjId(line.id)
+    try {
+      const updated = await payrollRepository.updateLineAdjustment(
+        supabase,
+        line.id,
+        adj,
+        selectedRun.status
+      )
+      setLines((prevLines) => prevLines.map((l) => (l.id === line.id ? { ...l, ...updated } : l)))
+      toast.success('Adjustment saved')
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error'
+      toast.error(`Could not save adjustment: ${message}`)
+    } finally {
+      setSavingAdjId(null)
     }
   }
 
@@ -206,28 +237,63 @@ export default function PayrollPage() {
             </div>
           ) : (
             <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-              {lines.map(line => (
+              {lines.map((line) => (
                 <div
                   key={line.id}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
+                    gap: '0.75rem',
                     padding: '0.875rem 1.25rem',
                     borderBottom: '1px solid var(--border-subtle)',
+                    flexWrap: 'wrap',
                   }}
                 >
-                  <div>
+                  <div style={{ flex: 1, minWidth: '160px' }}>
                     <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>
                       {line.employees?.name || 'Unknown Employee'}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
-                      Present: {line.days_present}d • Leave: {line.days_leave}d • Absent: {line.days_absent}d (Rate: ₹{line.base_rate}/day)
+                      Present: {line.days_present ?? 0}d
+                      {' · '}Half: {line.days_half_day ?? 0}d
+                      {' · '}Leave: {line.days_leave ?? 0}d
+                      {' · '}Absent: {line.days_absent ?? 0}d
+                      {' · '}Rate: ₹{line.base_rate ?? 0}
+                      {' · '}Base: ₹{(line.computed_amount ?? 0).toLocaleString('en-IN')}
                     </div>
                   </div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
-                    ₹{(line.final_amount ?? 0).toLocaleString('en-IN')}
-                  </div>
+                  {selectedRun.status === 'draft' ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                        Adj
+                        <input
+                          type="number"
+                          className="form-input"
+                          style={{ width: '88px', marginTop: 2, padding: '0.35rem 0.5rem', fontSize: '0.85rem' }}
+                          defaultValue={line.adjustment ?? 0}
+                          step="0.01"
+                          disabled={savingAdjId === line.id}
+                          onBlur={(e) => void handleAdjustmentBlur(line, e.target.value)}
+                          title="Adjustment (₹). Blur to save. Final = base + adj."
+                        />
+                      </label>
+                      <div style={{ fontWeight: 700, fontSize: '0.95rem', minWidth: '72px', textAlign: 'right' }}>
+                        ₹{(line.final_amount ?? 0).toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'right' }}>
+                      {(line.adjustment ?? 0) !== 0 && (
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                          Adj ₹{(line.adjustment ?? 0).toLocaleString('en-IN')}
+                        </div>
+                      )}
+                      <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--text-primary)' }}>
+                        ₹{(line.final_amount ?? 0).toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
