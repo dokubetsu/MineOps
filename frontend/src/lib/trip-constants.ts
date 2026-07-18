@@ -1,7 +1,7 @@
 /**
  * Shared trip / expense domain constants used by admin trips + my-work.
  *
- * Trip pricing follows field reference paper (referenece/):
+ * Trip pricing follows field reference paper (local reference/ folder, untracked):
  *   trip value = fixed ₹ per trip by vehicle type (not distance, not m³).
  * Column `negotiated_rates.rate_per_cubic` stores that ₹/trip value
  * (historical column name; product meaning is per trip).

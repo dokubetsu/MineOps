@@ -73,7 +73,7 @@ wage = monthly_rate × max(0, 1 − (absent + half_day × 0.5) / period_calendar
 
 ## Trip worth / trip cost (field reference model)
 
-Source: paper ops in `referenece/` (daily trip sheets, weekly/monthly trip counts, May–June business report).
+Source: paper ops in local `reference/` (untracked scans: daily trip sheets, weekly/monthly counts, May–June business report).
 
 | Rule | Detail |
 |------|--------|
