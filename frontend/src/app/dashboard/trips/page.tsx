@@ -179,17 +179,13 @@ export default function TripsPage() {
     }
   }, [photoPreviews])
 
-  // Auto-fill trip cost + total shipment cost from capacity × rate
-  // (negotiated_rates when present, else built-in defaults — never leave blank)
+  // Auto-fill trip cost + billing from flat ₹/trip by vehicle type
+  // (Settings → Rates / negotiated_rates; capacity is ops-only, not price)
   useEffect(() => {
-    const cap = parseFloat(form.cubic_capacity)
-    if (isNaN(cap) || cap <= 0) return
-
     const { rate } = resolveRatePerCubic(form.vehicle_type, rates)
-    const worth = String(computeTripWorthFromRate(cap, rate))
+    const worth = String(computeTripWorthFromRate(null, rate))
     setForm((f) => {
       if (f.trip_worth === worth && f.total_shipment_cost === worth) return f
-      // Keep manual total shipment if user changed it away from previous auto trip cost
       const ship =
         !f.total_shipment_cost ||
         f.total_shipment_cost === f.trip_worth ||
@@ -198,7 +194,7 @@ export default function TripsPage() {
           : f.total_shipment_cost
       return { ...f, trip_worth: worth, total_shipment_cost: ship }
     })
-  }, [form.vehicle_type, form.cubic_capacity, rates])
+  }, [form.vehicle_type, rates])
 
   const loadInitialData = async () => {
     try {
@@ -1032,13 +1028,12 @@ export default function TripsPage() {
                     return { ...f, trip_worth: next, total_shipment_cost: ship }
                   })
                 }
-                placeholder="Auto from capacity × rate"
+                placeholder="Auto from vehicle type rate"
               />
               <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
                 {(() => {
                   const { rate, fromNegotiated } = resolveRatePerCubic(form.vehicle_type, rates)
-                  const cap = parseFloat(form.cubic_capacity) || 0
-                  return `${cap || '—'} m³ × ₹${rate}/m³${fromNegotiated ? '' : ' (default rate)'} → auto`
+                  return `${form.vehicle_type}: ₹${rate} per trip${fromNegotiated ? '' : ' (default)'} — Settings → Rates`
                 })()}
               </span>
             </div>

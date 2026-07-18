@@ -80,8 +80,11 @@ test.describe('Business Calculations (shared module)', () => {
     expect(applyLeaveBalance(2, 5)).toBe(0)
   })
 
-  test('should compute trip worth from rate × capacity', () => {
-    expect(computeTripWorthFromRate(20, 150)).toBe(3000)
+  test('should compute trip worth as flat ₹/trip (not capacity × rate)', () => {
+    // Reference paper: 12WH = ₹1000/trip regardless of m³
+    expect(computeTripWorthFromRate(20, 1000)).toBe(1000)
+    expect(computeTripWorthFromRate(null, 800)).toBe(800)
+    expect(computeTripWorth({ rateAmount: 1000, cubicCapacity: 20 })).toBe(1000)
     expect(computeTripWorth({ tripWorth: 2500.555 })).toBe(2500.56)
   })
 

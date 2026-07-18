@@ -1,5 +1,10 @@
 /**
  * Shared trip / expense domain constants used by admin trips + my-work.
+ *
+ * Trip pricing follows field reference paper (referenece/):
+ *   trip value = fixed ₹ per trip by vehicle type (not distance, not m³).
+ * Column `negotiated_rates.rate_per_cubic` stores that ₹/trip value
+ * (historical column name; product meaning is per trip).
  */
 
 export const VEHICLE_TYPES = ['12WH', '10WH', '6WH', 'Other'] as const
@@ -44,7 +49,7 @@ export const CASH_ENTRY_CATEGORIES_IN = [
   'Other incoming',
 ] as const
 
-/** Default cubic capacity for a vehicle type (matches master-data defaults). */
+/** Default cubic capacity for a vehicle type (ops logging only; not used in price). */
 export function getCapacityForType(type: string): string {
   switch (type) {
     case '12WH':
@@ -59,26 +64,33 @@ export function getCapacityForType(type: string): string {
 }
 
 /**
- * Fallback ₹/m³ when Master Data has no negotiated_rates row.
- * Matches seed defaults so field forms always auto-populate trip cost.
+ * Fallback ₹ **per trip** when Master Data has no negotiated_rates row.
+ * Matches field business report (12WH ₹1000, 10WH ₹800).
  */
-export function getDefaultRatePerCubic(type: string): number {
+export function getDefaultTripRate(type: string): number {
   switch (type) {
     case '12WH':
-      return 150
+      return 1000
     case '10WH':
-      return 120
+      return 800
     case '6WH':
-      return 90
+      return 600
     default:
-      return 80
+      return 500
   }
+}
+
+/** @deprecated Use getDefaultTripRate — same values, old name */
+export function getDefaultRatePerCubic(type: string): number {
+  return getDefaultTripRate(type)
 }
 
 export type RateRow = { vehicle_type?: string | null; rate_per_cubic?: number | string | null }
 
-/** Prefer org negotiated rate; else built-in default so UI never stays blank. */
-export function resolveRatePerCubic(
+/**
+ * Prefer org negotiated rate (stored in rate_per_cubic as ₹/trip); else built-in default.
+ */
+export function resolveTripRate(
   vehicleType: string,
   rates: RateRow[] | null | undefined
 ): { rate: number; fromNegotiated: boolean } {
@@ -87,7 +99,15 @@ export function resolveRatePerCubic(
   if (Number.isFinite(negotiated) && negotiated > 0) {
     return { rate: negotiated, fromNegotiated: true }
   }
-  return { rate: getDefaultRatePerCubic(vehicleType), fromNegotiated: false }
+  return { rate: getDefaultTripRate(vehicleType), fromNegotiated: false }
+}
+
+/** @deprecated Use resolveTripRate */
+export function resolveRatePerCubic(
+  vehicleType: string,
+  rates: RateRow[] | null | undefined
+): { rate: number; fromNegotiated: boolean } {
+  return resolveTripRate(vehicleType, rates)
 }
 
 export function vehicleTypeLabel(type: string): string {

@@ -89,7 +89,7 @@ export default async function globalSetup() {
     {
       id: '00000000-0000-0000-0000-000000000701',
       vehicle_type: '12WH',
-      rate_per_cubic: 150,
+      rate_per_cubic: 1000,
       organization_id: DEFAULT_ORG_ID,
     },
     { onConflict: 'id' }

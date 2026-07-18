@@ -71,7 +71,20 @@ wage = monthly_rate × max(0, 1 − (absent + half_day × 0.5) / period_calendar
 - Finalize is atomic (`finalize_payroll_run`); **requires ≥1 payroll line** (Phase 1 / **048**); lines cannot be edited after finalize.
 - After finalize, **attendance INSERT/UPDATE/DELETE** for dates in that month at the same site is blocked (muster freeze, **048**).
 
-## Trip worth (Phase C) & settlement (Phase 1)
+## Trip worth / trip cost (field reference model)
+
+Source: paper ops in `referenece/` (daily trip sheets, weekly/monthly trip counts, May–June business report).
+
+| Rule | Detail |
+|------|--------|
+| **Price unit** | **Flat ₹ per trip by vehicle type** (12WH / 10WH / 6WH / Other) |
+| **Not used in price** | Distance (km), cubic capacity (m³), drop location |
+| **Defaults** (if Settings rates empty) | 12WH ₹1000, 10WH ₹800, 6WH ₹600, Other ₹500 |
+| **Master Data** | Settings → **Rates** → ₹ per trip (stored in `negotiated_rates.rate_per_cubic` — historical column name) |
+| **Advance** | Separate field; **not** added into trip cost |
+| **Reporting** | Count trips by type × rate (e.g. 1572 × 1000 + 29 × 800); stakeholder share often 50/50 of total |
+
+### Settlement (Phase 1)
 
 - Client and server normalize via `computeTripWorth` / DB trigger `normalize_trip_worth` (2 decimal places).
 - Preferred create path: `tripsRepository.create` (admin + my-work).

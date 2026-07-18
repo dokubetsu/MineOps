@@ -18,7 +18,7 @@ export type TripCreateInput = Omit<
   TripInsert,
   'id' | 'created_at' | 'updated_at' | 'entry_time' | 'active'
 > & {
-  /** When trip_worth omitted, compute from rate × capacity */
+  /** Flat ₹ per trip by vehicle type (column name historical: rate_per_cubic) */
   rate_per_cubic?: number | null
 }
 
@@ -26,10 +26,11 @@ function normalizeWorth(payload: TripCreateInput): number | null {
   if (payload.trip_worth != null && !Number.isNaN(Number(payload.trip_worth))) {
     return computeTripWorth({ tripWorth: payload.trip_worth })
   }
-  if (payload.rate_per_cubic != null || payload.cubic_capacity != null) {
-    return computeTripWorthFromRate(payload.cubic_capacity, payload.rate_per_cubic)
+  // Flat per-trip rate (reference paper: 12WH ₹1000, 10WH ₹800)
+  if (payload.rate_per_cubic != null && !Number.isNaN(Number(payload.rate_per_cubic))) {
+    return computeTripWorth({ rateAmount: payload.rate_per_cubic })
   }
-  return payload.trip_worth != null ? roundMoney(Number(payload.trip_worth)) : null
+  return null
 }
 
 export const tripsRepository = {
@@ -94,11 +95,8 @@ export const tripsRepository = {
 
     if (payload.trip_worth != null && !Number.isNaN(Number(payload.trip_worth))) {
       patch.trip_worth = computeTripWorth({ tripWorth: payload.trip_worth })
-    } else if (payload.rate_per_cubic != null || payload.cubic_capacity != null) {
-      patch.trip_worth = computeTripWorthFromRate(
-        payload.cubic_capacity,
-        payload.rate_per_cubic
-      )
+    } else if (payload.rate_per_cubic != null) {
+      patch.trip_worth = computeTripWorth({ rateAmount: payload.rate_per_cubic })
     }
     if (payload.total_shipment_cost != null) {
       patch.total_shipment_cost = roundMoney(Number(payload.total_shipment_cost))

@@ -157,32 +157,20 @@ function EmployeePage() {
     router.replace('/dashboard/my-work', { scroll: false })
   }, [authLoading, loading, searchParams, canTrips, canCash, router])
 
-  // Auto-fill billing cost from capacity × rate (negotiated or default)
+  // Auto-fill billing = flat ₹/trip by vehicle type (reference paper model)
   useEffect(() => {
-    const cap = parseFloat(String(tripForm.cubic_capacity))
-    if (isNaN(cap) || cap <= 0) return
     const { rate } = resolveRatePerCubic(tripForm.vehicle_type, negotiatedRates)
-    const worth = String(computeTripWorthFromRate(cap, rate))
-    setTripForm((f) => {
-      if (f.total_shipment_cost === worth) return f
-      // Update when empty, zero, or still equals previous auto (we recompute fully on type/cap change)
-      if (f.total_shipment_cost === '' || f.total_shipment_cost === '0') {
-        return { ...f, total_shipment_cost: worth }
-      }
-      // Also refresh when capacity/type change — always re-apply auto for field log flow
-      return { ...f, total_shipment_cost: worth }
-    })
-  }, [tripForm.cubic_capacity, tripForm.vehicle_type, negotiatedRates])
+    const worth = String(computeTripWorthFromRate(null, rate))
+    setTripForm((f) => (f.total_shipment_cost === worth ? f : { ...f, total_shipment_cost: worth }))
+  }, [tripForm.vehicle_type, negotiatedRates])
 
   useEffect(() => {
-    const cap = parseFloat(String(editForm.cubic_capacity))
-    if (isNaN(cap) || cap <= 0) return
     const { rate } = resolveRatePerCubic(editForm.vehicle_type, negotiatedRates)
-    const worth = String(computeTripWorthFromRate(cap, rate))
+    const worth = String(computeTripWorthFromRate(null, rate))
     setEditForm((f) =>
       f.total_shipment_cost === worth ? f : { ...f, total_shipment_cost: worth }
     )
-  }, [editForm.cubic_capacity, editForm.vehicle_type, negotiatedRates])
+  }, [editForm.vehicle_type, negotiatedRates])
 
   const loadInitialData = async () => {
     if (!user) {
@@ -399,7 +387,7 @@ function EmployeePage() {
     const upperPlate = tripForm.vehicle_plate.toUpperCase().trim()
     const { rate } = resolveRatePerCubic(tripForm.vehicle_type, negotiatedRates)
     const capacity = parseFloat(tripForm.cubic_capacity) || 0
-    const worth = computeTripWorthFromRate(capacity, rate)
+    const worth = computeTripWorthFromRate(null, rate)
     const ownership = tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership
 
     const tripBase = {
@@ -656,7 +644,7 @@ function EmployeePage() {
       // Calculate shipment rates (shared module)
       const capacity = parseFloat(editForm.cubic_capacity) || 0
       const { rate } = resolveRatePerCubic(editForm.vehicle_type, negotiatedRates)
-      const worth = computeTripWorthFromRate(capacity, rate)
+      const worth = computeTripWorthFromRate(null, rate)
       const settleAmt = Number(worth) || Number(editingTrip.settlement_amount) || 0
       if (editForm.settled && settleAmt <= 0) {
         toast.error('Settled trips require a positive settlement amount')
@@ -1058,9 +1046,8 @@ function EmployeePage() {
                   tripForm.vehicle_type,
                   negotiatedRates
                 )
-                const cap = parseFloat(String(tripForm.cubic_capacity)) || 0
-                const worth = computeTripWorthFromRate(cap, rate)
-                return `Auto: ${cap} m³ × ₹${rate}/m³${fromNegotiated ? '' : ' (default)'} = ₹${worth}`
+                const worth = computeTripWorthFromRate(null, rate)
+                return `Auto: ${tripForm.vehicle_type} = ₹${rate}/trip${fromNegotiated ? '' : ' (default)'} → ₹${worth}`
               })()}
             </span>
           </div>

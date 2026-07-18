@@ -74,7 +74,12 @@ export function calculateStakeholderShare(net: number, sharePercent: number): nu
 
 /**
  * Trip worth from rate card / manual entry.
- * Prefer explicit trip_worth; otherwise rate * cubic capacity when both present.
+ *
+ * Field reference (paper business report): **flat ₹ per trip by vehicle type**
+ * (e.g. 12WH × ₹1000, 10WH × ₹800). Distance and m³ are not part of price.
+ *
+ * Prefer explicit `tripWorth`; else use `rateAmount` as **₹ per trip**.
+ * `cubicCapacity` is ignored for pricing (kept for API compatibility / logging).
  */
 export function computeTripWorth(params: {
   tripWorth?: number | null
@@ -85,8 +90,7 @@ export function computeTripWorth(params: {
     return roundMoney(Number(params.tripWorth))
   }
   const rate = Number(params.rateAmount) || 0
-  const capacity = Number(params.cubicCapacity) || 0
-  return roundMoney(rate * capacity)
+  return roundMoney(rate)
 }
 
 /** Remaining leave balance after an approved leave of `days` (never below 0). */
@@ -147,17 +151,23 @@ export function leaveDaysBetween(fromDate: string, toDate: string): number {
 }
 
 /**
- * Trip worth from rate × capacity when the user has not overridden worth.
- * Used by trip forms for auto-fill defaults.
+ * Auto trip cost from type rate (flat ₹/trip).
+ * First arg was historically capacity — ignored for price (reference model).
  */
 export function computeTripWorthFromRate(
-  cubicCapacity: number | string | null | undefined,
-  ratePerCubic: number | string | null | undefined
+  _cubicCapacity: number | string | null | undefined,
+  ratePerTrip: number | string | null | undefined
 ): number {
   return computeTripWorth({
-    rateAmount: ratePerCubic != null ? Number(ratePerCubic) : null,
-    cubicCapacity: cubicCapacity != null ? Number(cubicCapacity) : null,
+    rateAmount: ratePerTrip != null ? Number(ratePerTrip) : null,
   })
+}
+
+/** Flat ₹/trip from rate card only. */
+export function computeTripWorthFromTripRate(
+  ratePerTrip: number | string | null | undefined
+): number {
+  return computeTripWorth({ rateAmount: ratePerTrip != null ? Number(ratePerTrip) : null })
 }
 
 /**

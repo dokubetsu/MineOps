@@ -439,11 +439,12 @@ export default function SettingsPage() {
             <div>
               <form onSubmit={saveRates} className="card mb-4" style={{ maxWidth: 520 }}>
                 <h3 style={{ marginBottom: '0.5rem', fontSize: '0.95rem', fontWeight: 600 }}>
-                  Negotiated rates (₹ per m³)
+                  Negotiated rates (₹ per trip)
                 </h3>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: 1.45 }}>
-                  Used on Log Trip to auto-calculate <strong>trip cost</strong> and billing cost
-                  (capacity × rate). One rate per vehicle type for this organization.
+                  Field model: <strong>flat amount per trip by vehicle type</strong> (not distance, not m³).
+                  Used on Log Trip for <strong>trip cost</strong> and billing cost. Defaults match paper
+                  (12WH ₹1000, 10WH ₹800).
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {VEHICLE_TYPES.map((t) => (
@@ -478,7 +479,7 @@ export default function SettingsPage() {
                           required
                         />
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                          / m³
+                          / trip
                         </span>
                       </div>
                     </div>
@@ -511,8 +512,8 @@ export default function SettingsPage() {
                 </div>
               </form>
               <div className="card" style={{ maxWidth: 520, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Example:</strong> 12WH at ₹150/m³ with
-                capacity 20 m³ → trip cost ₹3,000 on Log Trip.
+                <strong style={{ color: 'var(--text-primary)' }}>Example:</strong> 12WH at ₹1,000/trip ×
+                1,572 trips → ₹15,72,000 (same as May–June business report).
               </div>
             </div>
           )}

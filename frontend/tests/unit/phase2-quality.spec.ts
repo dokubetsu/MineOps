@@ -96,14 +96,15 @@ test.describe('Phase 4 error + trip helpers', () => {
     expect(VEHICLE_TYPES).toContain('Other')
   })
 
-  test('resolveRatePerCubic uses negotiated then defaults', () => {
-    expect(resolveRatePerCubic('12WH', []).rate).toBe(getDefaultRatePerCubic('12WH'))
+  test('resolveTripRate uses negotiated then defaults (₹/trip)', () => {
+    expect(resolveRatePerCubic('12WH', []).rate).toBe(1000)
+    expect(getDefaultRatePerCubic('10WH')).toBe(800)
     expect(resolveRatePerCubic('12WH', []).fromNegotiated).toBe(false)
     expect(
-      resolveRatePerCubic('12WH', [{ vehicle_type: '12WH', rate_per_cubic: 200 }]).rate
-    ).toBe(200)
+      resolveRatePerCubic('12WH', [{ vehicle_type: '12WH', rate_per_cubic: 1200 }]).rate
+    ).toBe(1200)
     expect(
-      resolveRatePerCubic('12WH', [{ vehicle_type: '12WH', rate_per_cubic: 200 }]).fromNegotiated
+      resolveRatePerCubic('12WH', [{ vehicle_type: '12WH', rate_per_cubic: 1200 }]).fromNegotiated
     ).toBe(true)
   })
 })

@@ -110,8 +110,9 @@ test.describe('Leave balance math', () => {
 })
 
 test.describe('Trip worth normalize', () => {
-  test('rate × capacity', () => {
-    expect(computeTripWorthFromRate(25, 120)).toBe(3000)
+  test('flat ₹/trip by type rate', () => {
+    expect(computeTripWorthFromRate(25, 1000)).toBe(1000)
+    expect(computeTripWorthFromRate(null, 800)).toBe(800)
   })
   test('explicit worth rounded', () => {
     expect(computeTripWorth({ tripWorth: 999.999 })).toBe(1000)
