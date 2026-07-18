@@ -17,3 +17,8 @@ frontend/.env*.local
 .DS_Store
 Thumbs.db
 *.zip
+
+# Field paper / scanned reference (local only — do not commit)
+reference/
+referenece/
+
