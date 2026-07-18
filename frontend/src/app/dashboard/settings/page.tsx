@@ -2,10 +2,15 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus } from 'lucide-react'
+import { Plus, Save } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site, TransportContractor, Vehicle } from '@/lib/supabase/types'
+import {
+  VEHICLE_TYPES,
+  getDefaultRatePerCubic,
+  vehicleTypeLabel,
+} from '@/lib/trip-constants'
 import toast from 'react-hot-toast'
 import { toErrorMessage } from '@/lib/errors'
 
@@ -13,6 +18,12 @@ interface ExtendedVehicle extends Vehicle {
   transport_contractors?: {
     name: string
   } | null
+}
+
+type RateDraft = Record<string, string>
+
+function emptyRateDraft(): RateDraft {
+  return Object.fromEntries(VEHICLE_TYPES.map((t) => [t, String(getDefaultRatePerCubic(t))]))
 }
 
 export default function SettingsPage() {
@@ -29,8 +40,13 @@ export default function SettingsPage() {
   const [sites, setSites] = useState<Site[]>([])
   const [contractors, setContractors] = useState<TransportContractor[]>([])
   const [vehicles, setVehicles] = useState<ExtendedVehicle[]>([])
+  const [rateDraft, setRateDraft] = useState<RateDraft>(emptyRateDraft)
+  const [rateSaved, setRateSaved] = useState<RateDraft>(emptyRateDraft)
+  const [savingRates, setSavingRates] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'sites' | 'contractors' | 'vehicles' | 'organization'>('sites')
+  const [activeTab, setActiveTab] = useState<
+    'sites' | 'contractors' | 'vehicles' | 'rates' | 'organization'
+  >('sites')
 
   // Forms
   const [siteName, setSiteName] = useState('')
@@ -55,23 +71,74 @@ export default function SettingsPage() {
   const loadAll = async () => {
     setLoading(true)
     try {
-      const [{ data: s, error: sErr }, { data: c, error: cErr }, { data: v, error: vErr }] = await Promise.all([
+      const [
+        { data: s, error: sErr },
+        { data: c, error: cErr },
+        { data: v, error: vErr },
+        { data: rates, error: rErr },
+      ] = await Promise.all([
         supabase.from('sites').select('*').order('name').limit(200),
         supabase.from('transport_contractors').select('*').order('name').limit(200),
         supabase.from('vehicles').select('*, transport_contractors(name)').order('plate_number').limit(1000),
+        supabase.from('negotiated_rates').select('vehicle_type, rate_per_cubic').limit(50),
       ])
       if (sErr) throw sErr
       if (cErr) throw cErr
       if (vErr) throw vErr
+      if (rErr) throw rErr
       setSites(s || [])
       setContractors(c || [])
       setVehicles((v as any) || [])
+
+      const draft = emptyRateDraft()
+      for (const row of rates || []) {
+        if (row.vehicle_type && VEHICLE_TYPES.includes(row.vehicle_type as (typeof VEHICLE_TYPES)[number])) {
+          draft[row.vehicle_type] = String(row.rate_per_cubic ?? getDefaultRatePerCubic(row.vehicle_type))
+        }
+      }
+      setRateDraft(draft)
+      setRateSaved({ ...draft })
     } catch (err: unknown) {
       toast.error(`Error loading configurations: ${toErrorMessage(err)}`)
     } finally {
       setLoading(false)
     }
   }
+
+  const saveRates = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!organizationId) {
+      toast.error('Organization not loaded')
+      return
+    }
+    setSavingRates(true)
+    try {
+      const rows = VEHICLE_TYPES.map((vehicle_type) => {
+        const n = parseFloat(rateDraft[vehicle_type] || '')
+        if (!Number.isFinite(n) || n < 0) {
+          throw new Error(`Invalid rate for ${vehicle_type}`)
+        }
+        return {
+          organization_id: organizationId,
+          vehicle_type,
+          rate_per_cubic: n,
+        }
+      })
+
+      const { error } = await supabase.from('negotiated_rates').upsert(rows, {
+        onConflict: 'organization_id,vehicle_type',
+      })
+      if (error) throw error
+      setRateSaved({ ...rateDraft })
+      toast.success('Negotiated rates saved — used for trip cost auto-calc')
+    } catch (err: unknown) {
+      toast.error(`Error saving rates: ${toErrorMessage(err)}`)
+    } finally {
+      setSavingRates(false)
+    }
+  }
+
+  const ratesDirty = VEHICLE_TYPES.some((t) => rateDraft[t] !== rateSaved[t])
 
   const addSite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -183,6 +250,7 @@ export default function SettingsPage() {
     { key: 'sites', label: 'Sites', count: sites.length },
     { key: 'contractors', label: 'Contractors', count: contractors.length },
     { key: 'vehicles', label: 'Vehicles', count: vehicles.length },
+    { key: 'rates', label: 'Rates', count: VEHICLE_TYPES.length },
   ]
   if (isAdmin) {
     tabs.push({ key: 'organization', label: 'Organization', count: 1 })
@@ -193,7 +261,7 @@ export default function SettingsPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Settings</h1>
-          <p className="page-subtitle">Master Data Configuration</p>
+          <p className="page-subtitle">Master Data — sites, fleet, rates &amp; organization</p>
         </div>
       </div>
 
@@ -362,6 +430,89 @@ export default function SettingsPage() {
                     </button>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Negotiated rates (₹/m³) — drives trip cost auto-fill */}
+          {activeTab === 'rates' && (
+            <div>
+              <form onSubmit={saveRates} className="card mb-4" style={{ maxWidth: 520 }}>
+                <h3 style={{ marginBottom: '0.5rem', fontSize: '0.95rem', fontWeight: 600 }}>
+                  Negotiated rates (₹ per m³)
+                </h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: 1.45 }}>
+                  Used on Log Trip to auto-calculate <strong>trip cost</strong> and billing cost
+                  (capacity × rate). One rate per vehicle type for this organization.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {VEHICLE_TYPES.map((t) => (
+                    <div
+                      key={t}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.75rem',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <label
+                        className="form-label"
+                        style={{ minWidth: 140, marginBottom: 0, flex: '1 1 120px' }}
+                        htmlFor={`rate-${t}`}
+                      >
+                        {vehicleTypeLabel(t)}
+                      </label>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: '1 1 140px' }}>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>₹</span>
+                        <input
+                          id={`rate-${t}`}
+                          className="form-input"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={rateDraft[t] ?? ''}
+                          onChange={(e) =>
+                            setRateDraft((prev) => ({ ...prev, [t]: e.target.value }))
+                          }
+                          required
+                        />
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                          / m³
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1.25rem', flexWrap: 'wrap' }}>
+                  <button type="submit" className="btn btn-primary" disabled={savingRates || !ratesDirty}>
+                    {savingRates ? (
+                      'Saving…'
+                    ) : (
+                      <>
+                        <Save size={16} /> Save rates
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={savingRates}
+                    onClick={() => setRateDraft(emptyRateDraft())}
+                    title="Fill built-in defaults (not saved until you click Save)"
+                  >
+                    Load defaults
+                  </button>
+                  {ratesDirty && (
+                    <span style={{ fontSize: '0.75rem', color: 'var(--accent)', alignSelf: 'center' }}>
+                      Unsaved changes
+                    </span>
+                  )}
+                </div>
+              </form>
+              <div className="card" style={{ maxWidth: 520, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Example:</strong> 12WH at ₹150/m³ with
+                capacity 20 m³ → trip cost ₹3,000 on Log Trip.
               </div>
             </div>
           )}
