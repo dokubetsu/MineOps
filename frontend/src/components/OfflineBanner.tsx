@@ -30,14 +30,15 @@ export default function OfflineBanner() {
 
   const runFlush = useCallback(
     async (quiet = false) => {
-      if (!user?.id || !organizationId) return
+      const uid = user?.id
+      if (!uid || !organizationId) return
       if (!isBrowserOnline()) return
-      const n = countOutbox(user.id, organizationId)
+      const n = countOutbox(uid, organizationId)
       if (n === 0) return
 
       setSyncing(true)
       try {
-        const result = await flushOutbox(supabase, user.id, organizationId)
+        const result = await flushOutbox(supabase, uid, organizationId)
         refreshCount()
         if (result.succeeded > 0 && !quiet) {
           toast.success(
@@ -63,7 +64,7 @@ export default function OfflineBanner() {
         refreshCount()
       }
     },
-    [user?.id, organizationId, supabase, refreshCount]
+    [user, organizationId, supabase, refreshCount]
   )
 
   useEffect(() => {
