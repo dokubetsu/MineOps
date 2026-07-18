@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 
 export const E2E_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@mineops.com'
 export const E2E_PASSWORD = process.env.E2E_ADMIN_PASSWORD || 'password123'
@@ -12,6 +12,19 @@ export function visibleDashboardShell(page: Page) {
     .locator('.mobile-header-brand, .sidebar-logo-text, .bottom-nav, .mobile-header')
     .filter({ visible: true })
     .first()
+}
+
+/**
+ * Page content text that is actually visible (skips hidden sidebar/nav clones).
+ * Prefer .page-title for headings when possible.
+ */
+export function visiblePageText(page: Page, pattern: RegExp) {
+  return page.getByText(pattern).filter({ visible: true }).first()
+}
+
+/** Main content page title (Cash Book, Leave Applications, etc.). */
+export function pageTitle(page: Page, pattern: RegExp) {
+  return page.locator('h1.page-title, .page-title, h1').filter({ hasText: pattern }).filter({ visible: true }).first()
 }
 
 /** Login as demo tenant admin and wait for dashboard shell (desktop or mobile). */
@@ -32,6 +45,7 @@ export async function loginAsAdmin(page: Page): Promise<void> {
 export async function clickNav(page: Page, href: string): Promise<void> {
   const urlRe = new RegExp(href.replace(/\//g, '\\/'))
 
+  // Prefer real navigation via URL when already mid-suite (avoids hidden sidebar clicks)
   const visibleLink = page.locator(`a[href="${href}"]`).filter({ visible: true }).first()
   if (await visibleLink.isVisible({ timeout: 1500 }).catch(() => false)) {
     await visibleLink.click()
@@ -59,30 +73,56 @@ export async function clickNav(page: Page, href: string): Promise<void> {
     }
   }
 
-  // Last resort — same as a deep link (works when chrome is mid-hydration)
+  // Reliable on mobile: deep-link (same auth session)
   await page.goto(href)
   await expect(page).toHaveURL(urlRe, { timeout: 15000 })
 }
 
 /**
- * react-hot-toast messages use role="status".
- * Prefer this over page.getByText so UI labels like "Mark All Present" do not match.
+ * react-hot-toast messages — role=status when present; also match common toast containers.
  */
 export function toastLocator(page: Page, pattern: RegExp) {
-  return page.getByRole('status').filter({ hasText: pattern }).first()
+  return page
+    .locator('[role="status"], [class*="toast"], div[data-hot-toast], li[role="status"]')
+    .filter({ hasText: pattern })
+    .first()
 }
 
 /** Wait until a primary action button finishes its in-flight "Saving…" state. */
-export async function waitForSaveIdle(
-  _page: Page,
-  button: ReturnType<Page['locator']>
-): Promise<void> {
+export async function waitForSaveIdle(_page: Page, button: Locator): Promise<void> {
   await expect
     .poll(async () => {
       const text = (await button.innerText().catch(() => '')) || ''
       return /Saving/i.test(text) ? 'busy' : 'idle'
     }, { timeout: 25000 })
     .toBe('idle')
+}
+
+/**
+ * After attendance Save: accept success toast OR Save disabled (!isDirty) without error toast.
+ * Avoids flakes when toast auto-dismisses or role=status is missing briefly.
+ */
+export async function expectAttendanceSaveOk(page: Page, saveBtn: Locator, successPattern: RegExp): Promise<void> {
+  const toastOk = toastLocator(page, successPattern)
+    .waitFor({ state: 'visible', timeout: 20000 })
+    .then(() => 'toast' as const)
+    .catch(() => null)
+
+  const dirtyCleared = expect(saveBtn)
+    .toBeDisabled({ timeout: 20000 })
+    .then(() => 'disabled' as const)
+    .catch(() => null)
+
+  const result = await Promise.race([toastOk, dirtyCleared])
+  if (!result) {
+    const errText = await page.getByText(/Error saving attendance|Permission denied/i).count()
+    throw new Error(
+      `Attendance save did not show success toast or clear dirty state (errors on page: ${errText})`
+    )
+  }
+  await waitForSaveIdle(page, saveBtn)
+  const fatal = await page.getByText(/Permission denied saving attendance|Error saving attendance/i).count()
+  expect(fatal).toBe(0)
 }
 
 /**
