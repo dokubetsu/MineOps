@@ -17,7 +17,12 @@ import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
 import { toErrorMessage } from '@/lib/errors'
 
-import { VEHICLE_TYPES, OWNERSHIP_TYPES, getCapacityForType } from '@/lib/trip-constants'
+import {
+  VEHICLE_TYPES,
+  OWNERSHIP_TYPES,
+  getCapacityForType,
+  resolveRatePerCubic,
+} from '@/lib/trip-constants'
 
 interface ExtendedVehicle extends Vehicle {
   transport_contractors?: {
@@ -174,17 +179,25 @@ export default function TripsPage() {
     }
   }, [photoPreviews])
 
-  // Auto trip cost from capacity × negotiated rate (only when value actually changes)
+  // Auto-fill trip cost + total shipment cost from capacity × rate
+  // (negotiated_rates when present, else built-in defaults — never leave blank)
   useEffect(() => {
     const cap = parseFloat(form.cubic_capacity)
     if (isNaN(cap) || cap <= 0) return
 
-    const rateRow = rates.find(r => r.vehicle_type === form.vehicle_type)
-    const rate = rateRow ? Number(rateRow.rate_per_cubic) : 0
-    if (rate > 0) {
-      const worth = String(computeTripWorthFromRate(cap, rate))
-      setForm((f) => (f.trip_worth === worth ? f : { ...f, trip_worth: worth }))
-    }
+    const { rate } = resolveRatePerCubic(form.vehicle_type, rates)
+    const worth = String(computeTripWorthFromRate(cap, rate))
+    setForm((f) => {
+      if (f.trip_worth === worth && f.total_shipment_cost === worth) return f
+      // Keep manual total shipment if user changed it away from previous auto trip cost
+      const ship =
+        !f.total_shipment_cost ||
+        f.total_shipment_cost === f.trip_worth ||
+        f.total_shipment_cost === '0'
+          ? worth
+          : f.total_shipment_cost
+      return { ...f, trip_worth: worth, total_shipment_cost: ship }
+    })
   }, [form.vehicle_type, form.cubic_capacity, rates])
 
   const loadInitialData = async () => {
@@ -1003,9 +1016,31 @@ export default function TripsPage() {
             </div>
             <div className="form-group">
               <label className="form-label">Trip cost (₹)</label>
-              <input className="form-input" type="number" step="any" value={form.trip_worth}
-                onChange={e => setForm(f => ({ ...f, trip_worth: e.target.value }))}
-                placeholder="Auto from capacity × rate" />
+              <input
+                className="form-input"
+                type="number"
+                step="any"
+                value={form.trip_worth}
+                onChange={(e) =>
+                  setForm((f) => {
+                    const next = e.target.value
+                    // Keep shipment in sync if it still matched previous trip cost
+                    const ship =
+                      !f.total_shipment_cost || f.total_shipment_cost === f.trip_worth
+                        ? next
+                        : f.total_shipment_cost
+                    return { ...f, trip_worth: next, total_shipment_cost: ship }
+                  })
+                }
+                placeholder="Auto from capacity × rate"
+              />
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                {(() => {
+                  const { rate, fromNegotiated } = resolveRatePerCubic(form.vehicle_type, rates)
+                  const cap = parseFloat(form.cubic_capacity) || 0
+                  return `${cap || '—'} m³ × ₹${rate}/m³${fromNegotiated ? '' : ' (default rate)'} → auto`
+                })()}
+              </span>
             </div>
           </div>
 
@@ -1016,10 +1051,15 @@ export default function TripsPage() {
                 onChange={e => setForm(f => ({ ...f, advance_amount: e.target.value }))} />
             </div>
             <div className="form-group">
-              <label className="form-label">Total Shipment Cost (₹)</label>
-              <input className="form-input" type="number" step="any" value={form.total_shipment_cost}
-                onChange={e => setForm(f => ({ ...f, total_shipment_cost: e.target.value }))}
-                placeholder="Total billing cost" />
+              <label className="form-label">Total shipment / billing cost (₹)</label>
+              <input
+                className="form-input"
+                type="number"
+                step="any"
+                value={form.total_shipment_cost}
+                onChange={(e) => setForm((f) => ({ ...f, total_shipment_cost: e.target.value }))}
+                placeholder="Defaults to trip cost"
+              />
             </div>
           </div>
 

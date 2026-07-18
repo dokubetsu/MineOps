@@ -18,7 +18,12 @@ import { leaveRepository, LeaveError } from '../../src/lib/repositories/leave'
 import { partitionAttendanceSave } from '../../src/lib/repositories/attendance'
 import { checkRateLimitMemory, pruneRateLimitStore } from '../../src/lib/rate-limit'
 import { toErrorMessage } from '../../src/lib/errors'
-import { getCapacityForType, VEHICLE_TYPES } from '../../src/lib/trip-constants'
+import {
+  getCapacityForType,
+  getDefaultRatePerCubic,
+  resolveRatePerCubic,
+  VEHICLE_TYPES,
+} from '../../src/lib/trip-constants'
 
 /**
  * Phase 2 quality suite — pure unit cases (no browser).
@@ -89,6 +94,17 @@ test.describe('Phase 4 error + trip helpers', () => {
     expect(getCapacityForType('12WH')).toBe('20')
     expect(getCapacityForType('10WH')).toBe('16')
     expect(VEHICLE_TYPES).toContain('Other')
+  })
+
+  test('resolveRatePerCubic uses negotiated then defaults', () => {
+    expect(resolveRatePerCubic('12WH', []).rate).toBe(getDefaultRatePerCubic('12WH'))
+    expect(resolveRatePerCubic('12WH', []).fromNegotiated).toBe(false)
+    expect(
+      resolveRatePerCubic('12WH', [{ vehicle_type: '12WH', rate_per_cubic: 200 }]).rate
+    ).toBe(200)
+    expect(
+      resolveRatePerCubic('12WH', [{ vehicle_type: '12WH', rate_per_cubic: 200 }]).fromNegotiated
+    ).toBe(true)
   })
 })
 

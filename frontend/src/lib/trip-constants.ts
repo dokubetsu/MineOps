@@ -58,6 +58,38 @@ export function getCapacityForType(type: string): string {
   }
 }
 
+/**
+ * Fallback ₹/m³ when Master Data has no negotiated_rates row.
+ * Matches seed defaults so field forms always auto-populate trip cost.
+ */
+export function getDefaultRatePerCubic(type: string): number {
+  switch (type) {
+    case '12WH':
+      return 150
+    case '10WH':
+      return 120
+    case '6WH':
+      return 90
+    default:
+      return 80
+  }
+}
+
+export type RateRow = { vehicle_type?: string | null; rate_per_cubic?: number | string | null }
+
+/** Prefer org negotiated rate; else built-in default so UI never stays blank. */
+export function resolveRatePerCubic(
+  vehicleType: string,
+  rates: RateRow[] | null | undefined
+): { rate: number; fromNegotiated: boolean } {
+  const row = (rates || []).find((r) => r.vehicle_type === vehicleType)
+  const negotiated = row != null ? Number(row.rate_per_cubic) : NaN
+  if (Number.isFinite(negotiated) && negotiated > 0) {
+    return { rate: negotiated, fromNegotiated: true }
+  }
+  return { rate: getDefaultRatePerCubic(vehicleType), fromNegotiated: false }
+}
+
 export function vehicleTypeLabel(type: string): string {
   switch (type) {
     case '12WH':

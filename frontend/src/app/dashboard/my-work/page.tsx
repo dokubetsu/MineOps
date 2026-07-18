@@ -19,6 +19,7 @@ import {
   VEHICLE_TYPES,
   expenseRequiresContractor,
   getCapacityForType,
+  resolveRatePerCubic,
   vehicleTypeLabel,
 } from '@/lib/trip-constants'
 
@@ -156,24 +157,31 @@ function EmployeePage() {
     router.replace('/dashboard/my-work', { scroll: false })
   }, [authLoading, loading, searchParams, canTrips, canCash, router])
 
-  // Calculate shipment cost on tripForm changes
+  // Auto-fill billing cost from capacity × rate (negotiated or default)
   useEffect(() => {
-    const rate = negotiatedRates.find(r => r.vehicle_type === tripForm.vehicle_type)?.rate_per_cubic || 0
-    const worth = computeTripWorthFromRate(tripForm.cubic_capacity, rate)
-    setTripForm(f => ({
-      ...f,
-      total_shipment_cost: f.total_shipment_cost === '' || f.total_shipment_cost === '0' ? String(worth) : f.total_shipment_cost
-    }))
+    const cap = parseFloat(String(tripForm.cubic_capacity))
+    if (isNaN(cap) || cap <= 0) return
+    const { rate } = resolveRatePerCubic(tripForm.vehicle_type, negotiatedRates)
+    const worth = String(computeTripWorthFromRate(cap, rate))
+    setTripForm((f) => {
+      if (f.total_shipment_cost === worth) return f
+      // Update when empty, zero, or still equals previous auto (we recompute fully on type/cap change)
+      if (f.total_shipment_cost === '' || f.total_shipment_cost === '0') {
+        return { ...f, total_shipment_cost: worth }
+      }
+      // Also refresh when capacity/type change — always re-apply auto for field log flow
+      return { ...f, total_shipment_cost: worth }
+    })
   }, [tripForm.cubic_capacity, tripForm.vehicle_type, negotiatedRates])
 
-  // Calculate shipment cost on editForm changes
   useEffect(() => {
-    const rate = negotiatedRates.find(r => r.vehicle_type === editForm.vehicle_type)?.rate_per_cubic || 0
-    const worth = computeTripWorthFromRate(editForm.cubic_capacity, rate)
-    setEditForm(f => ({
-      ...f,
-      total_shipment_cost: f.total_shipment_cost === '' || f.total_shipment_cost === '0' ? String(worth) : f.total_shipment_cost
-    }))
+    const cap = parseFloat(String(editForm.cubic_capacity))
+    if (isNaN(cap) || cap <= 0) return
+    const { rate } = resolveRatePerCubic(editForm.vehicle_type, negotiatedRates)
+    const worth = String(computeTripWorthFromRate(cap, rate))
+    setEditForm((f) =>
+      f.total_shipment_cost === worth ? f : { ...f, total_shipment_cost: worth }
+    )
   }, [editForm.cubic_capacity, editForm.vehicle_type, negotiatedRates])
 
   const loadInitialData = async () => {
@@ -389,7 +397,7 @@ function EmployeePage() {
 
     setSubmittingTrip(true)
     const upperPlate = tripForm.vehicle_plate.toUpperCase().trim()
-    const rate = negotiatedRates.find(r => r.vehicle_type === tripForm.vehicle_type)?.rate_per_cubic || 0
+    const { rate } = resolveRatePerCubic(tripForm.vehicle_type, negotiatedRates)
     const capacity = parseFloat(tripForm.cubic_capacity) || 0
     const worth = computeTripWorthFromRate(capacity, rate)
     const ownership = tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership
@@ -647,7 +655,7 @@ function EmployeePage() {
 
       // Calculate shipment rates (shared module)
       const capacity = parseFloat(editForm.cubic_capacity) || 0
-      const rate = negotiatedRates.find(r => r.vehicle_type === editForm.vehicle_type)?.rate_per_cubic || 0
+      const { rate } = resolveRatePerCubic(editForm.vehicle_type, negotiatedRates)
       const worth = computeTripWorthFromRate(capacity, rate)
       const settleAmt = Number(worth) || Number(editingTrip.settlement_amount) || 0
       if (editForm.settled && settleAmt <= 0) {
@@ -1035,11 +1043,25 @@ function EmployeePage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Total Shipment Cost / Price (₹) *</label>
-            <input className="form-input" type="number" placeholder="Calculated automatically"
-              value={tripForm.total_shipment_cost} onChange={e => setTripForm(f => ({ ...f, total_shipment_cost: e.target.value }))} required />
+            <label className="form-label">Total shipment / billing cost (₹) *</label>
+            <input
+              className="form-input"
+              type="number"
+              placeholder="Calculated automatically"
+              value={tripForm.total_shipment_cost}
+              onChange={(e) => setTripForm((f) => ({ ...f, total_shipment_cost: e.target.value }))}
+              required
+            />
             <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-              Note: Autocalculated rate worth is ₹{(parseFloat(tripForm.cubic_capacity) || 0) * (negotiatedRates.find(r => r.vehicle_type === tripForm.vehicle_type)?.rate_per_cubic || 0)}
+              {(() => {
+                const { rate, fromNegotiated } = resolveRatePerCubic(
+                  tripForm.vehicle_type,
+                  negotiatedRates
+                )
+                const cap = parseFloat(String(tripForm.cubic_capacity)) || 0
+                const worth = computeTripWorthFromRate(cap, rate)
+                return `Auto: ${cap} m³ × ₹${rate}/m³${fromNegotiated ? '' : ' (default)'} = ₹${worth}`
+              })()}
             </span>
           </div>
 
