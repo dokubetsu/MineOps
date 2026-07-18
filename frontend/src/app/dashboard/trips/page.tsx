@@ -17,7 +17,7 @@ import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
 import { toErrorMessage } from '@/lib/errors'
 
-import { VEHICLE_TYPES, OWNERSHIP_TYPES } from '@/lib/trip-constants'
+import { VEHICLE_TYPES, OWNERSHIP_TYPES, getCapacityForType } from '@/lib/trip-constants'
 
 interface ExtendedVehicle extends Vehicle {
   transport_contractors?: {
@@ -174,7 +174,7 @@ export default function TripsPage() {
     }
   }, [photoPreviews])
 
-  // Calculate default trip worth dynamically from capacity * negotiated rates
+  // Auto trip cost from capacity × negotiated rate (only when value actually changes)
   useEffect(() => {
     const cap = parseFloat(form.cubic_capacity)
     if (isNaN(cap) || cap <= 0) return
@@ -182,8 +182,8 @@ export default function TripsPage() {
     const rateRow = rates.find(r => r.vehicle_type === form.vehicle_type)
     const rate = rateRow ? Number(rateRow.rate_per_cubic) : 0
     if (rate > 0) {
-      const worth = computeTripWorthFromRate(cap, rate)
-      setForm(f => ({ ...f, trip_worth: String(worth) }))
+      const worth = String(computeTripWorthFromRate(cap, rate))
+      setForm((f) => (f.trip_worth === worth ? f : { ...f, trip_worth: worth }))
     }
   }, [form.vehicle_type, form.cubic_capacity, rates])
 
@@ -302,37 +302,30 @@ export default function TripsPage() {
   }
 
   const selectVehicle = (vehicle: ExtendedVehicle) => {
-    let defaultCap = vehicle.default_cubic_capacity
-    if (!defaultCap) {
-      if (vehicle.vehicle_type === '12WH') defaultCap = 20
-      else if (vehicle.vehicle_type === '10WH') defaultCap = 16
-      else if (vehicle.vehicle_type === '6WH') defaultCap = 10
-      else defaultCap = 8
-    }
+    const vType = vehicle.vehicle_type || '12WH'
+    const defaultCap =
+      vehicle.default_cubic_capacity != null && Number(vehicle.default_cubic_capacity) > 0
+        ? String(vehicle.default_cubic_capacity)
+        : getCapacityForType(vType)
 
-    setForm(f => ({
+    setForm((f) => ({
       ...f,
       vehicle_id: vehicle.id,
       plate_number: vehicle.plate_number,
       contractor_id: vehicle.default_contractor_id || '',
       ownership: vehicle.ownership || 'rented',
-      vehicle_type: vehicle.vehicle_type || '12WH',
-      cubic_capacity: String(defaultCap),
+      vehicle_type: vType,
+      cubic_capacity: defaultCap,
     }))
     setVehicleSearch(vehicle.plate_number)
     setFilteredVehicles([])
   }
 
   const handleVehicleTypeChange = (type: '12WH' | '10WH' | '6WH' | 'Other') => {
-    let defaultCap = 8
-    if (type === '12WH') defaultCap = 20
-    else if (type === '10WH') defaultCap = 16
-    else if (type === '6WH') defaultCap = 10
-
-    setForm(f => ({
+    setForm((f) => ({
       ...f,
       vehicle_type: type,
-      cubic_capacity: String(defaultCap),
+      cubic_capacity: getCapacityForType(type),
     }))
   }
 
@@ -719,7 +712,7 @@ export default function TripsPage() {
           setExistingPhotoUrls([])
           setForm({
             vehicle_id: '', plate_number: '', contractor_id: '',
-            ownership: 'rented', vehicle_type: '12WH', cubic_capacity: '',
+            ownership: 'rented', vehicle_type: '12WH', cubic_capacity: getCapacityForType('12WH'),
             advance_amount: '0', customer_id: '', drop_location: '', distance_km: '',
             trip_worth: '', total_shipment_cost: '', payment_status: 'pending',
             payment_method: 'cash', payment_reference: '', permit_number: '', load_info: '', notes: ''
@@ -1009,10 +1002,10 @@ export default function TripsPage() {
                 placeholder="e.g. 45" />
             </div>
             <div className="form-group">
-              <label className="form-label">Trip Worth (₹)</label>
+              <label className="form-label">Trip cost (₹)</label>
               <input className="form-input" type="number" step="any" value={form.trip_worth}
                 onChange={e => setForm(f => ({ ...f, trip_worth: e.target.value }))}
-                placeholder="Calculated price" />
+                placeholder="Auto from capacity × rate" />
             </div>
           </div>
 

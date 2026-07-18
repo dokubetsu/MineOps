@@ -17,6 +17,7 @@ import { toErrorMessage } from '@/lib/errors'
 import {
   EXPENSE_CATEGORIES,
   VEHICLE_TYPES,
+  expenseRequiresContractor,
   getCapacityForType,
   vehicleTypeLabel,
 } from '@/lib/trip-constants'
@@ -86,6 +87,7 @@ function EmployeePage() {
     category: EXPENSE_CATEGORIES[0] as string,
     amount: '',
     note: '',
+    contractor_id: '',
   })
   const [expenseReceipt, setExpenseReceipt] = useState<File | null>(null)
   const [todayExpenses, setTodayExpenses] = useState<
@@ -552,6 +554,10 @@ function EmployeePage() {
     }
     e.preventDefault()
     if (!employee || !user) return
+    if (expenseRequiresContractor(expenseForm.category) && !expenseForm.contractor_id) {
+      toast.error('Select a transport contractor for this expense type')
+      return
+    }
     setSubmittingExpense(true)
     try {
       await cashBookRepository.logSiteExpense(supabase, employee.site_id, todayStr, {
@@ -559,10 +565,11 @@ function EmployeePage() {
         amount: parseFloat(expenseForm.amount),
         note: expenseForm.note || null,
         receiptFile: expenseReceipt,
+        contractor_id: expenseForm.contractor_id || null,
       })
       toast.success('Expense logged to site cash book')
       setShowExpenseSheet(false)
-      setExpenseForm({ category: EXPENSE_CATEGORIES[0], amount: '', note: '' })
+      setExpenseForm({ category: EXPENSE_CATEGORIES[0], amount: '', note: '', contractor_id: '' })
       setExpenseReceipt(null)
       void loadInitialData()
     } catch (err: unknown) {
@@ -1280,7 +1287,13 @@ function EmployeePage() {
             <select
               className="form-input form-select"
               value={expenseForm.category}
-              onChange={(e) => setExpenseForm((f) => ({ ...f, category: e.target.value }))}
+              onChange={(e) =>
+                setExpenseForm((f) => ({
+                  ...f,
+                  category: e.target.value,
+                  contractor_id: expenseRequiresContractor(e.target.value) ? f.contractor_id : '',
+                }))
+              }
               required
             >
               {EXPENSE_CATEGORIES.map((c) => (
@@ -1288,6 +1301,22 @@ function EmployeePage() {
               ))}
             </select>
           </div>
+          {expenseRequiresContractor(expenseForm.category) && (
+            <div className="form-group">
+              <label className="form-label">Transport contractor *</label>
+              <select
+                className="form-input form-select"
+                value={expenseForm.contractor_id}
+                onChange={(e) => setExpenseForm((f) => ({ ...f, contractor_id: e.target.value }))}
+                required
+              >
+                <option value="">Select contractor</option>
+                {contractors.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="form-group">
             <label className="form-label">Amount (₹) *</label>
             <input

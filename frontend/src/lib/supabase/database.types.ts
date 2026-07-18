@@ -163,6 +163,7 @@ export type Database = {
           amount: number
           cash_book_id: string
           category: string
+          contractor_id: string | null
           created_at: string | null
           created_by: string | null
           entry_type: string
@@ -177,6 +178,7 @@ export type Database = {
           amount?: number
           cash_book_id: string
           category: string
+          contractor_id?: string | null
           created_at?: string | null
           created_by?: string | null
           entry_type: string
@@ -191,6 +193,7 @@ export type Database = {
           amount?: number
           cash_book_id?: string
           category?: string
+          contractor_id?: string | null
           created_at?: string | null
           created_by?: string | null
           entry_type?: string
@@ -213,6 +216,13 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cash_entries_contractor_id_fkey"
+            columns: ["contractor_id"]
+            isOneToOne: false
+            referencedRelation: "transport_contractors"
             referencedColumns: ["id"]
           },
         ]

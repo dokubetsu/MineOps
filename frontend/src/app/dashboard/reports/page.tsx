@@ -2,7 +2,16 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  startOfWeek,
+  endOfWeek,
+  subMonths,
+  parseISO,
+  isValid,
+} from 'date-fns'
 import { Download, FileText, Printer, Calendar } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
@@ -29,7 +38,11 @@ export default function ReportsPage() {
   const router = useRouter()
   const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
+  /** day | week | month report structure */
+  const [rangeMode, setRangeMode] = useState<'day' | 'week' | 'month'>('month')
   const [period, setPeriod] = useState(format(startOfMonth(new Date()), 'yyyy-MM'))
+  const [dayDate, setDayDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [weekDate, setWeekDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [loading, setLoading] = useState(false)
   const [trips, setTrips] = useState<ExtendedTrip[]>([])
   const [cashEntries, setCashEntries] = useState<ExtendedCashEntry[]>([])
@@ -86,7 +99,29 @@ export default function ReportsPage() {
     })
   }, [authLoading, isAdmin, isSiteManager])
 
-  useEffect(() => { if (selectedSite) loadData() }, [selectedSite, period])
+  const getReportRange = (): { from: string; to: string; label: string } => {
+    if (rangeMode === 'day') {
+      const d = dayDate || format(new Date(), 'yyyy-MM-dd')
+      return { from: d, to: d, label: d }
+    }
+    if (rangeMode === 'week') {
+      const base = parseISO(weekDate || format(new Date(), 'yyyy-MM-dd'))
+      const start = startOfWeek(isValid(base) ? base : new Date(), { weekStartsOn: 1 })
+      const end = endOfWeek(isValid(base) ? base : new Date(), { weekStartsOn: 1 })
+      return {
+        from: format(start, 'yyyy-MM-dd'),
+        to: format(end, 'yyyy-MM-dd'),
+        label: `${format(start, 'yyyy-MM-dd')} → ${format(end, 'yyyy-MM-dd')}`,
+      }
+    }
+    const from = `${period}-01`
+    const to = format(endOfMonth(new Date(from)), 'yyyy-MM-dd')
+    return { from, to, label: period }
+  }
+
+  useEffect(() => {
+    if (selectedSite) loadData()
+  }, [selectedSite, period, rangeMode, dayDate, weekDate])
 
   useEffect(() => {
     if (!selectedSite) return
@@ -136,13 +171,30 @@ export default function ReportsPage() {
 
   const loadData = async () => {
     setLoading(true)
-    const from = period + '-01'
-    const to = format(endOfMonth(new Date(from)), 'yyyy-MM-dd')
+    const { from, to } = getReportRange()
 
-    // Last month date ranges
-    const prevMonthDate = subMonths(new Date(from), 1)
-    const prevFrom = format(prevMonthDate, 'yyyy-MM-01')
-    const prevTo = format(endOfMonth(prevMonthDate), 'yyyy-MM-dd')
+    // Previous period of equal length for MoM-style comparison (month mode: prior calendar month)
+    let prevFrom: string
+    let prevTo: string
+    if (rangeMode === 'month') {
+      const prevMonthDate = subMonths(new Date(from), 1)
+      prevFrom = format(prevMonthDate, 'yyyy-MM-01')
+      prevTo = format(endOfMonth(prevMonthDate), 'yyyy-MM-dd')
+    } else if (rangeMode === 'week') {
+      const start = parseISO(from)
+      const prevStart = new Date(start)
+      prevStart.setDate(prevStart.getDate() - 7)
+      const prevEnd = new Date(parseISO(to))
+      prevEnd.setDate(prevEnd.getDate() - 7)
+      prevFrom = format(prevStart, 'yyyy-MM-dd')
+      prevTo = format(prevEnd, 'yyyy-MM-dd')
+    } else {
+      const d = parseISO(from)
+      const prev = new Date(d)
+      prev.setDate(prev.getDate() - 1)
+      prevFrom = format(prev, 'yyyy-MM-dd')
+      prevTo = prevFrom
+    }
 
     let tripsQuery = supabase
       .from('trips')
@@ -267,9 +319,34 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url)
   }
 
+  const periodLabel = () => getReportRange().label.replace(/[^\w.-]+/g, '_')
+
+  /** Monthly (and general) totals requested by ops */
+  const reportTotals = (() => {
+    const advancePaid = trips.reduce((s, t) => s + (Number(t.advance_amount) || 0), 0)
+    const expense = cashEntries
+      .filter((e) => e.entry_type === 'out')
+      .reduce((s, e) => s + (Number(e.amount) || 0), 0)
+    const toBePaidContractors = trips
+      .filter((t) => t.payment_status !== 'settled' && !t.settled)
+      .reduce((s, t) => {
+        const cost = Number(t.trip_worth ?? t.total_shipment_cost) || 0
+        const adv = Number(t.advance_amount) || 0
+        return s + Math.max(0, cost - adv)
+      }, 0)
+    const pendingAmounts = trips
+      .filter((t) => (t.payment_status || 'pending') === 'pending')
+      .reduce((s, t) => s + (Number(t.trip_worth ?? t.total_shipment_cost) || 0), 0)
+    const tripCostTotal = trips.reduce(
+      (s, t) => s + (Number(t.trip_worth ?? t.total_shipment_cost) || 0),
+      0
+    )
+    return { advancePaid, expense, toBePaidContractors, pendingAmounts, tripCostTotal }
+  })()
+
   const exportTripsCSV = () => {
     const rows = [
-      ['Date', 'Plate Number', 'Vehicle Type', 'Contractor', 'Ownership', 'Permit', 'Cubic Capacity', 'Advance', 'Customer', 'Drop Location', 'Distance (KM)', 'Trip Worth', 'Payment Status', 'Load Info'],
+      ['Date', 'Plate Number', 'Vehicle Type', 'Contractor', 'Ownership', 'Permit', 'Cubic Capacity', 'Advance', 'Customer', 'Drop Location', 'Distance (KM)', 'Trip cost', 'Payment Status', 'Load Info'],
       ...trips.map(t => [
         t.trip_date,
         t.vehicles?.plate_number || '',
@@ -286,22 +363,48 @@ export default function ReportsPage() {
         t.payment_status || 'pending',
         t.load_info || '',
       ]),
+      [],
+      ['SUMMARY'],
+      ['Advance paid', String(reportTotals.advancePaid)],
+      ['Trip cost total', String(reportTotals.tripCostTotal)],
+      ['To be paid to contractors', String(reportTotals.toBePaidContractors)],
+      ['Pending collection amounts', String(reportTotals.pendingAmounts)],
     ]
-    exportCSV(rows, `trips_${selectedSite}_${period}.csv`)
+    exportCSV(rows, `trips_${selectedSite}_${periodLabel()}.csv`)
   }
 
   const exportCashCSV = () => {
     const rows = [
-      ['Date', 'Type', 'Category', 'Amount', 'Note'],
+      ['Date', 'Type', 'Category', 'Amount', 'Note', 'Contractor'],
       ...cashEntries.map(e => [
         e.book_date || '',
         e.entry_type,
         e.category,
         String(e.amount),
         e.note || '',
+        (e as any).contractor_id || '',
       ]),
+      [],
+      ['SUMMARY'],
+      ['Total expenses (out)', String(reportTotals.expense)],
+      ['Total cash in', String(cashEntries.filter(e => e.entry_type === 'in').reduce((s, e) => s + e.amount, 0))],
     ]
-    exportCSV(rows, `cashbook_${selectedSite}_${period}.csv`)
+    exportCSV(rows, `cashbook_${selectedSite}_${periodLabel()}.csv`)
+  }
+
+  const exportPeriodSummaryCSV = () => {
+    const { label } = getReportRange()
+    const rows = [
+      ['Report period', label],
+      ['Site', selectedSite === 'all' ? 'All sites' : sites.find((s) => s.id === selectedSite)?.name || selectedSite],
+      ['Trips count', String(trips.length)],
+      ['Advance paid', String(reportTotals.advancePaid)],
+      ['Expenses (cash out)', String(reportTotals.expense)],
+      ['To be paid to contractors', String(reportTotals.toBePaidContractors)],
+      ['Pending amounts (unsettled trip cost)', String(reportTotals.pendingAmounts)],
+      ['Trip cost total', String(reportTotals.tripCostTotal)],
+    ]
+    exportCSV(rows, `summary_${selectedSite}_${periodLabel()}.csv`)
   }
 
   // ─── Date-range cashflow export ───────────────────────────────────────────
@@ -398,25 +501,112 @@ export default function ReportsPage() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Reports & Export</h1>
-          <p className="page-subtitle">Monthly summaries and data export</p>
+          <p className="page-subtitle">Daily, weekly & monthly reports — view and download</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary btn-sm" onClick={exportPeriodSummaryCSV}>
+            <Download size={16} /> Download summary
+          </button>
           <button className="btn btn-secondary btn-sm" onClick={printReport}>
             <Printer size={16} /> Print
           </button>
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Controls: period type + site */}
       <div className="card mb-4" style={{ padding: '0.875rem 1rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+          {(
+            [
+              { key: 'day' as const, label: 'Daily' },
+              { key: 'week' as const, label: 'Weekly' },
+              { key: 'month' as const, label: 'Monthly' },
+            ] as const
+          ).map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              className={`btn btn-sm ${rangeMode === m.key ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setRangeMode(m.key)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <select className="form-input form-select" style={{ flex: 1, minWidth: '140px' }}
             value={selectedSite} onChange={e => setSelectedSite(e.target.value)}>
             {isAdmin && <option value="all">All Sites (Global)</option>}
             {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
-          <input type="month" className="form-input" style={{ flex: 1, minWidth: '140px' }}
-            value={period} onChange={e => setPeriod(e.target.value)} />
+          {rangeMode === 'day' && (
+            <input
+              type="date"
+              className="form-input"
+              style={{ flex: 1, minWidth: '140px' }}
+              value={dayDate}
+              onChange={(e) => setDayDate(e.target.value)}
+            />
+          )}
+          {rangeMode === 'week' && (
+            <input
+              type="date"
+              className="form-input"
+              style={{ flex: 1, minWidth: '140px' }}
+              value={weekDate}
+              onChange={(e) => setWeekDate(e.target.value)}
+              title="Any day in the week (Mon–Sun)"
+            />
+          )}
+          {rangeMode === 'month' && (
+            <input
+              type="month"
+              className="form-input"
+              style={{ flex: 1, minWidth: '140px' }}
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+            />
+          )}
+        </div>
+        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+          Period: <strong>{getReportRange().label}</strong>
+          {rangeMode === 'week' ? ' (week starts Monday)' : ''}
+        </div>
+      </div>
+
+      {/* Totals strip — monthly report amounts (also shown for day/week) */}
+      <div className="grid-2 mb-4" style={{ gap: '0.75rem' }}>
+        <div className="card" style={{ padding: '0.875rem 1rem' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+            Advance paid
+          </div>
+          <div style={{ fontSize: '1.15rem', fontWeight: 700, marginTop: '0.25rem' }}>
+            {formatInr(reportTotals.advancePaid)}
+          </div>
+        </div>
+        <div className="card" style={{ padding: '0.875rem 1rem' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+            Expense
+          </div>
+          <div style={{ fontSize: '1.15rem', fontWeight: 700, marginTop: '0.25rem' }}>
+            {formatInr(reportTotals.expense)}
+          </div>
+        </div>
+        <div className="card" style={{ padding: '0.875rem 1rem' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+            To be paid to contractors
+          </div>
+          <div style={{ fontSize: '1.15rem', fontWeight: 700, marginTop: '0.25rem' }}>
+            {formatInr(reportTotals.toBePaidContractors)}
+          </div>
+        </div>
+        <div className="card" style={{ padding: '0.875rem 1rem' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+            Pending amounts
+          </div>
+          <div style={{ fontSize: '1.15rem', fontWeight: 700, marginTop: '0.25rem' }}>
+            {formatInr(reportTotals.pendingAmounts)}
+          </div>
         </div>
       </div>
 

@@ -53,6 +53,7 @@ export interface CashEntryOutboxPayload {
   note: string | null
   /** Storage path if already uploaded; offline creates without receipt */
   receipt_url?: string | null
+  contractor_id?: string | null
   client_id: string
 }
 
@@ -322,6 +323,7 @@ async function processItem(
       amount: p.amount,
       note: p.note,
       receipt_url: p.receipt_url ?? null,
+      contractor_id: p.contractor_id ?? null,
     })
   }
 }

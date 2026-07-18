@@ -32,17 +32,35 @@ export default function ConfirmDialog({
   const panelRef = useRef<HTMLDivElement>(null)
   const confirmRef = useRef<HTMLButtonElement>(null)
   const previouslyFocused = useRef<HTMLElement | null>(null)
+  const onCancelRef = useRef(onCancel)
+  const wasOpenRef = useRef(false)
 
   useEffect(() => {
-    if (!isOpen) return
+    onCancelRef.current = onCancel
+  }, [onCancel])
 
-    previouslyFocused.current =
-      typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null
+  useEffect(() => {
+    if (!isOpen) {
+      if (wasOpenRef.current) {
+        previouslyFocused.current?.focus?.()
+        previouslyFocused.current = null
+      }
+      wasOpenRef.current = false
+      return
+    }
+
+    const justOpened = !wasOpenRef.current
+    wasOpenRef.current = true
+
+    if (justOpened) {
+      previouslyFocused.current =
+        typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null
+    }
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
-        onCancel()
+        onCancelRef.current()
         return
       }
       if (e.key !== 'Tab' || !panelRef.current) return
@@ -62,14 +80,16 @@ export default function ConfirmDialog({
     }
 
     document.addEventListener('keydown', onKeyDown)
-    const t = window.setTimeout(() => confirmRef.current?.focus(), 0)
+    let t: number | undefined
+    if (justOpened) {
+      t = window.setTimeout(() => confirmRef.current?.focus(), 0)
+    }
 
     return () => {
-      window.clearTimeout(t)
+      if (t !== undefined) window.clearTimeout(t)
       document.removeEventListener('keydown', onKeyDown)
-      previouslyFocused.current?.focus?.()
     }
-  }, [isOpen, onCancel])
+  }, [isOpen])
 
   if (!isOpen) return null
 

@@ -79,12 +79,14 @@ export const cashBookRepository = {
       amount: number
       note: string | null
       receipt_url: string | null
+      contractor_id?: string | null
     }
   ): Promise<void> {
     const { error } = await supabase
       .from('cash_entries')
       .insert({
         ...payload,
+        contractor_id: payload.contractor_id || null,
         active: true,
       })
 
@@ -104,6 +106,7 @@ export const cashBookRepository = {
       amount: number
       note: string | null
       receiptFile?: File | null
+      contractor_id?: string | null
     }
   ): Promise<void> {
     if (!siteId) throw new Error('Site is required')
@@ -139,6 +142,7 @@ export const cashBookRepository = {
       amount,
       note: payload.note,
       receipt_url: receiptUrl,
+      contractor_id: payload.contractor_id || null,
     })
   },
 

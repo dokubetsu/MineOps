@@ -11,23 +11,46 @@ interface BottomSheetProps {
 
 /**
  * Mobile-first bottom sheet with basic dialog a11y:
- * role=dialog, aria-modal, Escape to close, initial focus, restore focus.
+ * role=dialog, aria-modal, Escape to close, initial focus on open only, restore focus.
+ *
+ * Important: only focuses the first field when the sheet *opens*. Re-focusing on every
+ * parent re-render (e.g. onClose identity change) was stealing the cursor after each
+ * keystroke in Log Trip forms.
  */
 export default function BottomSheet({ isOpen, onClose, title, children }: BottomSheetProps) {
   const titleId = useId()
   const panelRef = useRef<HTMLDivElement>(null)
   const previouslyFocused = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+  const wasOpenRef = useRef(false)
 
   useEffect(() => {
-    if (!isOpen) return
+    onCloseRef.current = onClose
+  }, [onClose])
 
-    previouslyFocused.current =
-      typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null
+  useEffect(() => {
+    if (!isOpen) {
+      // Closing: restore focus once
+      if (wasOpenRef.current) {
+        previouslyFocused.current?.focus?.()
+        previouslyFocused.current = null
+      }
+      wasOpenRef.current = false
+      return
+    }
+
+    const justOpened = !wasOpenRef.current
+    wasOpenRef.current = true
+
+    if (justOpened) {
+      previouslyFocused.current =
+        typeof document !== 'undefined' ? (document.activeElement as HTMLElement | null) : null
+    }
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
-        onClose()
+        onCloseRef.current()
         return
       }
       if (e.key !== 'Tab' || !panelRef.current) return
@@ -49,20 +72,22 @@ export default function BottomSheet({ isOpen, onClose, title, children }: Bottom
 
     document.addEventListener('keydown', onKeyDown)
 
-    // Focus first field or the panel itself
-    const t = window.setTimeout(() => {
-      const first = panelRef.current?.querySelector<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-      ;(first || panelRef.current)?.focus()
-    }, 0)
+    // Focus first field only when the sheet transitions closed → open
+    let t: number | undefined
+    if (justOpened) {
+      t = window.setTimeout(() => {
+        const first = panelRef.current?.querySelector<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        )
+        ;(first || panelRef.current)?.focus()
+      }, 0)
+    }
 
     return () => {
-      window.clearTimeout(t)
+      if (t !== undefined) window.clearTimeout(t)
       document.removeEventListener('keydown', onKeyDown)
-      previouslyFocused.current?.focus?.()
     }
-  }, [isOpen, onClose])
+  }, [isOpen])
 
   if (!isOpen) return null
 
@@ -70,7 +95,7 @@ export default function BottomSheet({ isOpen, onClose, title, children }: Bottom
     <>
       <div
         className="sheet-overlay"
-        onClick={onClose}
+        onClick={() => onCloseRef.current()}
         aria-hidden="true"
       />
       <div

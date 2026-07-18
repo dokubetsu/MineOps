@@ -8,16 +8,41 @@ export type VehicleType = (typeof VEHICLE_TYPES)[number]
 export const OWNERSHIP_TYPES = ['rented', 'leased', 'owned'] as const
 export type OwnershipType = (typeof OWNERSHIP_TYPES)[number]
 
+/**
+ * Site expense categories (cash book OUT).
+ * Trip Expense (Fastag) and Fuel/Diesel require transport contractor.
+ */
 export const EXPENSE_CATEGORIES = [
-  'Fuel/Diesel Purchase',
-  'Driver Wage payment',
-  'Supervisor payment',
-  'Meal & Food expense',
+  'Meal Expense',
+  'Trip Expense (Fastag payment)',
+  'Fuel / Diesel expense',
+  'Advance salary',
+  'Advance for trip',
+] as const
+
+export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number]
+
+/** Categories that require an optional/required transport contractor field */
+export const EXPENSE_CATEGORIES_WITH_CONTRACTOR: readonly string[] = [
+  'Trip Expense (Fastag payment)',
+  'Fuel / Diesel expense',
+]
+
+export function expenseRequiresContractor(category: string): boolean {
+  return EXPENSE_CATEGORIES_WITH_CONTRACTOR.includes(category)
+}
+
+/** Cash book admin UI — outgoing types (align with field expense list + legacy) */
+export const CASH_ENTRY_CATEGORIES_OUT = [
+  ...EXPENSE_CATEGORIES,
   'Repair & Spares',
   'Other outgoing',
 ] as const
 
-export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number]
+export const CASH_ENTRY_CATEGORIES_IN = [
+  'Cash received from main office',
+  'Other incoming',
+] as const
 
 /** Default cubic capacity for a vehicle type (matches master-data defaults). */
 export function getCapacityForType(type: string): string {

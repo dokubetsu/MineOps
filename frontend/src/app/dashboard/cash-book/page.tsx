@@ -18,8 +18,14 @@ import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
 import { toErrorMessage } from '@/lib/errors'
 
-const ENTRY_CATEGORIES_IN = ['Cash received from main office', 'Other incoming']
-const ENTRY_CATEGORIES_OUT = ['Fuel/Diesel Purchase', 'Driver Wage payment', 'Supervisor payment', 'Meal & Food expense', 'Repair & Spares', 'Other outgoing']
+import {
+  CASH_ENTRY_CATEGORIES_IN,
+  CASH_ENTRY_CATEGORIES_OUT,
+  expenseRequiresContractor,
+} from '@/lib/trip-constants'
+
+const ENTRY_CATEGORIES_IN = [...CASH_ENTRY_CATEGORIES_IN]
+const ENTRY_CATEGORIES_OUT = [...CASH_ENTRY_CATEGORIES_OUT]
 
 export default function CashBookPage() {
   const { isAdmin, isSiteManager, loading: authLoading, user, organizationId } = useAuth()
@@ -31,15 +37,31 @@ export default function CashBookPage() {
   const [entries, setEntries] = useState<(CashEntry & { signed_receipt_url?: string | null })[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({
-    entry_type: 'out' as 'in' | 'out',
-    category: 'Fuel/Diesel Purchase',
+  const [form, setForm] = useState<{
+    entry_type: 'in' | 'out'
+    category: string
+    amount: string
+    note: string
+    contractor_id: string
+  }>({
+    entry_type: 'out',
+    category: ENTRY_CATEGORIES_OUT[0],
     amount: '',
     note: '',
+    contractor_id: '',
   })
+  const [contractors, setContractors] = useState<Array<{ id: string; name: string }>>([])
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  const emptyOutForm = (): typeof form => ({
+    entry_type: 'out',
+    category: ENTRY_CATEGORIES_OUT[0],
+    amount: '',
+    note: '',
+    contractor_id: '',
+  })
 
   // Pagination states
   const [hasMore, setHasMore] = useState(false)
@@ -107,6 +129,13 @@ export default function CashBookPage() {
       if (loadedSites.length > 0) {
         setSelectedSite(loadedSites[0].id)
       }
+
+      const { data: contractorsData } = await supabase
+        .from('transport_contractors')
+        .select('id, name')
+        .eq('active', true)
+        .order('name')
+      setContractors(contractorsData || [])
 
       // Fetch user profile map for Audit details
       const token = await supabase.auth.getSession().then(({ data }) => data.session?.access_token)
@@ -242,6 +271,14 @@ export default function CashBookPage() {
       toast.error('Please enter a valid amount')
       return
     }
+    if (
+      form.entry_type === 'out' &&
+      expenseRequiresContractor(form.category) &&
+      !form.contractor_id
+    ) {
+      toast.error('Select a transport contractor for this expense type')
+      return
+    }
 
     setSubmitting(true)
 
@@ -258,6 +295,7 @@ export default function CashBookPage() {
         amount: amt,
         note: form.note || null,
         receipt_url: receiptUrl,
+        contractor_id: form.contractor_id || null,
       })
       if (!item) {
         toast.error('Could not queue cash entry offline')
@@ -271,6 +309,7 @@ export default function CashBookPage() {
         amount: amt,
         note: form.note || null,
         receipt_url: receiptUrl,
+        contractor_id: form.contractor_id || null,
         active: true,
         created_at: new Date().toISOString(),
       } as CashEntry
@@ -285,7 +324,7 @@ export default function CashBookPage() {
     if (!isBrowserOnline()) {
       if (queueCashOffline(null)) {
         setShowForm(false)
-        setForm({ entry_type: 'out', category: 'Fuel/Diesel Purchase', amount: '', note: '' })
+        setForm(emptyOutForm())
         setPhotoFile(null)
         setPhotoPreview(null)
       }
@@ -314,18 +353,19 @@ export default function CashBookPage() {
         amount: amt,
         note: form.note || null,
         receipt_url: receiptUrl,
+        contractor_id: form.contractor_id || null,
       })
 
       toast.success('Cash entry recorded successfully')
       setShowForm(false)
-      setForm({ entry_type: 'out', category: 'Fuel/Diesel Purchase', amount: '', note: '' })
+      setForm(emptyOutForm())
       setPhotoFile(null)
       setPhotoPreview(null)
       loadCashBook()
     } catch (err: unknown) {
       if (shouldQueueOffline(err) && queueCashOffline(null)) {
         setShowForm(false)
-        setForm({ entry_type: 'out', category: 'Fuel/Diesel Purchase', amount: '', note: '' })
+        setForm(emptyOutForm())
         setPhotoFile(null)
         setPhotoPreview(null)
         setSubmitting(false)
@@ -403,10 +443,11 @@ export default function CashBookPage() {
   }
 
   const handleEntryTypeChange = (type: 'in' | 'out') => {
-    setForm(f => ({
+    setForm((f) => ({
       ...f,
       entry_type: type,
       category: type === 'in' ? ENTRY_CATEGORIES_IN[0] : ENTRY_CATEGORIES_OUT[0],
+      contractor_id: '',
     }))
   }
 
@@ -666,14 +707,46 @@ export default function CashBookPage() {
             <select
               className="form-input form-select"
               value={form.category}
-              onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  category: e.target.value,
+                  contractor_id: expenseRequiresContractor(e.target.value) ? f.contractor_id : '',
+                }))
+              }
             >
               {form.entry_type === 'in'
-                ? ENTRY_CATEGORIES_IN.map(c => <option key={c} value={c}>{c}</option>)
-                : ENTRY_CATEGORIES_OUT.map(c => <option key={c} value={c}>{c}</option>)
-              }
+                ? ENTRY_CATEGORIES_IN.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))
+                : ENTRY_CATEGORIES_OUT.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
             </select>
           </div>
+
+          {form.entry_type === 'out' && expenseRequiresContractor(form.category) && (
+            <div className="form-group">
+              <label className="form-label">Transport contractor *</label>
+              <select
+                className="form-input form-select"
+                value={form.contractor_id}
+                onChange={(e) => setForm((f) => ({ ...f, contractor_id: e.target.value }))}
+                required
+              >
+                <option value="">Select contractor</option>
+                {contractors.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="form-group">
             <label className="form-label">Amount (₹) *</label>

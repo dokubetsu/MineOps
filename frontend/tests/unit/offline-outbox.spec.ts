@@ -101,7 +101,7 @@ test.describe('offline outbox queue', () => {
       site_id: 'site-1',
       book_date: '2026-07-18',
       entry_type: 'out',
-      category: 'Fuel/Diesel Purchase',
+      category: 'Fuel / Diesel expense',
       amount: 500,
       note: 'Test',
       receipt_url: null,
