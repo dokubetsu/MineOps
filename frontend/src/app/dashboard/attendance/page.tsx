@@ -10,6 +10,8 @@ import { Site } from '@/lib/supabase/types'
 import { attendanceRepository, RosterEmployee } from '@/lib/repositories/attendance'
 import { sitesRepository } from '@/lib/repositories/sites'
 import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
+import { enqueueOutbox } from '@/lib/offline-outbox'
+import { isBrowserOnline, shouldQueueOffline } from '@/lib/offline-network'
 import PageHeader from '@/components/PageHeader'
 import toast from 'react-hot-toast'
 import { toErrorMessage } from '@/lib/errors'
@@ -126,6 +128,15 @@ export default function AttendancePage() {
     isDirtyRef.current = false
     setIsDirty(false)
     void loadRoster({ force: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSite, selectedDate])
+
+  useEffect(() => {
+    const onFlushed = () => {
+      if (selectedSite && !isDirtyRef.current) void loadRoster({ force: true })
+    }
+    window.addEventListener('mineops:outbox-flushed', onFlushed)
+    return () => window.removeEventListener('mineops:outbox-flushed', onFlushed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSite, selectedDate])
 
@@ -254,14 +265,41 @@ export default function AttendancePage() {
     }
     setSaving(true)
     const epochAtSave = editEpochRef.current
-    try {
-      const records = roster.map((emp) => ({
-        employee_id: emp.id,
-        att_date: selectedDate,
-        status: emp.status,
-        photo_url: emp.photo_url,
-      }))
+    const records = roster.map((emp) => ({
+      employee_id: emp.id,
+      att_date: selectedDate,
+      status: emp.status,
+      photo_url: emp.photo_url,
+    }))
 
+    const queueOffline = () => {
+      const clientId = crypto.randomUUID()
+      const item = enqueueOutbox(user?.id, organizationId, {
+        kind: 'attendance_save',
+        client_id: clientId,
+        site_id: selectedSite,
+        att_date: selectedDate,
+        records,
+      })
+      if (!item) {
+        toast.error('Could not queue attendance offline')
+        return false
+      }
+      const cacheable = roster.map(({ display_photo_url: _u, uploading: _up, ...rest }) => rest)
+      setOfflineCache(user?.id, organizationId, `roster_${selectedSite}_${selectedDate}`, cacheable)
+      isDirtyRef.current = false
+      setIsDirty(false)
+      toast.success('Attendance saved offline — will sync when online', { icon: '📶' })
+      return true
+    }
+
+    if (!isBrowserOnline()) {
+      queueOffline()
+      setSaving(false)
+      return
+    }
+
+    try {
       const result = await attendanceRepository.saveRoster(supabase, records, selectedSite)
       const parts: string[] = []
       if (result.upserted > 0) parts.push(`${result.upserted} mark(s) saved`)
@@ -279,6 +317,10 @@ export default function AttendancePage() {
     } catch (error: unknown) {
       const message = toErrorMessage(error)
       console.error('Attendance save failed:', message)
+      if (shouldQueueOffline(error) && queueOffline()) {
+        setSaving(false)
+        return
+      }
       toast.error(`Error saving attendance: ${message}`)
       // Re-check lock state if DB rejected due to finalize
       if (/finalized/i.test(message)) {

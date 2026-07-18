@@ -10,6 +10,8 @@ import { Site, CashBook, CashEntry } from '@/lib/supabase/types'
 import { cashBookRepository } from '@/lib/repositories/cash-book'
 import { sitesRepository } from '@/lib/repositories/sites'
 import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
+import { enqueueOutbox } from '@/lib/offline-outbox'
+import { isBrowserOnline, shouldQueueOffline } from '@/lib/offline-network'
 import { formatInr } from '@/lib/calculations'
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
@@ -64,6 +66,15 @@ export default function CashBookPage() {
 
   useEffect(() => {
     if (selectedSite) loadCashBook(false)
+  }, [selectedSite, selectedDate])
+
+  useEffect(() => {
+    const onFlushed = () => {
+      if (selectedSite) void loadCashBook(false)
+    }
+    window.addEventListener('mineops:outbox-flushed', onFlushed)
+    return () => window.removeEventListener('mineops:outbox-flushed', onFlushed)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSite, selectedDate])
 
   useEffect(() => {
@@ -233,6 +244,55 @@ export default function CashBookPage() {
     }
 
     setSubmitting(true)
+
+    const queueCashOffline = (receiptUrl: string | null) => {
+      const clientId = crypto.randomUUID()
+      const item = enqueueOutbox(user?.id, organizationId, {
+        kind: 'cash_entry_create',
+        client_id: clientId,
+        cash_book_id: cashBook.id,
+        site_id: selectedSite,
+        book_date: selectedDate,
+        entry_type: form.entry_type,
+        category: form.category,
+        amount: amt,
+        note: form.note || null,
+        receipt_url: receiptUrl,
+      })
+      if (!item) {
+        toast.error('Could not queue cash entry offline')
+        return false
+      }
+      const optimistic = {
+        id: clientId,
+        cash_book_id: cashBook.id,
+        entry_type: form.entry_type,
+        category: form.category,
+        amount: amt,
+        note: form.note || null,
+        receipt_url: receiptUrl,
+        active: true,
+        created_at: new Date().toISOString(),
+      } as CashEntry
+      setEntries((prev) => [optimistic, ...prev])
+      toast.success('Cash entry saved offline — will sync when online', { icon: '📶' })
+      if (photoFile) {
+        toast('Receipt photo not stored offline — re-attach after sync if needed', { icon: '📷' })
+      }
+      return true
+    }
+
+    if (!isBrowserOnline()) {
+      if (queueCashOffline(null)) {
+        setShowForm(false)
+        setForm({ entry_type: 'out', category: 'Fuel/Diesel Purchase', amount: '', note: '' })
+        setPhotoFile(null)
+        setPhotoPreview(null)
+      }
+      setSubmitting(false)
+      return
+    }
+
     try {
       let receiptUrl: string | null = null
       if (photoFile) {
@@ -263,6 +323,14 @@ export default function CashBookPage() {
       setPhotoPreview(null)
       loadCashBook()
     } catch (err: unknown) {
+      if (shouldQueueOffline(err) && queueCashOffline(null)) {
+        setShowForm(false)
+        setForm({ entry_type: 'out', category: 'Fuel/Diesel Purchase', amount: '', note: '' })
+        setPhotoFile(null)
+        setPhotoPreview(null)
+        setSubmitting(false)
+        return
+      }
       toast.error(`Error saving cash entry: ${toErrorMessage(err)}`)
     } finally {
       setSubmitting(false)

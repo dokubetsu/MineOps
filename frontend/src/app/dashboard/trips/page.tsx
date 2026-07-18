@@ -9,6 +9,8 @@ import { useRouter } from 'next/navigation'
 import { Site, Vehicle, TransportContractor, Trip, Customer, TripPhoto } from '@/lib/supabase/types'
 import { tripsRepository } from '@/lib/repositories/trips'
 import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
+import { enqueueOutbox } from '@/lib/offline-outbox'
+import { isBrowserOnline, shouldQueueOffline } from '@/lib/offline-network'
 import { computeTripWorthFromRate } from '@/lib/calculations'
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
@@ -116,6 +118,15 @@ export default function TripsPage() {
 
   useEffect(() => {
     if (selectedSite) loadTrips(false)
+  }, [selectedSite, selectedDate])
+
+  // After offline outbox flush, refresh list from server
+  useEffect(() => {
+    const onFlushed = () => {
+      if (selectedSite) void loadTrips(false)
+    }
+    window.addEventListener('mineops:outbox-flushed', onFlushed)
+    return () => window.removeEventListener('mineops:outbox-flushed', onFlushed)
   }, [selectedSite, selectedDate])
 
   useEffect(() => {
@@ -412,10 +423,127 @@ export default function TripsPage() {
     setShowForm(true)
   }
 
+  const queueTripCreateOffline = (args: {
+    vehicleId: string | null
+    plate: string
+    photoPaths: string[]
+    payload: Parameters<typeof tripsRepository.create>[1]
+  }) => {
+    const clientId = crypto.randomUUID()
+    const item = enqueueOutbox(user?.id, organizationId, {
+      kind: 'trip_create',
+      client_id: clientId,
+      vehicle_plate: args.plate || null,
+      vehicle_type: form.vehicle_type,
+      ownership: form.ownership,
+      photo_paths: args.photoPaths,
+      trip: {
+        ...args.payload,
+        vehicle_id: args.vehicleId,
+        organization_id: organizationId || undefined,
+      },
+    })
+    if (!item) {
+      toast.error('Could not queue trip offline (storage full or not signed in)')
+      return false
+    }
+    // Optimistic list row in memory + read cache
+    const optimistic = {
+      id: clientId,
+      site_id: selectedSite,
+      trip_date: selectedDate,
+      vehicle_id: args.vehicleId,
+      ownership_snapshot: form.ownership,
+      trip_worth: parseFloat(form.trip_worth) || null,
+      active: true,
+      vehicles: {
+        plate_number: (args.plate || 'PENDING').toUpperCase(),
+        vehicle_type: form.vehicle_type,
+      },
+      transport_contractors: null,
+      _offline_pending: true,
+    } as ExtendedTrip & { _offline_pending?: boolean }
+    setTrips((prev) => [optimistic, ...prev])
+    const cacheKey = `trips_${selectedSite}_${selectedDate}`
+    const prevCache = getOfflineCache<ExtendedTrip[]>(user?.id, organizationId, cacheKey) || []
+    setOfflineCache(user?.id, organizationId, cacheKey, [optimistic, ...prevCache])
+    toast.success('Trip saved offline — will sync when online', { icon: '📶' })
+    if (photoFiles.length > 0) {
+      toast('Photos were not stored offline — re-attach after sync if needed', { icon: '📷' })
+    }
+    return true
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSubmitting(true)
     let vehicleId = form.vehicle_id
+    const plate = vehicleSearch.toUpperCase().trim()
+
+    const buildPayload = (vId: string | null, photoPaths: string[]) => ({
+      site_id: selectedSite,
+      vehicle_id: vId || null,
+      contractor_id: form.contractor_id || null,
+      trip_date: selectedDate,
+      ownership_snapshot: form.ownership,
+      permit_number: form.permit_number || null,
+      load_info: form.load_info || null,
+      notes: form.notes || null,
+      photo_url: photoPaths[0] || null,
+      cubic_capacity: parseFloat(form.cubic_capacity) || null,
+      advance_amount: parseFloat(form.advance_amount) || 0,
+      customer_id: form.customer_id || null,
+      drop_location: form.drop_location || null,
+      distance_km: parseFloat(form.distance_km) || null,
+      trip_worth: parseFloat(form.trip_worth) || null,
+      total_shipment_cost: parseFloat(form.total_shipment_cost) || null,
+      payment_status: form.payment_status,
+      payment_method: form.payment_status === 'settled' ? form.payment_method : null,
+      payment_reference: form.payment_status === 'settled' ? form.payment_reference : null,
+      settled: form.payment_status === 'settled',
+      settlement_amount: form.payment_status === 'settled' ? (parseFloat(form.trip_worth) || 0) : 0,
+      settlement_account: form.payment_status === 'settled' ? (form.payment_reference || 'UPI/Cash') : null,
+    })
+
+    const resetFormAfterSave = () => {
+      setShowForm(false)
+      setEditingTripId(null)
+      setForm({
+        vehicle_id: '', plate_number: '', contractor_id: form.contractor_id,
+        ownership: form.ownership, vehicle_type: form.vehicle_type, cubic_capacity: '',
+        advance_amount: '0', customer_id: '', drop_location: '', distance_km: '',
+        trip_worth: '', total_shipment_cost: '', payment_status: 'pending',
+        payment_method: 'cash', payment_reference: '', permit_number: '', load_info: '', notes: ''
+      })
+      setVehicleSearch('')
+      setPhotoFiles([])
+      setPhotoPreviews([])
+      setExistingPhotoUrls([])
+    }
+
+    // Offline path: queue create (edits require server row id)
+    if (!isBrowserOnline() && !editingTripId) {
+      if (!selectedSite || !plate) {
+        toast.error('Site and vehicle number are required offline')
+        setSubmitting(false)
+        return
+      }
+      const payload = buildPayload(vehicleId || null, existingPhotoUrls)
+      if (payload.settled && !(Number(payload.settlement_amount) > 0)) {
+        toast.error('Settled trips require trip worth / settlement amount greater than zero')
+        setSubmitting(false)
+        return
+      }
+      queueTripCreateOffline({
+        vehicleId: vehicleId || null,
+        plate,
+        photoPaths: existingPhotoUrls,
+        payload,
+      })
+      resetFormAfterSave()
+      setSubmitting(false)
+      return
+    }
 
     try {
       // 1. Resolve/create vehicle
@@ -458,31 +586,7 @@ export default function TripsPage() {
       }
 
       const finalPhotos = [...existingPhotoUrls, ...uploadedPaths]
-
-      const payload = {
-        site_id: selectedSite,
-        vehicle_id: vehicleId || null,
-        contractor_id: form.contractor_id || null,
-        trip_date: selectedDate,
-        ownership_snapshot: form.ownership,
-        permit_number: form.permit_number || null,
-        load_info: form.load_info || null,
-        notes: form.notes || null,
-        photo_url: finalPhotos[0] || null,
-        cubic_capacity: parseFloat(form.cubic_capacity) || null,
-        advance_amount: parseFloat(form.advance_amount) || 0,
-        customer_id: form.customer_id || null,
-        drop_location: form.drop_location || null,
-        distance_km: parseFloat(form.distance_km) || null,
-        trip_worth: parseFloat(form.trip_worth) || null,
-        total_shipment_cost: parseFloat(form.total_shipment_cost) || null,
-        payment_status: form.payment_status,
-        payment_method: form.payment_status === 'settled' ? form.payment_method : null,
-        payment_reference: form.payment_status === 'settled' ? form.payment_reference : null,
-        settled: form.payment_status === 'settled',
-        settlement_amount: form.payment_status === 'settled' ? (parseFloat(form.trip_worth) || 0) : 0,
-        settlement_account: form.payment_status === 'settled' ? (form.payment_reference || 'UPI/Cash') : null,
-      }
+      const payload = buildPayload(vehicleId || null, finalPhotos)
 
       if (payload.settled && !(Number(payload.settlement_amount) > 0)) {
         toast.error('Settled trips require trip worth / settlement amount greater than zero')
@@ -493,7 +597,6 @@ export default function TripsPage() {
       let tripId = editingTripId
 
       if (editingTripId) {
-        // Edit flow
         const { error: updateError } = await supabase
           .from('trips')
           .update(payload)
@@ -502,13 +605,11 @@ export default function TripsPage() {
         if (updateError) throw updateError
         toast.success('Trip updated successfully')
       } else {
-        // Create flow
         const newTrip = await tripsRepository.create(supabase, payload)
         tripId = newTrip.id
         toast.success('Trip logged successfully')
       }
 
-      // Re-sync photos in trip_photos table
       if (tripId) {
         await supabase.from('trip_photos').delete().eq('trip_id', tripId)
         if (finalPhotos.length > 0) {
@@ -524,21 +625,24 @@ export default function TripsPage() {
         }
       }
 
-      setShowForm(false)
-      setEditingTripId(null)
-      setForm({
-        vehicle_id: '', plate_number: '', contractor_id: form.contractor_id,
-        ownership: form.ownership, vehicle_type: form.vehicle_type, cubic_capacity: '',
-        advance_amount: '0', customer_id: '', drop_location: '', distance_km: '',
-        trip_worth: '', total_shipment_cost: '', payment_status: 'pending',
-        payment_method: 'cash', payment_reference: '', permit_number: '', load_info: '', notes: ''
-      })
-      setVehicleSearch('')
-      setPhotoFiles([])
-      setPhotoPreviews([])
-      setExistingPhotoUrls([])
+      resetFormAfterSave()
       loadTrips()
     } catch (error: unknown) {
+      if (!editingTripId && shouldQueueOffline(error) && plate) {
+        const payload = buildPayload(vehicleId || null, existingPhotoUrls)
+        if (
+          queueTripCreateOffline({
+            vehicleId: vehicleId || null,
+            plate,
+            photoPaths: existingPhotoUrls,
+            payload,
+          })
+        ) {
+          resetFormAfterSave()
+          setSubmitting(false)
+          return
+        }
+      }
       toast.error(`Error saving trip: ${toErrorMessage(error)}`)
     } finally {
       setSubmitting(false)

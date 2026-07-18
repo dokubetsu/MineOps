@@ -89,14 +89,23 @@ export function getOfflineCache<T>(
   }
 }
 
-/** Remove all MineOps offline cache entries (call on logout). */
+/** Remove all MineOps offline cache + write outbox entries (call on logout). */
 export function clearOfflineCache(): void {
   if (!isBrowser()) return
   try {
     const toRemove: string[] = []
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i)
-      if (k && (k.startsWith(PREFIX) || k.startsWith('cached_cashbook_') || k.startsWith('cached_cashentries_') || k.startsWith('cached_balances_') || k.startsWith('cached_trips_') || k.startsWith('cached_attendance_'))) {
+      if (
+        k &&
+        (k.startsWith(PREFIX) ||
+          k.startsWith('mineops_outbox_v1') ||
+          k.startsWith('cached_cashbook_') ||
+          k.startsWith('cached_cashentries_') ||
+          k.startsWith('cached_balances_') ||
+          k.startsWith('cached_trips_') ||
+          k.startsWith('cached_attendance_'))
+      ) {
         toRemove.push(k)
       }
     }

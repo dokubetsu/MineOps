@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { AuthProvider, useAuth } from '@/lib/auth-context'
 import { useTheme } from '@/lib/theme-context'
 import { clearOfflineCache } from '@/lib/offline-cache'
+import OfflineBanner from '@/components/OfflineBanner'
 import {
   LayoutDashboard, Truck, BookOpen, Users, Calendar,
   DollarSign, Settings, LogOut, TrendingUp, FileText,
@@ -350,7 +351,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     <AuthProvider>
       <div className="app-shell">
         <NavContent />
-        <main className="main-content">{children}</main>
+        <main className="main-content">
+          <OfflineBanner />
+          {children}
+        </main>
       </div>
     </AuthProvider>
   )

@@ -9,6 +9,8 @@ import { useAuth } from '@/lib/auth-context'
 import { computeTripWorthFromRate } from '@/lib/calculations'
 import { cashBookRepository } from '@/lib/repositories/cash-book'
 import { tripsRepository } from '@/lib/repositories/trips'
+import { enqueueOutbox } from '@/lib/offline-outbox'
+import { isBrowserOnline, shouldQueueOffline } from '@/lib/offline-network'
 import BottomSheet from '@/components/BottomSheet'
 import toast from 'react-hot-toast'
 import { toErrorMessage } from '@/lib/errors'
@@ -278,6 +280,34 @@ function EmployeePage() {
 
   const markAttendance = async (status: 'present' | 'absent' | 'half-day') => {
     if (!employee || !user) return
+    const records = [
+      {
+        employee_id: employee.id,
+        att_date: todayStr,
+        status,
+        photo_url: null as string | null,
+      },
+    ]
+    const queueOffline = () => {
+      const item = enqueueOutbox(user.id, organizationId, {
+        kind: 'attendance_save',
+        client_id: crypto.randomUUID(),
+        site_id: employee.site_id,
+        att_date: todayStr,
+        records,
+      })
+      if (!item) {
+        toast.error('Could not queue attendance offline')
+        return false
+      }
+      toast.success(`Attendance (${status}) saved offline — will sync`, { icon: '📶' })
+      setShowAttendancePrompt(false)
+      return true
+    }
+    if (!isBrowserOnline()) {
+      queueOffline()
+      return
+    }
     try {
       const { error } = await supabase
         .from('attendance')
@@ -292,6 +322,7 @@ function EmployeePage() {
       toast.success(`Attendance marked as ${status}`)
       setShowAttendancePrompt(false)
     } catch (err: unknown) {
+      if (shouldQueueOffline(err) && queueOffline()) return
       toast.error(`Failed to mark attendance: ${toErrorMessage(err)}`)
     }
   }
@@ -355,81 +386,35 @@ function EmployeePage() {
     }
 
     setSubmittingTrip(true)
-    try {
-      // Find or register vehicle
-      let vehicleId = ''
-      const upperPlate = tripForm.vehicle_plate.toUpperCase().trim()
-      const existingVeh = vehicles.find(v => v.plate_number === upperPlate)
-      
-      if (existingVeh) {
-        vehicleId = existingVeh.id
-      } else {
-        const { data: newVeh, error: createError } = await supabase
-          .from('vehicles')
-          .insert({
-            plate_number: upperPlate,
-            vehicle_type: tripForm.vehicle_type,
-            ownership: tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership,
-            default_contractor_id: tripForm.contractor_id || null,
-            active: true,
-            organization_id: organizationId!
-          })
-          .select('id')
-          .single()
+    const upperPlate = tripForm.vehicle_plate.toUpperCase().trim()
+    const rate = negotiatedRates.find(r => r.vehicle_type === tripForm.vehicle_type)?.rate_per_cubic || 0
+    const capacity = parseFloat(tripForm.cubic_capacity) || 0
+    const worth = computeTripWorthFromRate(capacity, rate)
+    const ownership = tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership
 
-        if (createError) throw createError
-        vehicleId = newVeh.id
-      }
+    const tripBase = {
+      site_id: employee.site_id,
+      contractor_id: tripForm.contractor_id || null,
+      trip_date: todayStr,
+      cubic_capacity: capacity,
+      rate_per_cubic: rate,
+      advance_amount: parseFloat(tripForm.advance_amount) || 0,
+      customer_id: tripForm.customer_id || null,
+      drop_location: tripForm.drop_location || null,
+      distance_km: parseFloat(tripForm.distance_km) || null,
+      total_shipment_cost: parseFloat(tripForm.total_shipment_cost) || worth,
+      trip_worth: worth,
+      permit_number: tripForm.permit_number || null,
+      notes: tripForm.notes || null,
+      created_by: user.id,
+      ownership_snapshot: tripForm.ownership,
+      settled: tripForm.settled,
+      payment_status: tripForm.settled ? 'settled' : 'pending',
+      payment_method: tripForm.settled ? tripForm.settlement_method : null,
+      payment_reference: tripForm.settled ? tripForm.settlement_ref : null,
+    }
 
-      // Entry photo first, then in-trip photos (max 10 total)
-      const uploadedUrls = await uploadPhotos(allPhotoFiles, employee.site_id)
-      const entryPhotoUrl = uploadedUrls[0] || null
-
-      const rate = negotiatedRates.find(r => r.vehicle_type === tripForm.vehicle_type)?.rate_per_cubic || 0
-      const capacity = parseFloat(tripForm.cubic_capacity) || 0
-      const worth = computeTripWorthFromRate(capacity, rate)
-
-      const newTrip = await tripsRepository.create(supabase, {
-        site_id: employee.site_id,
-        vehicle_id: vehicleId,
-        contractor_id: tripForm.contractor_id || null,
-        trip_date: todayStr,
-        cubic_capacity: capacity,
-        rate_per_cubic: rate,
-        advance_amount: parseFloat(tripForm.advance_amount) || 0,
-        photo_url: entryPhotoUrl,
-        photo_urls: uploadedUrls,
-        customer_id: tripForm.customer_id || null,
-        drop_location: tripForm.drop_location || null,
-        distance_km: parseFloat(tripForm.distance_km) || null,
-        total_shipment_cost: parseFloat(tripForm.total_shipment_cost) || worth,
-        trip_worth: worth,
-        permit_number: tripForm.permit_number || null,
-        notes: tripForm.notes || null,
-        created_by: user.id,
-        ownership_snapshot: tripForm.ownership,
-        settled: tripForm.settled,
-        settlement_method: tripForm.settled ? tripForm.settlement_method : null,
-        settlement_ref: tripForm.settled ? tripForm.settlement_ref : null,
-        settled_at: tripForm.settled ? new Date().toISOString() : null,
-        settled_by: tripForm.settled ? user.id : null,
-        payment_status: tripForm.settled ? 'settled' : 'pending',
-        payment_method: tripForm.settled ? tripForm.settlement_method : null,
-        payment_reference: tripForm.settled ? tripForm.settlement_ref : null,
-      })
-
-      // Sync trip_photos rows for managers / multi-photo views
-      if (newTrip?.id && uploadedUrls.length > 0) {
-        await supabase.from('trip_photos').insert(
-          uploadedUrls.map((url, idx) => ({
-            trip_id: newTrip.id,
-            photo_url: url,
-            sort_order: idx,
-          }))
-        )
-      }
-
-      toast.success('Trip logged successfully')
+    const resetTripForm = () => {
       setShowTripSheet(false)
       setEntryPhoto(null)
       setTripPhotos([])
@@ -450,8 +435,109 @@ function EmployeePage() {
         settlement_method: 'upi',
         settlement_ref: '',
       })
+    }
+
+    const queueTripOffline = (vehicleId: string | null) => {
+      const item = enqueueOutbox(user.id, organizationId, {
+        kind: 'trip_create',
+        client_id: crypto.randomUUID(),
+        vehicle_plate: upperPlate,
+        vehicle_type: tripForm.vehicle_type,
+        ownership,
+        photo_paths: [],
+        trip: {
+          ...tripBase,
+          vehicle_id: vehicleId,
+          photo_url: null,
+          organization_id: organizationId || undefined,
+        },
+      })
+      if (!item) {
+        toast.error('Could not queue trip offline')
+        return false
+      }
+      toast.success('Trip saved offline — will sync when online', { icon: '📶' })
+      if (allPhotoFiles.length > 0) {
+        toast('Photos not stored offline — re-attach after sync if needed', { icon: '📷' })
+      }
+      resetTripForm()
+      return true
+    }
+
+    if (!isBrowserOnline()) {
+      if (!upperPlate) {
+        toast.error('Vehicle number is required offline')
+        setSubmittingTrip(false)
+        return
+      }
+      const existingVeh = vehicles.find(v => v.plate_number === upperPlate)
+      queueTripOffline(existingVeh?.id || null)
+      setSubmittingTrip(false)
+      return
+    }
+
+    try {
+      // Find or register vehicle
+      let vehicleId = ''
+      const existingVeh = vehicles.find(v => v.plate_number === upperPlate)
+      
+      if (existingVeh) {
+        vehicleId = existingVeh.id
+      } else {
+        const { data: newVeh, error: createError } = await supabase
+          .from('vehicles')
+          .insert({
+            plate_number: upperPlate,
+            vehicle_type: tripForm.vehicle_type,
+            ownership,
+            default_contractor_id: tripForm.contractor_id || null,
+            active: true,
+            organization_id: organizationId!
+          })
+          .select('id')
+          .single()
+
+        if (createError) throw createError
+        vehicleId = newVeh.id
+      }
+
+      // Entry photo first, then in-trip photos (max 10 total)
+      const uploadedUrls = await uploadPhotos(allPhotoFiles, employee.site_id)
+      const entryPhotoUrl = uploadedUrls[0] || null
+
+      const newTrip = await tripsRepository.create(supabase, {
+        ...tripBase,
+        vehicle_id: vehicleId,
+        photo_url: entryPhotoUrl,
+        photo_urls: uploadedUrls,
+        settlement_method: tripForm.settled ? tripForm.settlement_method : null,
+        settlement_ref: tripForm.settled ? tripForm.settlement_ref : null,
+        settled_at: tripForm.settled ? new Date().toISOString() : null,
+        settled_by: tripForm.settled ? user.id : null,
+      })
+
+      // Sync trip_photos rows for managers / multi-photo views
+      if (newTrip?.id && uploadedUrls.length > 0) {
+        await supabase.from('trip_photos').insert(
+          uploadedUrls.map((url, idx) => ({
+            trip_id: newTrip.id,
+            photo_url: url,
+            sort_order: idx,
+          }))
+        )
+      }
+
+      toast.success('Trip logged successfully')
+      resetTripForm()
       loadInitialData()
     } catch (err: unknown) {
+      if (shouldQueueOffline(err) && upperPlate) {
+        const existingVeh = vehicles.find(v => v.plate_number === upperPlate)
+        if (queueTripOffline(existingVeh?.id || null)) {
+          setSubmittingTrip(false)
+          return
+        }
+      }
       const message = err instanceof Error ? toErrorMessage(err) : 'Unknown error'
       toast.error(`Failed to log trip: ${message}`)
     } finally {
