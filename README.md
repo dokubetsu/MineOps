@@ -72,8 +72,8 @@ For security, production credentials are not stored in source control. Access is
 
 ### 1. Database Setup
 
-Apply all Supabase migrations (currently through **`054_cash_entry_contractor.sql`**).  
-Wage & trip pricing: [`docs/wage_policy.md`](docs/wage_policy.md) (trip cost = ₹/trip by type — field paper model). Platform bootstrap: [`docs/platform_owner_bootstrap.md`](docs/platform_owner_bootstrap.md). Env: [`docs/ENV.md`](docs/ENV.md). Schema types policy: [`docs/SCHEMA_SSOT.md`](docs/SCHEMA_SSOT.md).
+Apply all Supabase migrations (currently through **`055_period_ops_log.sql`**).  
+Wage & trip pricing: [`docs/wage_policy.md`](docs/wage_policy.md) (trip cost = ₹/trip by type; month-end pack + optional admin purge). Platform bootstrap: [`docs/platform_owner_bootstrap.md`](docs/platform_owner_bootstrap.md). Env: [`docs/ENV.md`](docs/ENV.md). Schema types policy: [`docs/SCHEMA_SSOT.md`](docs/SCHEMA_SSOT.md).
 
 **Source of truth for the database is `supabase/migrations/`** — do not apply `schema.sql` alone (it is a reference snapshot).
 

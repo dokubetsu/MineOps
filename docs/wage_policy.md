@@ -94,6 +94,15 @@ Source: paper ops in local `reference/` (untracked scans: daily trip sheets, wee
 
 - Per-person share is 0–100%.
 - **Sum of `share_percent` per site cannot exceed 100%** (`check_stakeholder_share_limit` trigger).
+- Reports **Business pack** can export an optional % split of trip value (paper 50/50 style).
+
+## Month-end (replace Excel close)
+
+1. Enter trips / cash / attendance all month in the app (not Excel).
+2. **Reports** → choose month (or day/week) + site → **Paper view** + **Download full pack**.
+3. **Payroll** → generate + finalize (freezes muster for that month).
+4. Optional **admin**: Mark period closed (audit log).
+5. Optional **admin**: **Remove period data** (type `DELETE`) — soft-deletes trips & cash lines, deletes attendance/leave in range for that site. Blocked if finalized payroll exists. Prefer download first. Logged in `period_ops_log` (migration **055**).
 
 ## Site employees (expenses / trips)
 

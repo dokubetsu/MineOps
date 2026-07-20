@@ -12,12 +12,21 @@ import {
   parseISO,
   isValid,
 } from 'date-fns'
-import { Download, FileText, Printer, Calendar } from 'lucide-react'
+import { Download, FileText, Printer, Calendar, Trash2, Lock, Package } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
 import { Site, Trip, CashBook, CashEntry } from '@/lib/supabase/types'
 import { formatInr } from '@/lib/calculations'
+import {
+  businessPackByType,
+  countTripsByType,
+  dailyTripSheetRows,
+  dailyTripTypeCounts,
+  groupTripsByTransport,
+} from '@/lib/report-stats'
+import { getDefaultTripRate, VEHICLE_TYPES } from '@/lib/trip-constants'
 import toast from 'react-hot-toast'
+
 
 interface ExtendedTrip extends Trip {
   vehicles?: {
@@ -47,7 +56,13 @@ export default function ReportsPage() {
   const [trips, setTrips] = useState<ExtendedTrip[]>([])
   const [cashEntries, setCashEntries] = useState<ExtendedCashEntry[]>([])
   const [cashBooks, setCashBooks] = useState<CashBook[]>([])
-  const [activeReport, setActiveReport] = useState<'trips' | 'cash' | 'contractor' | 'employee'>('trips')
+  const [activeReport, setActiveReport] = useState<
+    'trips' | 'cash' | 'contractor' | 'employee' | 'paper'
+  >('paper')
+  const [opsBusy, setOpsBusy] = useState(false)
+  const [purgeConfirmOpen, setPurgeConfirmOpen] = useState(false)
+  const [purgePhrase, setPurgePhrase] = useState('')
+  const [sharePct, setSharePct] = useState(50)
 
   // Employee report states
   const [employees, setEmployees] = useState<any[]>([])
@@ -327,6 +342,9 @@ export default function ReportsPage() {
     const expense = cashEntries
       .filter((e) => e.entry_type === 'out')
       .reduce((s, e) => s + (Number(e.amount) || 0), 0)
+    const cashIn = cashEntries
+      .filter((e) => e.entry_type === 'in')
+      .reduce((s, e) => s + (Number(e.amount) || 0), 0)
     const toBePaidContractors = trips
       .filter((t) => t.payment_status !== 'settled' && !t.settled)
       .reduce((s, t) => {
@@ -341,8 +359,18 @@ export default function ReportsPage() {
       (s, t) => s + (Number(t.trip_worth ?? t.total_shipment_cost) || 0),
       0
     )
-    return { advancePaid, expense, toBePaidContractors, pendingAmounts, tripCostTotal }
+    return { advancePaid, expense, cashIn, toBePaidContractors, pendingAmounts, tripCostTotal }
   })()
+
+  const typeCounts = countTripsByType(trips)
+  const dailyCounts = dailyTripTypeCounts(trips)
+  const defaultRates = Object.fromEntries(
+    VEHICLE_TYPES.map((t) => [t, getDefaultTripRate(t)])
+  ) as Record<string, number>
+  const businessRows = businessPackByType(trips, defaultRates)
+  const businessTotal = businessRows.reduce((s, r) => s + r.value, 0)
+  const shareAmount = Math.round((businessTotal * sharePct) / 100)
+  const transportTotals = groupTripsByTransport(trips)
 
   const exportTripsCSV = () => {
     const rows = [
@@ -398,13 +426,157 @@ export default function ReportsPage() {
       ['Report period', label],
       ['Site', selectedSite === 'all' ? 'All sites' : sites.find((s) => s.id === selectedSite)?.name || selectedSite],
       ['Trips count', String(trips.length)],
+      ['12WH trips', String(typeCounts['12WH'])],
+      ['10WH trips', String(typeCounts['10WH'])],
+      ['6WH trips', String(typeCounts['6WH'])],
+      ['Other trips', String(typeCounts.Other)],
+      ['No permit (NO.P)', String(typeCounts.noPermit)],
       ['Advance paid', String(reportTotals.advancePaid)],
       ['Expenses (cash out)', String(reportTotals.expense)],
+      ['Cash in', String(reportTotals.cashIn)],
       ['To be paid to contractors', String(reportTotals.toBePaidContractors)],
       ['Pending amounts (unsettled trip cost)', String(reportTotals.pendingAmounts)],
       ['Trip cost total', String(reportTotals.tripCostTotal)],
     ]
     exportCSV(rows, `summary_${selectedSite}_${periodLabel()}.csv`)
+  }
+
+  /** Paper daily sheet: SL NO, vehicle, transport */
+  const exportDailyTripSheetCSV = () => {
+    const rows = [
+      ['SL NO', 'Date', 'Vehicle Number', 'Transport', 'Type', 'Permit', 'Trip cost'],
+      ...dailyTripSheetRows(trips).map((r) => [
+        String(r.sl),
+        r.date,
+        r.plate,
+        r.transport,
+        r.vehicleType,
+        r.permit,
+        String(r.tripCost),
+      ]),
+      [],
+      ['TRANSPORT TOTALS'],
+      ...transportTotals.map((t) => [t.name, String(t.count)]),
+      ['TOTAL TRIPS', String(trips.length)],
+    ]
+    exportCSV(rows, `daily_trip_sheet_${selectedSite}_${periodLabel()}.csv`)
+  }
+
+  /** Paper weekly/monthly type matrix */
+  const exportTypeCountCSV = () => {
+    const rows = [
+      ['DATE', '12WH', '10WH', '6WH', 'Other', 'NO.P', 'TRIPS'],
+      ...dailyCounts.map((d) => [
+        d.date,
+        String(d['12WH']),
+        String(d['10WH']),
+        String(d['6WH']),
+        String(d.Other),
+        String(d.noPermit),
+        String(d.trips),
+      ]),
+      [
+        'TOTAL',
+        String(typeCounts['12WH']),
+        String(typeCounts['10WH']),
+        String(typeCounts['6WH']),
+        String(typeCounts.Other),
+        String(typeCounts.noPermit),
+        String(typeCounts.total),
+      ],
+    ]
+    exportCSV(rows, `trip_counts_${selectedSite}_${periodLabel()}.csv`)
+  }
+
+  /** May–June style business pack: count × ₹/trip + optional share split */
+  const exportBusinessPackCSV = () => {
+    const { label } = getReportRange()
+    const rows: string[][] = [
+      ['BUSINESS REPORT', label],
+      ['Site', selectedSite === 'all' ? 'All sites' : sites.find((s) => s.id === selectedSite)?.name || ''],
+      [],
+      ['Vehicle type', 'Trip count', 'Rate ₹/trip', 'Value ₹'],
+      ...businessRows.map((r) => [
+        r.vehicleType,
+        String(r.count),
+        String(r.ratePerTrip),
+        String(r.value),
+      ]),
+      ['TOTAL', String(trips.length), '', String(businessTotal)],
+      [],
+      [`AS PER ${sharePct}% RATIO`, `${businessTotal} × ${sharePct}/100`, '', String(shareAmount)],
+      ['Share A', String(shareAmount)],
+      ['Share B', String(businessTotal - shareAmount)],
+      [],
+      ['Advance paid', String(reportTotals.advancePaid)],
+      ['Cash expenses', String(reportTotals.expense)],
+      ['Cash in', String(reportTotals.cashIn)],
+    ]
+    exportCSV(rows, `business_pack_${selectedSite}_${periodLabel()}.csv`)
+  }
+
+  const exportMonthEndPack = () => {
+    exportPeriodSummaryCSV()
+    exportTypeCountCSV()
+    exportDailyTripSheetCSV()
+    exportBusinessPackCSV()
+    exportTripsCSV()
+    exportCashCSV()
+    toast.success('Month-end pack downloaded (6 CSV files)')
+  }
+
+  const runPeriodOps = async (action: 'close' | 'reopen' | 'purge') => {
+    if (!isAdmin) {
+      toast.error('Admin only')
+      return
+    }
+    if (!selectedSite || selectedSite === 'all') {
+      toast.error('Select a single site (not All Sites)')
+      return
+    }
+    const { from, to } = getReportRange()
+    if (action === 'purge' && purgePhrase !== 'DELETE') {
+      toast.error('Type DELETE to confirm permanent soft-removal of operational data')
+      return
+    }
+    setOpsBusy(true)
+    try {
+      const token = (await supabase.auth.getSession()).data.session?.access_token
+      if (!token) throw new Error('Not signed in')
+      const res = await fetch('/api/admin/period-ops', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action,
+          site_id: selectedSite,
+          from_date: from,
+          to_date: to,
+          notes: action === 'purge' ? 'Admin period purge from Reports' : undefined,
+          confirm_phrase: action === 'purge' ? purgePhrase : undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || res.statusText)
+      if (action === 'purge') {
+        toast.success(
+          `Removed: ${data.counts?.trips ?? 0} trips, ${data.counts?.cash_entries ?? 0} cash lines, ${data.counts?.attendance ?? 0} attendance`
+        )
+        setPurgeConfirmOpen(false)
+        setPurgePhrase('')
+        void loadData()
+      } else if (action === 'close') {
+        toast.success(`Period marked closed for ${from} → ${to}`)
+      } else {
+        toast.success('Period reopened (audit logged)')
+      }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Operation failed')
+    } finally {
+      setOpsBusy(false)
+    }
   }
 
   // ─── Date-range cashflow export ───────────────────────────────────────────
@@ -730,9 +902,79 @@ export default function ReportsPage() {
         </div>
       )}
 
+      {/* Paper-style ops pack + month-end (replaces Excel close process) */}
+      <div className="card mb-4" style={{ padding: '1rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+          <Package size={18} style={{ color: 'var(--accent)' }} />
+          <strong style={{ fontSize: '0.9rem' }}>Excel replacement pack</strong>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+            Daily sheet · type counts · business ₹/trip · full CSV
+          </span>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+          <button type="button" className="btn btn-primary btn-sm" onClick={exportMonthEndPack} disabled={loading}>
+            <Download size={14} /> Download full pack (6 CSV)
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={exportDailyTripSheetCSV}>
+            Daily trip sheet
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={exportTypeCountCSV}>
+            Type counts (12WH / NO.P)
+          </button>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={exportBusinessPackCSV}>
+            Business pack (₹/trip + share)
+          </button>
+        </div>
+        {isAdmin && (
+          <div
+            style={{
+              marginTop: '1rem',
+              paddingTop: '0.875rem',
+              borderTop: '1px solid var(--border)',
+            }}
+          >
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+              Month-end (admin)
+            </div>
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+              Close logs an audit entry. <strong>Remove data</strong> soft-deletes trips &amp; cash
+              lines and deletes attendance in this period for the <strong>selected site only</strong>.
+              Finalized payroll months are blocked. Prefer downloading the pack first.
+            </p>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={opsBusy || selectedSite === 'all' || !selectedSite}
+                onClick={() => void runPeriodOps('close')}
+              >
+                <Lock size={14} /> Mark period closed
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                disabled={opsBusy || selectedSite === 'all' || !selectedSite}
+                onClick={() => void runPeriodOps('reopen')}
+              >
+                Reopen period
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                disabled={opsBusy || selectedSite === 'all' || !selectedSite}
+                onClick={() => setPurgeConfirmOpen(true)}
+              >
+                <Trash2 size={14} /> Remove period data…
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Report tabs */}
       <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1rem', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.25rem', flexWrap: 'wrap' }}>
         {[
+          { key: 'paper', label: `📋 Paper view` },
           { key: 'trips', label: `🚛 Trips (${trips.length})` },
           { key: 'cash', label: `💰 Cash Book (${cashEntries.length})` },
           { key: 'contractor', label: `📊 Contractors (${Object.keys(contractorSummary).length})` },
@@ -758,12 +1000,154 @@ export default function ReportsPage() {
         </div>
       ) : (
         <>
+          {/* Paper-style view (field Excel replacement) */}
+          {activeReport === 'paper' && (
+            <div>
+              <div className="grid-2 mb-4" style={{ gap: '0.75rem' }}>
+                {(
+                  [
+                    ['12WH', typeCounts['12WH']],
+                    ['10WH', typeCounts['10WH']],
+                    ['6WH', typeCounts['6WH']],
+                    ['NO.P', typeCounts.noPermit],
+                    ['TOTAL', typeCounts.total],
+                  ] as const
+                ).map(([label, n]) => (
+                  <div key={label} className="card" style={{ padding: '0.75rem 1rem' }}>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                      {label}
+                    </div>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{n}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="card mb-4" style={{ padding: '1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                  <strong>Business pack (₹ per trip × count)</strong>
+                  <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    Share %
+                    <input
+                      className="form-input"
+                      type="number"
+                      min={0}
+                      max={100}
+                      style={{ width: 72 }}
+                      value={sharePct}
+                      onChange={(e) => setSharePct(Number(e.target.value) || 0)}
+                    />
+                  </label>
+                </div>
+                <div className="table-container">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Type</th>
+                        <th>Trips</th>
+                        <th>₹/trip</th>
+                        <th>Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {businessRows.map((r) => (
+                        <tr key={r.vehicleType}>
+                          <td>{r.vehicleType}</td>
+                          <td>{r.count}</td>
+                          <td>{formatInr(r.ratePerTrip)}</td>
+                          <td>
+                            <strong>{formatInr(r.value)}</strong>
+                          </td>
+                        </tr>
+                      ))}
+                      <tr>
+                        <td>
+                          <strong>TOTAL</strong>
+                        </td>
+                        <td>{trips.length}</td>
+                        <td />
+                        <td>
+                          <strong>{formatInr(businessTotal)}</strong>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ marginTop: '0.75rem', fontSize: '0.85rem' }}>
+                  As per {sharePct}% ratio: <strong>{formatInr(shareAmount)}</strong> each side
+                  (A / B = {formatInr(shareAmount)} / {formatInr(businessTotal - shareAmount)})
+                </div>
+              </div>
+
+              <div className="card mb-4" style={{ padding: '1rem' }}>
+                <strong style={{ display: 'block', marginBottom: '0.5rem' }}>
+                  Daily type matrix (paper weekly/monthly)
+                </strong>
+                <div className="table-container">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>12WH</th>
+                        <th>10WH</th>
+                        <th>6WH</th>
+                        <th>NO.P</th>
+                        <th>Trips</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {dailyCounts.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                            No trips in period
+                          </td>
+                        </tr>
+                      ) : (
+                        dailyCounts.map((d) => (
+                          <tr key={d.date}>
+                            <td>{d.date}</td>
+                            <td>{d['12WH'] || ''}</td>
+                            <td>{d['10WH'] || ''}</td>
+                            <td>{d['6WH'] || ''}</td>
+                            <td>{d.noPermit || ''}</td>
+                            <td>
+                              <strong>{d.trips}</strong>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="card" style={{ padding: '1rem' }}>
+                <strong style={{ display: 'block', marginBottom: '0.5rem' }}>
+                  By transport (paper end totals)
+                </strong>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  {transportTotals.slice(0, 20).map((t) => (
+                    <div
+                      key={t.name}
+                      style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}
+                    >
+                      <span>{t.name}</span>
+                      <strong>{t.count}</strong>
+                    </div>
+                  ))}
+                  {transportTotals.length === 0 && (
+                    <span style={{ color: 'var(--text-muted)' }}>No transport data</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Trips Report */}
           {activeReport === 'trips' && (
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.875rem' }}>
                 <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-                  <strong style={{ color: 'var(--accent)', fontSize: '1.1rem' }}>{trips.length}</strong> total trips in {format(new Date(period + '-01'), 'MMMM yyyy')}
+                  <strong style={{ color: 'var(--accent)', fontSize: '1.1rem' }}>{trips.length}</strong> total trips · {getReportRange().label}
                 </div>
                 <button className="btn btn-secondary btn-sm" onClick={exportTripsCSV}>
                   <Download size={14} /> Export CSV
@@ -1059,6 +1443,69 @@ export default function ReportsPage() {
             </div>
           )}
         </>
+      )}
+
+      {/* Admin purge confirmation */}
+      {purgeConfirmOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 400,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1rem',
+          }}
+          onClick={() => !opsBusy && setPurgeConfirmOpen(false)}
+        >
+          <div
+            className="card"
+            style={{ maxWidth: 420, width: '100%', padding: '1.25rem' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+              Remove period data?
+            </h3>
+            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', lineHeight: 1.45, marginBottom: '0.75rem' }}>
+              Soft-deletes trips and cash entries, deletes attendance (and overlapping leave apps)
+              for <strong>{getReportRange().label}</strong> on the selected site. Download the pack
+              first. Type <code>DELETE</code> to confirm.
+            </p>
+            <input
+              className="form-input"
+              placeholder="Type DELETE"
+              value={purgePhrase}
+              onChange={(e) => setPurgePhrase(e.target.value)}
+              autoComplete="off"
+              style={{ marginBottom: '0.75rem' }}
+            />
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                type="button"
+                className="btn btn-secondary w-full"
+                disabled={opsBusy}
+                onClick={() => {
+                  setPurgeConfirmOpen(false)
+                  setPurgePhrase('')
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger w-full"
+                disabled={opsBusy || purgePhrase !== 'DELETE'}
+                onClick={() => void runPeriodOps('purge')}
+              >
+                {opsBusy ? 'Working…' : 'Remove data'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
