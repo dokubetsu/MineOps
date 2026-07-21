@@ -22,6 +22,7 @@ function NavContent() {
   const {
     user, isAdmin, isSiteManager, isStakeholder, isSiteEmployee, isEmployee,
     isPlatformOwner, organizationName, hasFeature, loading: authLoading, userRole,
+    assignedSiteName, assignedSites,
   } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const supabase = createClient()
@@ -196,6 +197,27 @@ function NavContent() {
               <div style={{ fontSize: '0.65rem', color: roleColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {roleLabel}{organizationName ? ` · ${organizationName}` : ''}
               </div>
+              {assignedSiteName && (
+                <div
+                  style={{
+                    fontSize: '0.65rem',
+                    color: 'var(--accent)',
+                    fontWeight: 600,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    marginTop: 1,
+                  }}
+                  title={
+                    assignedSites.length > 1
+                      ? assignedSites.map((s) => s.name).join(', ')
+                      : assignedSiteName
+                  }
+                >
+                  ⛏ {assignedSiteName}
+                  {assignedSites.length > 1 ? ` +${assignedSites.length - 1}` : ''}
+                </div>
+              )}
             </div>
             <button onClick={toggleTheme} className="btn-ghost btn btn-icon" title="Toggle theme">
               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
@@ -216,6 +238,26 @@ function NavContent() {
           </span>
         </div>
         <div className="mobile-header-actions">
+          {assignedSiteName && (
+            <span
+              className="mobile-role-badge"
+              style={{
+                background: 'rgba(245,158,11,0.12)',
+                color: 'var(--accent)',
+                maxWidth: '9rem',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+              title={
+                assignedSites.length > 1
+                  ? assignedSites.map((s) => s.name).join(', ')
+                  : assignedSiteName
+              }
+            >
+              {assignedSiteName}
+            </span>
+          )}
           <span
             className="mobile-role-badge"
             style={{

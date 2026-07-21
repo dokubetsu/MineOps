@@ -518,6 +518,13 @@ export default function ReportsPage() {
   }
 
   const exportMonthEndPack = () => {
+    // Refuse incomplete Excel-replacement packs (hard 1000-row fetch ceiling)
+    if (tripsTruncated || cashTruncated) {
+      toast.error(
+        'Report data is truncated (1000-row limit). Narrow the date range or site before downloading the month-end pack.'
+      )
+      return
+    }
     exportPeriodSummaryCSV()
     exportTypeCountCSV()
     exportDailyTripSheetCSV()
@@ -914,7 +921,17 @@ export default function ReportsPage() {
           </span>
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-          <button type="button" className="btn btn-primary btn-sm" onClick={exportMonthEndPack} disabled={loading}>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={exportMonthEndPack}
+            disabled={loading || tripsTruncated || cashTruncated}
+            title={
+              tripsTruncated || cashTruncated
+                ? 'Narrow date/site — data hit 1000-row limit'
+                : 'Download 6 CSV files for month-end archive'
+            }
+          >
             <Download size={14} /> Download full pack (6 CSV)
           </button>
           <button type="button" className="btn btn-secondary btn-sm" onClick={exportDailyTripSheetCSV}>

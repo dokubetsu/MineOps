@@ -81,36 +81,42 @@ export function dailyTripTypeCounts(trips: TripStatRow[]): Array<{
 }
 
 /**
- * Business report style: count × average (or fixed) rate → value.
- * Uses average trip_worth per type when present, else falls back to defaults.
+ * Business report style: count × average recorded trip cost → value.
+ * Uses only real `trip_worth` / `total_shipment_cost` averages.
+ * Never invents revenue from app hard-coded defaults (Excel-replacement integrity).
+ * `defaultRates` kept for API compatibility but ignored for valuation.
  */
 export function businessPackByType(
   trips: TripStatRow[],
-  defaultRates: Record<string, number>
+  _defaultRates?: Record<string, number>
 ): Array<{
   vehicleType: string
   count: number
   ratePerTrip: number
   value: number
 }> {
-  const buckets: Record<string, { count: number; sum: number }> = {
-    '12WH': { count: 0, sum: 0 },
-    '10WH': { count: 0, sum: 0 },
-    '6WH': { count: 0, sum: 0 },
-    Other: { count: 0, sum: 0 },
+  const buckets: Record<string, { count: number; sum: number; withCost: number }> = {
+    '12WH': { count: 0, sum: 0, withCost: 0 },
+    '10WH': { count: 0, sum: 0, withCost: 0 },
+    '6WH': { count: 0, sum: 0, withCost: 0 },
+    Other: { count: 0, sum: 0, withCost: 0 },
   }
   for (const t of trips) {
     const vt = tripVehicleType(t)
     buckets[vt].count += 1
-    buckets[vt].sum += tripCost(t)
+    const cost = tripCost(t)
+    if (cost > 0) {
+      buckets[vt].sum += cost
+      buckets[vt].withCost += 1
+    }
   }
   return (['12WH', '10WH', '6WH', 'Other'] as const).map((vehicleType) => {
     const b = buckets[vehicleType]
+    // Average only over trips that have a recorded cost — no synthetic rates
     const ratePerTrip =
-      b.count > 0 && b.sum > 0
-        ? Math.round(b.sum / b.count)
-        : defaultRates[vehicleType] ?? 0
-    const value = b.count * ratePerTrip
+      b.withCost > 0 ? Math.round(b.sum / b.withCost) : 0
+    // Value = sum of actual costs (not count × invented rate)
+    const value = Math.round(b.sum)
     return { vehicleType, count: b.count, ratePerTrip, value }
   })
 }

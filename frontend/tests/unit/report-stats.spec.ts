@@ -54,14 +54,31 @@ test.describe('report-stats (paper Excel replacement)', () => {
     expect(d[0].noPermit).toBe(1)
   })
 
-  test('business pack matches paper style count × rate', () => {
-    const rows = businessPackByType(sample, { '12WH': 1000, '10WH': 800, '6WH': 600, Other: 500 })
+  test('business pack uses actual trip costs only (no invented defaults)', () => {
+    const rows = businessPackByType(sample, { '12WH': 9999, '10WH': 9999, '6WH': 9999, Other: 9999 })
     const twelve = rows.find((r) => r.vehicleType === '12WH')!
     expect(twelve.count).toBe(2)
+    expect(twelve.ratePerTrip).toBe(1000)
     expect(twelve.value).toBe(2000)
     const ten = rows.find((r) => r.vehicleType === '10WH')!
     expect(ten.count).toBe(1)
     expect(ten.value).toBe(800)
+  })
+
+  test('business pack does not invent revenue for zero-worth trips', () => {
+    const zeroWorth = [
+      {
+        trip_date: '2026-06-01',
+        trip_worth: null,
+        total_shipment_cost: null,
+        vehicles: { vehicle_type: '12WH' },
+      },
+    ]
+    const rows = businessPackByType(zeroWorth as any, { '12WH': 1000 })
+    const twelve = rows.find((r) => r.vehicleType === '12WH')!
+    expect(twelve.count).toBe(1)
+    expect(twelve.ratePerTrip).toBe(0)
+    expect(twelve.value).toBe(0)
   })
 
   test('daily trip sheet serial', () => {

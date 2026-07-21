@@ -18,6 +18,8 @@ interface UserRole {
   organization_id: string
 }
 
+export type AssignedSite = { id: string; name: string; location?: string | null }
+
 interface AuthContextType {
   user: User | null
   userRole: UserRole | null
@@ -29,6 +31,10 @@ interface AuthContextType {
   isSiteEmployee: boolean
   isPlatformOwner: boolean
   siteIds: string[]
+  /** Sites from user_roles (employee/manager assignment) — for display */
+  assignedSites: AssignedSite[]
+  /** Primary assigned site name (first site) for header badges */
+  assignedSiteName: string | null
   organizationId: string | null
   organizationName: string | null
   features: FeatureMap
@@ -46,6 +52,8 @@ const AuthContext = createContext<AuthContextType>({
   isSiteEmployee: false,
   isPlatformOwner: false,
   siteIds: [],
+  assignedSites: [],
+  assignedSiteName: null,
   organizationId: null,
   organizationName: null,
   features: defaultFeatureMap(false),
@@ -56,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [userRoles, setUserRoles] = useState<UserRole[]>([])
   const [organizationName, setOrganizationName] = useState<string | null>(null)
+  const [assignedSites, setAssignedSites] = useState<AssignedSite[]>([])
   const [isPlatformOwner, setIsPlatformOwner] = useState(false)
   const [features, setFeatures] = useState<FeatureMap>(() => defaultFeatureMap(false))
   const [loading, setLoading] = useState(true)
@@ -65,6 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!userId) {
       setUserRoles([])
       setOrganizationName(null)
+      setAssignedSites([])
       setIsPlatformOwner(false)
       setFeatures(defaultFeatureMap(false))
       clearOfflineCache()
@@ -98,6 +108,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       loadedRoles.find((r) => r.role === 'employee') ||
       loadedRoles.find((r) => r.role === 'site_employee') ||
       null
+
+    // Assigned site names (employees should always see their site)
+    const roleSiteIds = [
+      ...new Set(loadedRoles.map((r) => r.site_id).filter(Boolean) as string[]),
+    ]
+    if (roleSiteIds.length > 0) {
+      // Prefer SECURITY DEFINER RPC (migration 057); fall back to sites table
+      const { data: rpcSites, error: rpcSitesErr } = await supabase.rpc('get_my_assigned_sites')
+      if (!rpcSitesErr && Array.isArray(rpcSites) && rpcSites.length > 0) {
+        setAssignedSites(
+          rpcSites.map((s) => ({
+            id: s.id,
+            name: s.name,
+            location: s.location ?? null,
+          }))
+        )
+      } else {
+        const { data: siteRows } = await supabase
+          .from('sites')
+          .select('id, name, location')
+          .in('id', roleSiteIds)
+        setAssignedSites(
+          (siteRows || []).map((s) => ({
+            id: s.id,
+            name: s.name,
+            location: s.location ?? null,
+          }))
+        )
+      }
+    } else {
+      setAssignedSites([])
+    }
 
     if (priorityRole?.organization_id) {
       const { data: org } = await supabase
@@ -144,6 +186,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setUserRoles([])
         setOrganizationName(null)
+        setAssignedSites([])
         setIsPlatformOwner(false)
         setFeatures(defaultFeatureMap(false))
         clearOfflineCache()
@@ -185,6 +228,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isSiteEmployee,
         isPlatformOwner,
         siteIds,
+        assignedSites,
+        assignedSiteName: assignedSites[0]?.name ?? null,
         organizationId: priorityRole?.organization_id ?? null,
         organizationName,
         features,

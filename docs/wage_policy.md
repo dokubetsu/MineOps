@@ -77,13 +77,15 @@ Source: paper ops in local `reference/` (untracked scans: daily trip sheets, wee
 
 | Rule | Detail |
 |------|--------|
-| **Price unit** | **Flat ₹ per trip** — entered on the trip form (not auto-invented) |
-| **Optional rate hints** | 1) Customer type rate 2) Customer default rate 3) Org type rate — **Apply** fills cost; never auto-overwrites |
+| **Price unit** | **Flat ₹ per trip** set by **admin** after discussion with the customer |
+| **Who sets price** | Admin → Settings **Customers** (per-type / default) and **Org rates**. Site employees **cannot** invent prices when a rate exists (field is locked to MDM rate) |
+| **Resolution order** | 1) Customer type rate 2) Customer default rate 3) Org type rate 4) none → employee may type amount only if no rate |
 | **Not used in price** | Distance (km), cubic capacity (m³), drop location, app hard-coded defaults |
-| **Org rate seed only** | Settings can seed 12WH ₹1000 / 10WH ₹800 / … for Master Data; **not** used to auto-price trips |
-| **Master Data** | Settings → **Customers** (buyer rates) + **Org rates** (`negotiated_rates`) |
-| **Advance** | Separate field; **not** added into trip cost. When &gt; 0, posted as cash book **OUT** category **Advance for trip** (synced on create/update/delete) |
-| **Reporting** | Prefer actual `trip_worth`; cash flow uses cash book (advances included in cash out) |
+| **Org rate UI** | Blank until admin types negotiated ₹; optional “Load example seeds” for paper-style starters (not auto-saved) |
+| **Employee ops** | My Work: plate, load, photos/proof, advance, drop, settle; price comes from admin rates |
+| **Advance** | Separate field; **not** added into trip cost. When &gt; 0, cash book **OUT** **Advance for trip** |
+| **Reporting** | Actual `trip_worth` only (no invented defaults). Month-end CSV pack; refuse download if 1000-row truncated |
+| **Month-end** | Reports pack → payroll finalize → optional audit “close” → optional soft purge (blocked if finalized payroll) |
 
 ### Settlement (Phase 1)
 

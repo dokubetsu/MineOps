@@ -28,8 +28,9 @@ type CustomerRow = Customer & {
 
 type RateDraft = Record<string, string>
 
+/** Blank rates — admin types negotiated ₹; never pre-fill app seeds as “real” rates. */
 function emptyRateDraft(): RateDraft {
-  return Object.fromEntries(VEHICLE_TYPES.map((t) => [t, String(getDefaultRatePerCubic(t))]))
+  return Object.fromEntries(VEHICLE_TYPES.map((t) => [t, '']))
 }
 
 function emptyCustomerTypeRates(): RateDraft {
@@ -113,8 +114,12 @@ export default function SettingsPage() {
 
       const draft = emptyRateDraft()
       for (const row of rates || []) {
-        if (row.vehicle_type && VEHICLE_TYPES.includes(row.vehicle_type as (typeof VEHICLE_TYPES)[number])) {
-          draft[row.vehicle_type] = String(row.rate_per_cubic ?? getDefaultRatePerCubic(row.vehicle_type))
+        if (
+          row.vehicle_type &&
+          VEHICLE_TYPES.includes(row.vehicle_type as (typeof VEHICLE_TYPES)[number]) &&
+          row.rate_per_cubic != null
+        ) {
+          draft[row.vehicle_type] = String(row.rate_per_cubic)
         }
       }
       setRateDraft(draft)
@@ -134,24 +139,35 @@ export default function SettingsPage() {
     }
     setSavingRates(true)
     try {
+      // Only upsert types with a positive rate entered (blank = leave unset)
       const rows = VEHICLE_TYPES.map((vehicle_type) => {
-        const n = parseFloat(rateDraft[vehicle_type] || '')
-        if (!Number.isFinite(n) || n < 0) {
-          throw new Error(`Invalid rate for ${vehicle_type}`)
+        const raw = (rateDraft[vehicle_type] || '').trim()
+        if (!raw) return null
+        const n = parseFloat(raw)
+        if (!Number.isFinite(n) || n <= 0) {
+          throw new Error(`Invalid rate for ${vehicle_type} (enter a positive ₹/trip or leave blank)`)
         }
         return {
           organization_id: organizationId,
           vehicle_type,
           rate_per_cubic: n,
         }
-      })
+      }).filter(Boolean) as Array<{
+        organization_id: string
+        vehicle_type: string
+        rate_per_cubic: number
+      }>
+
+      if (rows.length === 0) {
+        throw new Error('Enter at least one vehicle type rate (₹ per trip)')
+      }
 
       const { error } = await supabase.from('negotiated_rates').upsert(rows, {
         onConflict: 'organization_id,vehicle_type',
       })
       if (error) throw error
       setRateSaved({ ...rateDraft })
-      toast.success('Negotiated rates saved — used for trip cost auto-calc')
+      toast.success('Org rates saved — used as trip price when customer has no rate')
     } catch (err: unknown) {
       toast.error(`Error saving rates: ${toErrorMessage(err)}`)
     } finally {
@@ -701,7 +717,7 @@ export default function SettingsPage() {
                           onChange={(e) =>
                             setRateDraft((prev) => ({ ...prev, [t]: e.target.value }))
                           }
-                          required
+                          placeholder="—"
                         />
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                           / trip
@@ -724,10 +740,24 @@ export default function SettingsPage() {
                     type="button"
                     className="btn btn-secondary"
                     disabled={savingRates}
-                    onClick={() => setRateDraft(emptyRateDraft())}
-                    title="Fill built-in defaults (not saved until you click Save)"
+                    onClick={() =>
+                      setRateDraft(
+                        Object.fromEntries(
+                          VEHICLE_TYPES.map((t) => [t, String(getDefaultRatePerCubic(t))])
+                        )
+                      )
+                    }
+                    title="Fill paper-seed examples (12WH ₹1000…) — not saved until you click Save"
                   >
-                    Load defaults
+                    Load example seeds
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    disabled={savingRates}
+                    onClick={() => setRateDraft(emptyRateDraft())}
+                  >
+                    Clear
                   </button>
                   {ratesDirty && (
                     <span style={{ fontSize: '0.75rem', color: 'var(--accent)', alignSelf: 'center' }}>

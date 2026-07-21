@@ -6,8 +6,18 @@ const withPWA = withPWAInit({
   dest: 'public',
   disable: process.env.NODE_ENV === 'development',
   register: true,
+  // Keep next-pwa defaults; only append font rules below.
+  extendDefaultRuntimeCaching: true,
   workboxOptions: {
     skipWaiting: true,
+    // Fonts are self-hosted via next/font. If anything still hits Google Fonts,
+    // do not CacheFirst-fetch under CSP — NetworkOnly avoids SW no-response noise.
+    runtimeCaching: [
+      {
+        urlPattern: /^https:\/\/fonts\.(?:googleapis|gstatic)\.com\/.*/i,
+        handler: 'NetworkOnly',
+      },
+    ],
   },
 })
 

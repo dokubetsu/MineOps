@@ -1,4 +1,5 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+/* Fonts: self-hosted via next/font in layout.tsx (no Google Fonts @import —
+   that broke offline PWA / Workbox under CSP connect-src). */
 
 /* =====================================================
    MINE LOGISTICS DESIGN SYSTEM
@@ -37,9 +38,9 @@
   --text-muted: #64748b;
   --text-disabled: #94a3b8;
 
-  /* Typography */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-display: 'Space Grotesk', sans-serif;
+  /* Typography — next/font sets --font-inter / --font-space-grotesk on <html> */
+  --font-sans: var(--font-inter), 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-display: var(--font-space-grotesk), 'Space Grotesk', sans-serif;
 
   /* Spacing */
   --radius-sm: 6px;

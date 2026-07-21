@@ -6,7 +6,8 @@ Use this before every production deploy. Order matters.
 
 Remote Supabase must include **all** migrations through the latest file in `supabase/migrations/`.
 
-As of this document that is **`056_customer_trip_rates.sql`** (and everything before it, including **036–055**).  
+As of this document that is **`057_employee_site_visibility.sql`** (and everything before it, including **036–056**).  
+**057** lets site employees read their assigned site (fixes “Unassigned” on My Work).  
 After schema changes, regenerate or hand-update `frontend/src/lib/supabase/database.types.ts` — see `docs/SCHEMA_SSOT.md` (`npm run gen:types` when CLI is available).
 
 ```bash

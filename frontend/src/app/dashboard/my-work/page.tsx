@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { format, subDays } from 'date-fns'
 import { Plus, Image as ImageIcon, Check, X, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
-import { computeTripWorthFromRate } from '@/lib/calculations'
+
 import { cashBookRepository } from '@/lib/repositories/cash-book'
 import { tripsRepository } from '@/lib/repositories/trips'
 import {
@@ -38,7 +38,14 @@ interface EmployeeData {
 }
 
 function EmployeePage() {
-  const { user, organizationId, loading: authLoading, hasFeature } = useAuth()
+  const {
+    user,
+    organizationId,
+    loading: authLoading,
+    hasFeature,
+    assignedSiteName,
+    assignedSites,
+  } = useAuth()
   const searchParams = useSearchParams()
   const router = useRouter()
   const supabase = createClient()
@@ -162,7 +169,35 @@ function EmployeePage() {
     router.replace('/dashboard/my-work', { scroll: false })
   }, [authLoading, loading, searchParams, canTrips, canCash, router])
 
-  // Trip cost is entered manually — no app-default auto-fill.
+  // When admin/customer has a negotiated rate, fill trip cost from that rate only
+  // (no app hard-coded defaults). Employees log ops details; price comes from MDM.
+  useEffect(() => {
+    const cust = customers.find((c) => c.id === tripForm.customer_id)
+    const { rate } = resolveTripRateForCustomer(
+      tripForm.vehicle_type,
+      cust || null,
+      negotiatedRates
+    )
+    if (rate != null && rate > 0) {
+      setTripForm((f) =>
+        f.total_shipment_cost === String(rate) ? f : { ...f, total_shipment_cost: String(rate) }
+      )
+    }
+  }, [tripForm.vehicle_type, tripForm.customer_id, negotiatedRates, customers])
+
+  useEffect(() => {
+    const cust = customers.find((c) => c.id === editForm.customer_id)
+    const { rate } = resolveTripRateForCustomer(
+      editForm.vehicle_type,
+      cust || null,
+      negotiatedRates
+    )
+    if (rate != null && rate > 0) {
+      setEditForm((f) =>
+        f.total_shipment_cost === String(rate) ? f : { ...f, total_shipment_cost: String(rate) }
+      )
+    }
+  }, [editForm.vehicle_type, editForm.customer_id, negotiatedRates, customers])
 
   const loadInitialData = async () => {
     if (!user) {
@@ -171,10 +206,10 @@ function EmployeePage() {
     }
     try {
       setLoading(true)
-      // 1. Fetch employee profile
+      // 1. Fetch employee profile + site name (sites RLS: migration 057)
       const { data: empData, error: empError } = await supabase
         .from('employees')
-        .select('*, sites(name)')
+        .select('*, sites(name, location)')
         .eq('user_id', user.id)
         .maybeSingle()
 
@@ -185,7 +220,47 @@ function EmployeePage() {
         return
       }
 
-      setEmployee(empData as any)
+      // Prefer roster site_id; fall back to role assignment from auth
+      const resolvedSiteId =
+        empData.site_id ||
+        (assignedSites[0]?.id ?? null) ||
+        null
+      if (!resolvedSiteId) {
+        setEmployee({
+          id: empData.id,
+          name: empData.name,
+          site_id: '',
+          sites: null,
+        })
+        setLoading(false)
+        return
+      }
+
+      // If join still empty, resolve site name via RPC / sites table
+      let siteName: string | null = Array.isArray(empData.sites)
+        ? empData.sites[0]?.name || null
+        : (empData.sites as { name?: string } | null)?.name || null
+
+      if (!siteName) {
+        const { data: siteRow } = await supabase
+          .from('sites')
+          .select('name, location')
+          .eq('id', resolvedSiteId)
+          .maybeSingle()
+        siteName = siteRow?.name || null
+      }
+      if (!siteName) {
+        const { data: rpcSites } = await supabase.rpc('get_my_assigned_sites')
+        const match = (rpcSites || []).find((s) => s.id === resolvedSiteId)
+        siteName = match?.name || null
+      }
+
+      setEmployee({
+        id: empData.id,
+        name: empData.name,
+        site_id: resolvedSiteId,
+        sites: siteName ? { name: siteName } : null,
+      })
 
       // 2. Fetch list data (scoped to caller org via RLS)
       const [
@@ -380,12 +455,14 @@ function EmployeePage() {
     const cust = customers.find((c) => c.id === tripForm.customer_id)
     const { rate } = resolveTripRateForCustomer(tripForm.vehicle_type, cust || null, negotiatedRates)
     const capacity = parseFloat(tripForm.cubic_capacity) || 0
-    // Explicit cost only — never invent from app defaults
-    const entered =
-      parseFloat(tripForm.total_shipment_cost) ||
-      parseFloat(String(tripForm.total_shipment_cost)) ||
-      0
-    const worth = Number.isFinite(entered) && entered > 0 ? entered : null
+    // Admin/customer rate wins when set; otherwise use field-entered cost (never app defaults)
+    const entered = parseFloat(tripForm.total_shipment_cost)
+    const worth =
+      rate != null && rate > 0
+        ? rate
+        : Number.isFinite(entered) && entered > 0
+          ? entered
+          : null
     const ownership = tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership
 
     const tripBase = {
@@ -614,12 +691,18 @@ function EmployeePage() {
     const capacity = parseFloat(editForm.cubic_capacity) || 0
     const cust = customers.find((c) => c.id === editForm.customer_id)
     const { rate } = resolveTripRateForCustomer(editForm.vehicle_type, cust || null, negotiatedRates)
-    const entered =
-      parseFloat(editForm.total_shipment_cost) ||
-      Number(editingTrip.trip_worth) ||
-      Number(editingTrip.total_shipment_cost) ||
-      0
-    const worth = Number.isFinite(entered) && entered > 0 ? entered : null
+    const entered = parseFloat(editForm.total_shipment_cost)
+    const prior =
+      Number(editingTrip.trip_worth) || Number(editingTrip.total_shipment_cost) || 0
+    // Admin/customer rate wins when configured
+    const worth =
+      rate != null && rate > 0
+        ? rate
+        : Number.isFinite(entered) && entered > 0
+          ? entered
+          : prior > 0
+            ? prior
+            : null
     const settleAmt = Number(worth) || Number(editingTrip.settlement_amount) || 0
     if (editForm.settled && settleAmt <= 0) {
       toast.error('Settled trips require a positive settlement amount')
@@ -796,15 +879,69 @@ function EmployeePage() {
     )
   }
 
+  const siteLabel =
+    employee.sites?.name ||
+    assignedSiteName ||
+    (employee.site_id ? 'Site assigned' : null)
+
   return (
     <div style={{ maxWidth: '600px', margin: '0 auto', paddingBottom: '5rem' }}>
+      {/* Assigned site — primary context for field staff */}
+      <div
+        className="card"
+        style={{
+          padding: '0.75rem 1rem',
+          marginBottom: '0.875rem',
+          borderLeft: '4px solid var(--accent)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '0.75rem',
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: '0.65rem',
+              fontWeight: 700,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color: 'var(--text-muted)',
+            }}
+          >
+            Your site
+          </div>
+          <div
+            style={{
+              fontSize: '1.05rem',
+              fontWeight: 700,
+              color: siteLabel ? 'var(--text-primary)' : 'var(--danger)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {siteLabel || 'No site assigned — contact admin'}
+          </div>
+          {assignedSites[0]?.location && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 2 }}>
+              {assignedSites[0].location}
+            </div>
+          )}
+        </div>
+        <span className="badge badge-amber" style={{ flexShrink: 0 }}>
+          Site employee
+        </span>
+      </div>
+
       {/* Header Info */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
         <div>
           <h1 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Hello, {employee.name}</h1>
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Site: {employee.sites?.name || 'Unassigned'}</p>
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            Logging trips &amp; expenses for {siteLabel || 'your site'}
+          </p>
         </div>
-        <span className="badge badge-blue">Employee Home</span>
       </div>
 
       {/* Yesterday Leave Application Alert Banner */}
@@ -1088,46 +1225,41 @@ function EmployeePage() {
 
           <div className="form-group">
             <label className="form-label">Trip / billing cost (₹)</label>
-            <input
-              className="form-input"
-              type="number"
-              placeholder="Enter trip cost"
-              value={tripForm.total_shipment_cost}
-              onChange={(e) => setTripForm((f) => ({ ...f, total_shipment_cost: e.target.value }))}
-            />
-            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-              {(() => {
-                const cust = customers.find((c) => c.id === tripForm.customer_id)
-                const { rate, source } = resolveTripRateForCustomer(
-                  tripForm.vehicle_type,
-                  cust || null,
-                  negotiatedRates
-                )
-                if (rate == null) return 'Enter cost manually (no customer/org rate set)'
-                const src =
-                  source === 'customer_type' || source === 'customer_default'
-                    ? 'customer'
-                    : 'org rates'
-                return (
-                  <>
-                    Hint ₹{rate}/trip ({src}) ·{' '}
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn-sm"
-                      style={{ padding: 0, fontSize: '0.65rem', textDecoration: 'underline' }}
-                      onClick={() =>
-                        setTripForm((f) => ({
-                          ...f,
-                          total_shipment_cost: String(computeTripWorthFromRate(null, rate)),
-                        }))
-                      }
-                    >
-                      Apply
-                    </button>
-                  </>
-                )
-              })()}
-            </span>
+            {(() => {
+              const cust = customers.find((c) => c.id === tripForm.customer_id)
+              const { rate, source } = resolveTripRateForCustomer(
+                tripForm.vehicle_type,
+                cust || null,
+                negotiatedRates
+              )
+              const locked = rate != null && rate > 0
+              const src =
+                source === 'customer_type' || source === 'customer_default'
+                  ? 'customer rate (admin)'
+                  : source === 'vehicle_type'
+                    ? 'org rate (admin)'
+                    : ''
+              return (
+                <>
+                  <input
+                    className="form-input"
+                    type="number"
+                    placeholder={locked ? undefined : 'No admin rate — enter cost or ask admin'}
+                    value={tripForm.total_shipment_cost}
+                    readOnly={locked}
+                    onChange={(e) =>
+                      setTripForm((f) => ({ ...f, total_shipment_cost: e.target.value }))
+                    }
+                    style={locked ? { opacity: 0.9, background: 'var(--bg-elevated)' } : undefined}
+                  />
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                    {locked
+                      ? `Set by admin · ₹${rate}/trip (${src})`
+                      : 'No customer/org rate — enter amount or ask admin to set rates in Settings'}
+                  </span>
+                </>
+              )
+            })()}
           </div>
 
           <div className="form-group">
@@ -1293,8 +1425,41 @@ function EmployeePage() {
 
           <div className="form-group">
             <label className="form-label">Trip / billing cost (₹)</label>
-            <input className="form-input" type="number" placeholder="Enter trip cost"
-              value={editForm.total_shipment_cost} onChange={e => setEditForm(f => ({ ...f, total_shipment_cost: e.target.value }))} />
+            {(() => {
+              const cust = customers.find((c) => c.id === editForm.customer_id)
+              const { rate, source } = resolveTripRateForCustomer(
+                editForm.vehicle_type,
+                cust || null,
+                negotiatedRates
+              )
+              const locked = rate != null && rate > 0
+              const src =
+                source === 'customer_type' || source === 'customer_default'
+                  ? 'customer rate (admin)'
+                  : source === 'vehicle_type'
+                    ? 'org rate (admin)'
+                    : ''
+              return (
+                <>
+                  <input
+                    className="form-input"
+                    type="number"
+                    placeholder={locked ? undefined : 'No admin rate — enter or ask admin'}
+                    value={editForm.total_shipment_cost}
+                    readOnly={locked}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, total_shipment_cost: e.target.value }))
+                    }
+                    style={locked ? { opacity: 0.9, background: 'var(--bg-elevated)' } : undefined}
+                  />
+                  <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                    {locked
+                      ? `Set by admin · ₹${rate}/trip (${src})`
+                      : 'No customer/org rate set'}
+                  </span>
+                </>
+              )
+            })()}
           </div>
 
           <div className="form-group">

@@ -22,10 +22,14 @@ export function buildContentSecurityPolicy(): string {
     : "script-src 'self' 'unsafe-inline'"
 
   // Always include cloud + local Supabase so production `next start` in CI works.
+  // fonts.* allowed in connect-src so the PWA service worker (Workbox) can
+  // fetch Google Fonts CSS/files without CSP "Refused to connect" errors.
   const connectSrc = [
     "connect-src 'self'",
     'https://*.supabase.co',
     'wss://*.supabase.co',
+    'https://fonts.googleapis.com',
+    'https://fonts.gstatic.com',
     ...LOCAL_SUPABASE,
   ].join(' ')
 
@@ -41,9 +45,10 @@ export function buildContentSecurityPolicy(): string {
   const directives = [
     "default-src 'self'",
     scriptSrc,
+    // Prefer self-hosted next/font; keep googleapis for any residual @import / cache
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     imgSrc,
-    "font-src 'self' https://fonts.gstatic.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
     connectSrc,
     "worker-src 'self' blob:",
     "manifest-src 'self'",

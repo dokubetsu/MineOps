@@ -1125,6 +1125,10 @@ export type Database = {
         Returns: undefined
       }
       get_org_site_ids: { Args: never; Returns: string[] }
+      get_my_assigned_sites: {
+        Args: never
+        Returns: { id: string; name: string; location: string | null }[]
+      }
       get_user_organization_id: { Args: never; Returns: string }
       get_user_role: { Args: never; Returns: string }
       get_user_site_ids: { Args: never; Returns: string[] }
