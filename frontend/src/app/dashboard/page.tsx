@@ -285,9 +285,12 @@ export default function DashboardPage() {
             <div className="stat-card">
               <div className="stat-icon red"><TrendingDown size={18} /></div>
               <div className="stat-body">
-                <div className="stat-label">Advance + cash out</div>
+                <div className="stat-label">Cash out (incl. advances)</div>
                 <div className="stat-value">
-                  {formatInr(siteRollups.reduce((s, r) => s + r.advance + r.cash_out, 0))}
+                  {formatInr(siteRollups.reduce((s, r) => s + r.cash_out, 0))}
+                </div>
+                <div className="stat-change" style={{ color: 'var(--text-muted)' }}>
+                  {formatInr(siteRollups.reduce((s, r) => s + r.advance, 0))} from trips
                 </div>
               </div>
             </div>

@@ -64,7 +64,7 @@ export function getCapacityForType(type: string): string {
 }
 
 /**
- * Fallback ₹ **per trip** when Master Data has no negotiated_rates row.
+ * Suggested seed values for Settings → Org rates only (not used to auto-price trips).
  * Matches field business report (12WH ₹1000, 10WH ₹800).
  */
 export function getDefaultTripRate(type: string): number {
@@ -88,18 +88,19 @@ export function getDefaultRatePerCubic(type: string): number {
 export type RateRow = { vehicle_type?: string | null; rate_per_cubic?: number | string | null }
 
 /**
- * Prefer org negotiated rate (stored in rate_per_cubic as ₹/trip); else built-in default.
+ * Prefer org negotiated rate (stored in rate_per_cubic as ₹/trip).
+ * No app default — trip cost is entered manually when no rate is configured.
  */
 export function resolveTripRate(
   vehicleType: string,
   rates: RateRow[] | null | undefined
-): { rate: number; fromNegotiated: boolean; source: 'vehicle_type' | 'default' } {
+): { rate: number | null; fromNegotiated: boolean; source: 'vehicle_type' | 'none' } {
   const row = (rates || []).find((r) => r.vehicle_type === vehicleType)
   const negotiated = row != null ? Number(row.rate_per_cubic) : NaN
   if (Number.isFinite(negotiated) && negotiated > 0) {
     return { rate: negotiated, fromNegotiated: true, source: 'vehicle_type' }
   }
-  return { rate: getDefaultTripRate(vehicleType), fromNegotiated: false, source: 'default' }
+  return { rate: null, fromNegotiated: false, source: 'none' }
 }
 
 export type CustomerRateRow = {
@@ -108,17 +109,24 @@ export type CustomerRateRow = {
   trip_rates?: Record<string, number | string> | null
 }
 
+export type TripRateSource =
+  | 'customer_type'
+  | 'customer_default'
+  | 'vehicle_type'
+  | 'none'
+
 /**
- * Price resolution for a trip (field model: rate discussed with customer):
+ * Optional rate hint for a trip (never invents an app default):
  * 1) customer trip_rates[vehicleType]
  * 2) customer default_trip_rate
- * 3) org negotiated_rates / default by vehicle type
+ * 3) org negotiated_rates by vehicle type
+ * 4) none — user enters trip cost manually
  */
 export function resolveTripRateForCustomer(
   vehicleType: string,
   customer: CustomerRateRow | null | undefined,
   orgRates: RateRow[] | null | undefined
-): { rate: number; source: 'customer_type' | 'customer_default' | 'vehicle_type' | 'default' } {
+): { rate: number | null; source: TripRateSource } {
   if (customer) {
     const map = customer.trip_rates || {}
     const typed = Number(map[vehicleType])
@@ -138,8 +146,9 @@ export function resolveTripRateForCustomer(
 export function resolveRatePerCubic(
   vehicleType: string,
   rates: RateRow[] | null | undefined
-): { rate: number; fromNegotiated: boolean } {
-  return resolveTripRate(vehicleType, rates)
+): { rate: number | null; fromNegotiated: boolean } {
+  const r = resolveTripRate(vehicleType, rates)
+  return { rate: r.rate, fromNegotiated: r.fromNegotiated }
 }
 
 export function vehicleTypeLabel(type: string): string {

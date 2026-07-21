@@ -96,10 +96,11 @@ test.describe('Phase 4 error + trip helpers', () => {
     expect(VEHICLE_TYPES).toContain('Other')
   })
 
-  test('resolveTripRate uses negotiated then defaults (₹/trip)', () => {
-    expect(resolveRatePerCubic('12WH', []).rate).toBe(1000)
-    expect(getDefaultRatePerCubic('10WH')).toBe(800)
+  test('resolveTripRate uses negotiated rates only (no app default price)', () => {
+    expect(resolveRatePerCubic('12WH', []).rate).toBeNull()
     expect(resolveRatePerCubic('12WH', []).fromNegotiated).toBe(false)
+    // Seed helpers still exist for Settings UI only
+    expect(getDefaultRatePerCubic('10WH')).toBe(800)
     expect(
       resolveRatePerCubic('12WH', [{ vehicle_type: '12WH', rate_per_cubic: 1200 }]).rate
     ).toBe(1200)
@@ -108,7 +109,7 @@ test.describe('Phase 4 error + trip helpers', () => {
     ).toBe(true)
   })
 
-  test('resolveTripRateForCustomer prefers customer rates', async () => {
+  test('resolveTripRateForCustomer prefers customer rates; no app default', async () => {
     const { resolveTripRateForCustomer } = await import('../../src/lib/trip-constants')
     const r = resolveTripRateForCustomer(
       '12WH',
@@ -124,6 +125,9 @@ test.describe('Phase 4 error + trip helpers', () => {
     )
     expect(r2.rate).toBe(900)
     expect(r2.source).toBe('customer_default')
+    const r3 = resolveTripRateForCustomer('12WH', null, [])
+    expect(r3.rate).toBeNull()
+    expect(r3.source).toBe('none')
   })
 })
 

@@ -2,34 +2,53 @@
  * Offline write outbox — queue mutations when offline / network fails,
  * flush to Supabase when connectivity returns.
  *
- * Scope: trips create, attendance roster save, cash entry create (no binary photos in v1).
- * Storage: localStorage, scoped by user + org. Cleared on logout via clearOfflineCache.
+ * Supports: trip create/update, attendance save, cash entry create.
+ * Binary photos live in IndexedDB (offline-photo-store) linked by photo_blob_ids.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/supabase/database.types'
 import { tripsRepository, type TripCreateInput } from '@/lib/repositories/trips'
+import type { TripUpdate } from '@/lib/repositories/trips'
 import { attendanceRepository, type AttendanceSaveRecord } from '@/lib/repositories/attendance'
 import { cashBookRepository } from '@/lib/repositories/cash-book'
 import { isBrowserOnline, isLikelyNetworkError } from '@/lib/offline-network'
+import {
+  clearOfflinePhotosForUser,
+  deleteOfflinePhotosByOutbox,
+  getOfflinePhotosByOutbox,
+  putOfflinePhotos,
+} from '@/lib/offline-photo-store'
 
 const OUTBOX_PREFIX = 'mineops_outbox_v1'
 const MAX_ATTEMPTS = 8
 const MAX_ITEMS = 200
 
-export type OutboxKind = 'trip_create' | 'attendance_save' | 'cash_entry_create'
+export type OutboxKind = 'trip_create' | 'trip_update' | 'attendance_save' | 'cash_entry_create'
 
 export interface TripCreateOutboxPayload {
   kind: 'trip_create'
-  /** Trip row fields (vehicle_id may be null if only plate known) */
   trip: TripCreateInput
-  /** Plate to resolve/create vehicle when vehicle_id missing */
   vehicle_plate?: string | null
   vehicle_type?: string | null
   ownership?: string | null
-  /** Paths already uploaded (online photos); offline skips binary */
+  /** Already-uploaded storage paths */
   photo_paths?: string[]
-  /** Client-side optimistic id for UI */
+  /** IndexedDB blob ids to upload on flush */
+  photo_blob_ids?: string[]
+  client_id: string
+}
+
+export interface TripUpdateOutboxPayload {
+  kind: 'trip_update'
+  trip_id: string
+  patch: TripUpdate & { rate_per_cubic?: number | null }
+  vehicle_plate?: string | null
+  vehicle_type?: string | null
+  ownership?: string | null
+  /** Replace trip_photos with these storage paths after update */
+  photo_paths?: string[]
+  photo_blob_ids?: string[]
   client_id: string
 }
 
@@ -43,7 +62,6 @@ export interface AttendanceSaveOutboxPayload {
 
 export interface CashEntryOutboxPayload {
   kind: 'cash_entry_create'
-  /** Prefer cash_book_id when known; else resolve via site_id + book_date on flush */
   cash_book_id: string | null
   site_id: string
   book_date: string
@@ -51,14 +69,16 @@ export interface CashEntryOutboxPayload {
   category: string
   amount: number
   note: string | null
-  /** Storage path if already uploaded; offline creates without receipt */
   receipt_url?: string | null
+  /** IndexedDB blob for receipt when offline */
+  receipt_blob_id?: string | null
   contractor_id?: string | null
   client_id: string
 }
 
 export type OutboxPayload =
   | TripCreateOutboxPayload
+  | TripUpdateOutboxPayload
   | AttendanceSaveOutboxPayload
   | CashEntryOutboxPayload
 
@@ -80,7 +100,6 @@ export interface FlushResult {
   errors: string[]
 }
 
-/** In-memory fallback for unit tests / SSR; browser uses localStorage. */
 const memoryStore = new Map<string, string>()
 
 function canUseLocalStorage(): boolean {
@@ -112,7 +131,7 @@ function storageSet(key: string, value: string): void {
       localStorage.setItem(key, value)
       return
     } catch {
-      // fall through to memory
+      // fall through
     }
   }
   memoryStore.set(key, value)
@@ -162,9 +181,11 @@ export function enqueueOutbox(
 ): OutboxItem | null {
   if (!userId || !orgId) return null
   const item: OutboxItem = {
-    id: payload.client_id || (typeof crypto !== 'undefined' && crypto.randomUUID
-      ? crypto.randomUUID()
-      : `outbox-${Date.now()}`),
+    id:
+      payload.client_id ||
+      (typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `outbox-${Date.now()}`),
     userId,
     orgId,
     createdAt: Date.now(),
@@ -172,31 +193,154 @@ export function enqueueOutbox(
     payload,
   }
   const items = readAll(userId, orgId)
-  // Dedupe attendance saves for same site+date — keep latest
-  const filtered =
-    payload.kind === 'attendance_save'
-      ? items.filter(
-          (i) =>
-            !(
-              i.payload.kind === 'attendance_save' &&
-              i.payload.site_id === payload.site_id &&
-              i.payload.att_date === payload.att_date
-            )
+  let filtered = items
+
+  if (payload.kind === 'attendance_save') {
+    filtered = items.filter(
+      (i) =>
+        !(
+          i.payload.kind === 'attendance_save' &&
+          i.payload.site_id === payload.site_id &&
+          i.payload.att_date === payload.att_date
         )
-      : items
+    )
+  } else if (payload.kind === 'trip_update') {
+    // Keep latest patch for same trip_id; drop prior photo blobs
+    const dropped = items.filter(
+      (i) => i.payload.kind === 'trip_update' && i.payload.trip_id === payload.trip_id
+    )
+    for (const d of dropped) void deleteOfflinePhotosByOutbox(d.id)
+    filtered = items.filter(
+      (i) => !(i.payload.kind === 'trip_update' && i.payload.trip_id === payload.trip_id)
+    )
+  }
+
   filtered.push(item)
   writeAll(userId, orgId, filtered)
   notifyOutboxChanged()
   return item
 }
 
-export function removeOutboxItem(
-  userId: string,
-  orgId: string,
-  id: string
-): void {
+/**
+ * Queue trip create + store photo blobs in IndexedDB.
+ */
+export async function enqueueTripCreateWithPhotos(
+  userId: string | null | undefined,
+  orgId: string | null | undefined,
+  payload: Omit<TripCreateOutboxPayload, 'kind' | 'photo_blob_ids'> & {
+    kind?: 'trip_create'
+    files?: File[]
+  }
+): Promise<OutboxItem | null> {
+  const client_id =
+    payload.client_id ||
+    (typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `trip-${Date.now()}`)
+  const item = enqueueOutbox(userId, orgId, {
+    ...payload,
+    kind: 'trip_create',
+    client_id,
+    photo_blob_ids: [],
+  })
+  if (!item || !userId || !orgId) return item
+  const files = payload.files || []
+  if (files.length > 0) {
+    const ids = await putOfflinePhotos(userId, orgId, item.id, files)
+    const items = readAll(userId, orgId).map((i) =>
+      i.id === item.id && i.payload.kind === 'trip_create'
+        ? {
+            ...i,
+            payload: { ...i.payload, photo_blob_ids: ids },
+          }
+        : i
+    )
+    writeAll(userId, orgId, items)
+    notifyOutboxChanged()
+  }
+  return item
+}
+
+export async function enqueueTripUpdateWithPhotos(
+  userId: string | null | undefined,
+  orgId: string | null | undefined,
+  payload: Omit<TripUpdateOutboxPayload, 'kind' | 'photo_blob_ids'> & {
+    files?: File[]
+  }
+): Promise<OutboxItem | null> {
+  const client_id =
+    payload.client_id ||
+    (typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `trip-up-${Date.now()}`)
+  const item = enqueueOutbox(userId, orgId, {
+    ...payload,
+    kind: 'trip_update',
+    client_id,
+    photo_blob_ids: [],
+  })
+  if (!item || !userId || !orgId) return item
+  const files = payload.files || []
+  if (files.length > 0) {
+    const ids = await putOfflinePhotos(userId, orgId, item.id, files)
+    const items = readAll(userId, orgId).map((i) =>
+      i.id === item.id && i.payload.kind === 'trip_update'
+        ? { ...i, payload: { ...i.payload, photo_blob_ids: ids } }
+        : i
+    )
+    writeAll(userId, orgId, items)
+    notifyOutboxChanged()
+  }
+  return item
+}
+
+/**
+ * Queue cash entry + optional receipt image in IndexedDB.
+ */
+export async function enqueueCashEntryWithReceipt(
+  userId: string | null | undefined,
+  orgId: string | null | undefined,
+  payload: Omit<CashEntryOutboxPayload, 'kind' | 'receipt_blob_id'> & {
+    kind?: 'cash_entry_create'
+    receiptFile?: File | null
+  }
+): Promise<OutboxItem | null> {
+  const client_id =
+    payload.client_id ||
+    (typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : `cash-${Date.now()}`)
+  const item = enqueueOutbox(userId, orgId, {
+    ...payload,
+    kind: 'cash_entry_create',
+    client_id,
+    receipt_blob_id: null,
+  })
+  if (!item || !userId || !orgId) return item
+  const file = payload.receiptFile
+  if (file) {
+    const ids = await putOfflinePhotos(userId, orgId, item.id, [file])
+    const items = readAll(userId, orgId).map((i) =>
+      i.id === item.id && i.payload.kind === 'cash_entry_create'
+        ? {
+            ...i,
+            payload: {
+              ...i.payload,
+              receipt_blob_id: ids[0] || null,
+            },
+          }
+        : i
+    )
+    writeAll(userId, orgId, items)
+    notifyOutboxChanged()
+  }
+  return item
+}
+
+export function removeOutboxItem(userId: string, orgId: string, id: string): void {
   const next = readAll(userId, orgId).filter((i) => i.id !== id)
   writeAll(userId, orgId, next)
+  void deleteOfflinePhotosByOutbox(id)
   notifyOutboxChanged()
 }
 
@@ -204,6 +348,7 @@ export function clearOutboxForUser(userId?: string | null, orgId?: string | null
   try {
     if (userId && orgId) {
       storageRemove(storageKey(userId, orgId))
+      void clearOfflinePhotosForUser(userId, orgId)
       notifyOutboxChanged()
       return
     }
@@ -218,13 +363,13 @@ export function clearOutboxForUser(userId?: string | null, orgId?: string | null
     for (const k of [...memoryStore.keys()]) {
       if (k.startsWith(OUTBOX_PREFIX)) memoryStore.delete(k)
     }
+    void clearOfflinePhotosForUser()
     notifyOutboxChanged()
   } catch {
     // ignore
   }
 }
 
-/** Clear all outbox keys (logout). */
 export function clearAllOutboxes(): void {
   clearOutboxForUser()
 }
@@ -250,25 +395,28 @@ function notifyOutboxChanged(): void {
 async function resolveVehicleId(
   supabase: SupabaseClient<Database>,
   orgId: string,
-  payload: TripCreateOutboxPayload
+  plate: string | null | undefined,
+  vehicleType: string | null | undefined,
+  ownership: string | null | undefined,
+  existingId: string | null | undefined
 ): Promise<string | null> {
-  if (payload.trip.vehicle_id) return payload.trip.vehicle_id
-  const plate = (payload.vehicle_plate || '').toUpperCase().trim()
-  if (!plate) return null
+  if (existingId) return existingId
+  const upper = (plate || '').toUpperCase().trim()
+  if (!upper) return null
 
   const { data: existing } = await supabase
     .from('vehicles')
     .select('id')
-    .eq('plate_number', plate)
+    .eq('plate_number', upper)
     .maybeSingle()
   if (existing?.id) return existing.id
 
   const { data: created, error } = await supabase
     .from('vehicles')
     .insert({
-      plate_number: plate,
-      vehicle_type: payload.vehicle_type || '12WH',
-      ownership: payload.ownership || 'rented',
+      plate_number: upper,
+      vehicle_type: vehicleType || '12WH',
+      ownership: ownership || 'rented',
       active: true,
       organization_id: orgId,
     })
@@ -278,30 +426,112 @@ async function resolveVehicleId(
   return created?.id ?? null
 }
 
+async function uploadOfflineBlobs(
+  supabase: SupabaseClient<Database>,
+  outboxId: string,
+  bucket: 'trip-photos' | 'cash-receipts',
+  pathPrefix: string
+): Promise<string[]> {
+  const photos = await getOfflinePhotosByOutbox(outboxId)
+  const paths: string[] = []
+  for (const rec of photos) {
+    const ext = rec.name.split('.').pop() || 'jpg'
+    const path = `${pathPrefix}/${rec.id}.${ext}`
+    const { error } = await supabase.storage
+      .from(bucket)
+      .upload(path, rec.blob, { upsert: true, contentType: rec.type || 'image/jpeg' })
+    if (error) throw error
+    paths.push(path)
+  }
+  return paths
+}
+
 async function processItem(
   supabase: SupabaseClient<Database>,
   orgId: string,
   item: OutboxItem
 ): Promise<void> {
   const p = item.payload
+
   if (p.kind === 'trip_create') {
-    const vehicleId = await resolveVehicleId(supabase, orgId, p)
+    const vehicleId = await resolveVehicleId(
+      supabase,
+      orgId,
+      p.vehicle_plate,
+      p.vehicle_type,
+      p.ownership,
+      p.trip.vehicle_id
+    )
+    const siteId = p.trip.site_id || 'unknown'
+    const tripDate = String(p.trip.trip_date || '').slice(0, 10) || 'unknown'
+    const blobPaths = await uploadOfflineBlobs(
+      supabase,
+      item.id,
+      'trip-photos',
+      `${siteId}/${tripDate}`
+    )
+    const allPhotos = [...(p.photo_paths || []), ...blobPaths]
     const tripPayload: TripCreateInput = {
       ...p.trip,
       vehicle_id: vehicleId,
       organization_id: p.trip.organization_id || orgId,
+      photo_url: allPhotos[0] || p.trip.photo_url || null,
+      _vehicle_plate: p.vehicle_plate || null,
     }
     const row = await tripsRepository.create(supabase, tripPayload)
-    if (p.photo_paths && p.photo_paths.length > 0) {
+    if (allPhotos.length > 0) {
       await supabase.from('trip_photos').delete().eq('trip_id', row.id)
       await supabase.from('trip_photos').insert(
-        p.photo_paths.map((url, idx) => ({
+        allPhotos.map((url, idx) => ({
           trip_id: row.id,
           photo_url: url,
           sort_order: idx,
         }))
       )
     }
+    await deleteOfflinePhotosByOutbox(item.id)
+    return
+  }
+
+  if (p.kind === 'trip_update') {
+    let patch = { ...p.patch }
+    if (p.vehicle_plate && !patch.vehicle_id) {
+      const vid = await resolveVehicleId(
+        supabase,
+        orgId,
+        p.vehicle_plate,
+        p.vehicle_type,
+        p.ownership,
+        p.patch.vehicle_id as string | null
+      )
+      if (vid) patch = { ...patch, vehicle_id: vid }
+    }
+    const siteId = String(p.patch.site_id || 'unknown')
+    const tripDate = String(p.patch.trip_date || '').slice(0, 10) || 'unknown'
+    const blobPaths = await uploadOfflineBlobs(
+      supabase,
+      item.id,
+      'trip-photos',
+      `${siteId}/${tripDate}`
+    )
+    await tripsRepository.update(supabase, p.trip_id, {
+      ...patch,
+      _vehicle_plate: p.vehicle_plate || null,
+    })
+    const allPhotos = [...(p.photo_paths || []), ...blobPaths]
+    if (allPhotos.length > 0 || (p.photo_blob_ids && p.photo_blob_ids.length > 0)) {
+      await supabase.from('trip_photos').delete().eq('trip_id', p.trip_id)
+      if (allPhotos.length > 0) {
+        await supabase.from('trip_photos').insert(
+          allPhotos.map((url, idx) => ({
+            trip_id: p.trip_id,
+            photo_url: url,
+            sort_order: idx,
+          }))
+        )
+      }
+    }
+    await deleteOfflinePhotosByOutbox(item.id)
     return
   }
 
@@ -316,21 +546,24 @@ async function processItem(
       const book = await cashBookRepository.getOrCreate(supabase, p.site_id, p.book_date)
       bookId = book.id
     }
+    let receiptUrl = p.receipt_url ?? null
+    if (p.receipt_blob_id || (await getOfflinePhotosByOutbox(item.id)).length > 0) {
+      const paths = await uploadOfflineBlobs(supabase, item.id, 'cash-receipts', bookId)
+      if (paths[0]) receiptUrl = paths[0]
+    }
     await cashBookRepository.createEntry(supabase, {
       cash_book_id: bookId,
       entry_type: p.entry_type,
       category: p.category,
       amount: p.amount,
       note: p.note,
-      receipt_url: p.receipt_url ?? null,
+      receipt_url: receiptUrl,
       contractor_id: p.contractor_id ?? null,
     })
+    await deleteOfflinePhotosByOutbox(item.id)
   }
 }
 
-/**
- * Flush pending mutations for this user/org. Safe to call repeatedly.
- */
 export async function flushOutbox(
   supabase: SupabaseClient<Database>,
   userId: string | null | undefined,
@@ -376,7 +609,6 @@ export async function flushOutbox(
           : i
       )
       writeAll(userId, orgId, remaining)
-      // Stop if clearly offline again
       if (isLikelyNetworkError(err) || !isBrowserOnline()) break
     }
   }
@@ -391,11 +623,12 @@ export async function flushOutbox(
   }
 }
 
-/** Human label for UI */
 export function outboxKindLabel(kind: OutboxKind): string {
   switch (kind) {
     case 'trip_create':
       return 'Trip'
+    case 'trip_update':
+      return 'Trip edit'
     case 'attendance_save':
       return 'Attendance'
     case 'cash_entry_create':

@@ -10,7 +10,7 @@ import { Site, CashBook, CashEntry } from '@/lib/supabase/types'
 import { cashBookRepository } from '@/lib/repositories/cash-book'
 import { sitesRepository } from '@/lib/repositories/sites'
 import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
-import { enqueueOutbox } from '@/lib/offline-outbox'
+import { enqueueCashEntryWithReceipt } from '@/lib/offline-outbox'
 import { isBrowserOnline, shouldQueueOffline } from '@/lib/offline-network'
 import { formatInr } from '@/lib/calculations'
 import BottomSheet from '@/components/BottomSheet'
@@ -288,10 +288,9 @@ export default function CashBookPage() {
 
     setSubmitting(true)
 
-    const queueCashOffline = (receiptUrl: string | null) => {
+    const queueCashOffline = async (receiptUrl: string | null, receiptFile: File | null) => {
       const clientId = crypto.randomUUID()
-      const item = enqueueOutbox(user?.id, organizationId, {
-        kind: 'cash_entry_create',
+      const item = await enqueueCashEntryWithReceipt(user?.id, organizationId, {
         client_id: clientId,
         cash_book_id: cashBook.id,
         site_id: selectedSite,
@@ -302,6 +301,7 @@ export default function CashBookPage() {
         note: form.note || null,
         receipt_url: receiptUrl,
         contractor_id: form.contractor_id || null,
+        receiptFile,
       })
       if (!item) {
         toast.error('Could not queue cash entry offline')
@@ -320,15 +320,15 @@ export default function CashBookPage() {
         created_at: new Date().toISOString(),
       } as CashEntry
       setEntries((prev) => [optimistic, ...prev])
-      toast.success('Cash entry saved offline — will sync when online', { icon: '📶' })
-      if (photoFile) {
-        toast('Receipt photo not stored offline — re-attach after sync if needed', { icon: '📷' })
-      }
+      const photoNote = receiptFile ? ' · receipt queued' : ''
+      toast.success(`Cash entry saved offline — will sync when online${photoNote}`, {
+        icon: '📶',
+      })
       return true
     }
 
     if (!isBrowserOnline()) {
-      if (queueCashOffline(null)) {
+      if (await queueCashOffline(null, photoFile)) {
         setShowForm(false)
         setForm(emptyOutForm())
         setPhotoFile(null)
@@ -369,7 +369,7 @@ export default function CashBookPage() {
       setPhotoPreview(null)
       loadCashBook()
     } catch (err: unknown) {
-      if (shouldQueueOffline(err) && queueCashOffline(null)) {
+      if (shouldQueueOffline(err) && (await queueCashOffline(null, photoFile))) {
         setShowForm(false)
         setForm(emptyOutForm())
         setPhotoFile(null)

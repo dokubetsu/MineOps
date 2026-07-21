@@ -77,13 +77,13 @@ Source: paper ops in local `reference/` (untracked scans: daily trip sheets, wee
 
 | Rule | Detail |
 |------|--------|
-| **Price unit** | **Flat ₹ per trip** — primarily **rate discussed with customer** |
-| **Resolution order** | 1) Customer type rate 2) Customer default rate 3) Org type rate 4) App default |
-| **Not used in price** | Distance (km), cubic capacity (m³), drop location |
-| **Defaults** (if no rates set) | 12WH ₹1000, 10WH ₹800, 6WH ₹600, Other ₹500 |
-| **Master Data** | Settings → **Customers** (buyer rates) + **Org rates** fallback (`negotiated_rates`) |
-| **Advance** | Separate field; **not** added into trip cost |
-| **Reporting** | Count trips by type × rate (e.g. 1572 × 1000 + 29 × 800); stakeholder share often 50/50 of total |
+| **Price unit** | **Flat ₹ per trip** — entered on the trip form (not auto-invented) |
+| **Optional rate hints** | 1) Customer type rate 2) Customer default rate 3) Org type rate — **Apply** fills cost; never auto-overwrites |
+| **Not used in price** | Distance (km), cubic capacity (m³), drop location, app hard-coded defaults |
+| **Org rate seed only** | Settings can seed 12WH ₹1000 / 10WH ₹800 / … for Master Data; **not** used to auto-price trips |
+| **Master Data** | Settings → **Customers** (buyer rates) + **Org rates** (`negotiated_rates`) |
+| **Advance** | Separate field; **not** added into trip cost. When &gt; 0, posted as cash book **OUT** category **Advance for trip** (synced on create/update/delete) |
+| **Reporting** | Prefer actual `trip_worth`; cash flow uses cash book (advances included in cash out) |
 
 ### Settlement (Phase 1)
 

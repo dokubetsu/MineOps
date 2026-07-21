@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
-import { computeTripWorth, computeTripWorthFromRate, roundMoney } from '../calculations'
+import { computeTripWorth, roundMoney } from '../calculations'
+import { cashBookRepository } from './cash-book'
 
 export type TripInsert = Database['public']['Tables']['trips']['Insert']
 export type TripRow = Database['public']['Tables']['trips']['Row']
@@ -20,17 +21,45 @@ export type TripCreateInput = Omit<
 > & {
   /** Flat ₹ per trip by vehicle type (column name historical: rate_per_cubic) */
   rate_per_cubic?: number | null
+  /** Optional plate for cash advance note */
+  _vehicle_plate?: string | null
 }
 
+/**
+ * Trip cost is explicit only — never invent from rate defaults.
+ * If trip_worth empty but total_shipment_cost set, use that for worth.
+ */
 function normalizeWorth(payload: TripCreateInput): number | null {
   if (payload.trip_worth != null && !Number.isNaN(Number(payload.trip_worth))) {
     return computeTripWorth({ tripWorth: payload.trip_worth })
   }
-  // Flat per-trip rate (reference paper: 12WH ₹1000, 10WH ₹800)
-  if (payload.rate_per_cubic != null && !Number.isNaN(Number(payload.rate_per_cubic))) {
-    return computeTripWorth({ rateAmount: payload.rate_per_cubic })
+  if (
+    payload.total_shipment_cost != null &&
+    !Number.isNaN(Number(payload.total_shipment_cost))
+  ) {
+    return computeTripWorth({ tripWorth: payload.total_shipment_cost })
   }
   return null
+}
+
+async function syncAdvanceFromTrip(
+  supabase: SupabaseClient<Database>,
+  trip: TripRow,
+  vehiclePlate?: string | null
+): Promise<void> {
+  try {
+    await cashBookRepository.syncTripAdvance(supabase, {
+      siteId: trip.site_id,
+      bookDate: String(trip.trip_date).slice(0, 10),
+      tripId: trip.id,
+      amount: trip.advance_amount,
+      contractorId: trip.contractor_id,
+      vehiclePlate: vehiclePlate ?? null,
+    })
+  } catch (err) {
+    // Feature gate / RLS / locked book — keep trip; cash can be fixed later
+    console.warn('[trips] advance → cash sync failed', err)
+  }
 }
 
 export const tripsRepository = {
@@ -56,12 +85,13 @@ export const tripsRepository = {
 
   /**
    * Single create path for admin trips + my-work.
-   * Always normalizes trip_worth (and total_shipment_cost default) via shared math.
+   * Trip cost is explicit; advance_amount is mirrored into cash book OUT.
    */
   async create(
     supabase: SupabaseClient<Database>,
     payload: TripCreateInput
   ): Promise<TripRow> {
+    const { _vehicle_plate, ...insertPayload } = payload
     const worth = normalizeWorth(payload)
     const total =
       payload.total_shipment_cost != null && !Number.isNaN(Number(payload.total_shipment_cost))
@@ -71,11 +101,14 @@ export const tripsRepository = {
     const { data, error } = await supabase
       .from('trips')
       .insert({
-        ...payload,
+        ...insertPayload,
         rate_per_cubic:
-          payload.rate_per_cubic != null ? Number(payload.rate_per_cubic) : null,
+          payload.rate_per_cubic != null && Number(payload.rate_per_cubic) > 0
+            ? Number(payload.rate_per_cubic)
+            : null,
         trip_worth: worth,
         total_shipment_cost: total,
+        advance_amount: roundMoney(Number(payload.advance_amount) || 0),
         entry_time: new Date().toISOString(),
         active: true,
       })
@@ -83,28 +116,36 @@ export const tripsRepository = {
       .single()
 
     if (error) throw error
+    await syncAdvanceFromTrip(supabase, data, _vehicle_plate)
     return data
   },
 
   async update(
     supabase: SupabaseClient<Database>,
     id: string,
-    payload: TripUpdate & { rate_per_cubic?: number | null }
+    payload: TripUpdate & { rate_per_cubic?: number | null; _vehicle_plate?: string | null }
   ): Promise<TripRow> {
-    const patch: TripUpdate & { rate_per_cubic?: number | null } = { ...payload }
+    const { _vehicle_plate, ...rest } = payload
+    const patch: TripUpdate & { rate_per_cubic?: number | null } = { ...rest }
 
     if (payload.trip_worth != null && !Number.isNaN(Number(payload.trip_worth))) {
       patch.trip_worth = computeTripWorth({ tripWorth: payload.trip_worth })
-    } else if (payload.rate_per_cubic != null) {
-      patch.trip_worth = computeTripWorth({ rateAmount: payload.rate_per_cubic })
     }
+    // Do not invent trip_worth from rate_per_cubic
     if (payload.total_shipment_cost != null) {
       patch.total_shipment_cost = roundMoney(Number(payload.total_shipment_cost))
-    } else if (patch.trip_worth != null) {
-      patch.total_shipment_cost = patch.trip_worth
+    } else if (patch.trip_worth != null && payload.trip_worth != null) {
+      // only auto-fill shipment when caller sent trip_worth and left shipment unset
+      if (payload.total_shipment_cost === undefined) {
+        // leave shipment as-is unless trip_worth was the only cost field
+      }
     }
     if (payload.rate_per_cubic != null) {
-      patch.rate_per_cubic = Number(payload.rate_per_cubic)
+      const r = Number(payload.rate_per_cubic)
+      patch.rate_per_cubic = Number.isFinite(r) && r > 0 ? r : null
+    }
+    if (payload.advance_amount != null) {
+      patch.advance_amount = roundMoney(Number(payload.advance_amount) || 0)
     }
 
     const { data, error } = await supabase
@@ -115,16 +156,37 @@ export const tripsRepository = {
       .single()
 
     if (error) throw error
+    await syncAdvanceFromTrip(supabase, data, _vehicle_plate)
     return data
   },
 
   async delete(supabase: SupabaseClient<Database>, id: string): Promise<void> {
+    // Load site/date for advance cleanup
+    const { data: existing } = await supabase
+      .from('trips')
+      .select('id, site_id, trip_date, advance_amount')
+      .eq('id', id)
+      .maybeSingle()
+
     const { error } = await supabase
       .from('trips')
       .update({ active: false })
       .eq('id', id)
 
     if (error) throw error
+
+    if (existing) {
+      try {
+        await cashBookRepository.syncTripAdvance(supabase, {
+          siteId: existing.site_id,
+          bookDate: String(existing.trip_date).slice(0, 10),
+          tripId: existing.id,
+          amount: 0,
+        })
+      } catch (err) {
+        console.warn('[trips] advance cleanup on delete failed', err)
+      }
+    }
   },
 
   async settle(

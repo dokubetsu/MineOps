@@ -1,7 +1,15 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
 import { CashBook, CashEntry } from '../supabase/types'
-import { calculateClosingBalance } from '../calculations'
+import { calculateClosingBalance, roundMoney } from '../calculations'
+
+/** Cash OUT category for trip advances (must match expense picker). */
+export const TRIP_ADVANCE_CATEGORY = 'Advance for trip'
+
+/** Stable marker so we can update/remove the cash line when advance changes. */
+export function tripAdvanceNoteMarker(tripId: string): string {
+  return `[trip_advance:${tripId}]`
+}
 
 export const cashBookRepository = {
   async getOrCreate(supabase: SupabaseClient<Database>, siteId: string, date: string): Promise<CashBook> {
@@ -91,6 +99,98 @@ export const cashBookRepository = {
       })
 
     if (error) throw error
+  },
+
+  /**
+   * Keep cash book in sync with trip.advance_amount:
+   * - amount > 0 → cash OUT "Advance for trip" (create or update)
+   * - amount ≤ 0 → soft-delete any linked advance line
+   * Marker in note: [trip_advance:<tripId>]
+   */
+  async syncTripAdvance(
+    supabase: SupabaseClient<Database>,
+    args: {
+      siteId: string
+      bookDate: string
+      tripId: string
+      amount: number | null | undefined
+      contractorId?: string | null
+      vehiclePlate?: string | null
+    }
+  ): Promise<void> {
+    const { siteId, bookDate, tripId } = args
+    if (!siteId || !bookDate || !tripId) return
+
+    const amount = roundMoney(Number(args.amount) || 0)
+    const marker = tripAdvanceNoteMarker(tripId)
+    const book = await this.getOrCreate(supabase, siteId, bookDate)
+
+    // Find existing linked entry (active or not — we may re-activate)
+    const { data: existingRows, error: findError } = await supabase
+      .from('cash_entries')
+      .select('id, amount, active, cash_book_id')
+      .eq('category', TRIP_ADVANCE_CATEGORY)
+      .ilike('note', `%${marker}%`)
+      .limit(5)
+
+    if (findError) throw findError
+    const existing = (existingRows || [])[0] || null
+
+    if (amount <= 0) {
+      if (existing?.active) {
+        const { error } = await supabase
+          .from('cash_entries')
+          .update({ active: false })
+          .eq('id', existing.id)
+        if (error) throw error
+      }
+      return
+    }
+
+    if (book.status === 'locked') {
+      // Don't fail trip save — advance stays on trip; admin can unlock cash book
+      if (!existing) {
+        console.warn(
+          '[cash] trip advance not posted: cash book locked for',
+          bookDate,
+          tripId
+        )
+      }
+      return
+    }
+
+    const plate = (args.vehiclePlate || '').trim()
+    const note = plate
+      ? `${marker} Advance for ${plate}`
+      : `${marker} Trip advance`
+
+    if (existing) {
+      const { error } = await supabase
+        .from('cash_entries')
+        .update({
+          cash_book_id: book.id,
+          entry_type: 'out',
+          category: TRIP_ADVANCE_CATEGORY,
+          amount,
+          note,
+          contractor_id: args.contractorId || null,
+          active: true,
+          receipt_url: null,
+        })
+        .eq('id', existing.id)
+      if (error) throw error
+      return
+    }
+
+    await this.createEntry(supabase, {
+      cash_book_id: book.id,
+      entry_type: 'out',
+      category: TRIP_ADVANCE_CATEGORY,
+      amount,
+      note,
+      receipt_url: null,
+      contractor_id: args.contractorId || null,
+    })
   },
 
   /**

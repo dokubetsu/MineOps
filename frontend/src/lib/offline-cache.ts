@@ -7,7 +7,8 @@
  */
 
 const PREFIX = 'mineops_cache_v1'
-const DEFAULT_TTL_MS = 30 * 60 * 1000 // 30 minutes
+/** Default 7 days so multi-day field offline still has roster/trip lists. */
+const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 export interface CacheEnvelope<T> {
   v: 1
@@ -89,7 +90,7 @@ export function getOfflineCache<T>(
   }
 }
 
-/** Remove all MineOps offline cache + write outbox entries (call on logout). */
+/** Remove all MineOps offline cache + write outbox + photo blobs (call on logout). */
 export function clearOfflineCache(): void {
   if (!isBrowser()) return
   try {
@@ -113,6 +114,10 @@ export function clearOfflineCache(): void {
   } catch {
     // ignore
   }
+  // Clear IndexedDB photo queue (async fire-and-forget)
+  void import('@/lib/offline-photo-store')
+    .then((m) => m.clearOfflinePhotosForUser())
+    .catch(() => {})
 }
 
 /** Clear only the legacy unscoped keys used before namespacing. */

@@ -12,6 +12,14 @@ import {
 } from '../../src/lib/calculations'
 
 test.describe('Business Calculations (shared module)', () => {
+  test('trip advance marker is stable for cash-book sync', async () => {
+    const { tripAdvanceNoteMarker, TRIP_ADVANCE_CATEGORY } = await import(
+      '../../src/lib/repositories/cash-book'
+    )
+    expect(TRIP_ADVANCE_CATEGORY).toBe('Advance for trip')
+    expect(tripAdvanceNoteMarker('abc-123')).toBe('[trip_advance:abc-123]')
+  })
+
   test('should accurately calculate daily cash book closing balance including soft-deletes filtering', () => {
     const openingBalance = 10000
     const entries = [

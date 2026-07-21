@@ -9,9 +9,13 @@ import { useRouter } from 'next/navigation'
 import { Site, Vehicle, TransportContractor, Trip, Customer, TripPhoto } from '@/lib/supabase/types'
 import { tripsRepository } from '@/lib/repositories/trips'
 import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
-import { enqueueOutbox } from '@/lib/offline-outbox'
+import {
+  enqueueTripCreateWithPhotos,
+  enqueueTripUpdateWithPhotos,
+} from '@/lib/offline-outbox'
 import { isBrowserOnline, shouldQueueOffline } from '@/lib/offline-network'
 import { computeTripWorthFromRate } from '@/lib/calculations'
+// computeTripWorthFromRate used only for optional "apply rate" hint
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import toast from 'react-hot-toast'
@@ -184,24 +188,8 @@ export default function TripsPage() {
     }
   }, [photoPreviews])
 
-  // Auto-fill trip cost: customer rate (type or default) → org vehicle rate → app default
-  useEffect(() => {
-    const cust = customers.find((c) => c.id === form.customer_id) as
-      | { default_trip_rate?: number | null; trip_rates?: Record<string, number> | null }
-      | undefined
-    const { rate } = resolveTripRateForCustomer(form.vehicle_type, cust || null, rates)
-    const worth = String(computeTripWorthFromRate(null, rate))
-    setForm((f) => {
-      if (f.trip_worth === worth && f.total_shipment_cost === worth) return f
-      const ship =
-        !f.total_shipment_cost ||
-        f.total_shipment_cost === f.trip_worth ||
-        f.total_shipment_cost === '0'
-          ? worth
-          : f.total_shipment_cost
-      return { ...f, trip_worth: worth, total_shipment_cost: ship }
-    })
-  }, [form.vehicle_type, form.customer_id, rates, customers])
+  // Trip cost is manual (or filled from a configured customer/org rate via the Apply hint).
+  // No app-default auto-price.
 
   const loadInitialData = async () => {
     try {
@@ -403,6 +391,11 @@ export default function TripsPage() {
   }
 
   const startEditTrip = async (trip: ExtendedTrip) => {
+    // Queued creates use a client UUID until sync — edits need a real server row
+    if ((trip as ExtendedTrip & { _offline_pending?: boolean })._offline_pending) {
+      toast.error('This trip is still waiting to sync — edit after it appears online')
+      return
+    }
     setEditingTripId(trip.id)
     setForm({
       vehicle_id: trip.vehicle_id || '',
@@ -457,20 +450,21 @@ export default function TripsPage() {
     setShowForm(true)
   }
 
-  const queueTripCreateOffline = (args: {
+  const queueTripCreateOffline = async (args: {
     vehicleId: string | null
     plate: string
     photoPaths: string[]
+    files: File[]
     payload: Parameters<typeof tripsRepository.create>[1]
   }) => {
     const clientId = crypto.randomUUID()
-    const item = enqueueOutbox(user?.id, organizationId, {
-      kind: 'trip_create',
+    const item = await enqueueTripCreateWithPhotos(user?.id, organizationId, {
       client_id: clientId,
       vehicle_plate: args.plate || null,
       vehicle_type: form.vehicle_type,
       ownership: form.ownership,
       photo_paths: args.photoPaths,
+      files: args.files,
       trip: {
         ...args.payload,
         vehicle_id: args.vehicleId,
@@ -501,10 +495,77 @@ export default function TripsPage() {
     const cacheKey = `trips_${selectedSite}_${selectedDate}`
     const prevCache = getOfflineCache<ExtendedTrip[]>(user?.id, organizationId, cacheKey) || []
     setOfflineCache(user?.id, organizationId, cacheKey, [optimistic, ...prevCache])
-    toast.success('Trip saved offline — will sync when online', { icon: '📶' })
-    if (photoFiles.length > 0) {
-      toast('Photos were not stored offline — re-attach after sync if needed', { icon: '📷' })
+    const photoNote =
+      args.files.length > 0
+        ? ` · ${args.files.length} photo${args.files.length === 1 ? '' : 's'} queued`
+        : ''
+    toast.success(`Trip saved offline — will sync when online${photoNote}`, { icon: '📶' })
+    return true
+  }
+
+  const queueTripUpdateOffline = async (args: {
+    tripId: string
+    plate: string
+    photoPaths: string[]
+    files: File[]
+    patch: Parameters<typeof tripsRepository.create>[1] & { vehicle_id?: string | null }
+  }) => {
+    const item = await enqueueTripUpdateWithPhotos(user?.id, organizationId, {
+      client_id: crypto.randomUUID(),
+      trip_id: args.tripId,
+      vehicle_plate: args.plate || null,
+      vehicle_type: form.vehicle_type,
+      ownership: form.ownership,
+      photo_paths: args.photoPaths,
+      files: args.files,
+      patch: {
+        ...args.patch,
+        vehicle_id: args.patch.vehicle_id ?? null,
+      },
+    })
+    if (!item) {
+      toast.error('Could not queue trip edit offline')
+      return false
     }
+    // Optimistic list patch
+    setTrips((prev) =>
+      prev.map((t) =>
+        t.id === args.tripId
+          ? ({
+              ...t,
+              ...args.patch,
+              vehicles: {
+                plate_number: (args.plate || t.vehicles?.plate_number || 'PENDING').toUpperCase(),
+                vehicle_type: form.vehicle_type,
+              },
+              _offline_pending: true,
+            } as ExtendedTrip & { _offline_pending?: boolean })
+          : t
+      )
+    )
+    const cacheKey = `trips_${selectedSite}_${selectedDate}`
+    const prevCache = getOfflineCache<ExtendedTrip[]>(user?.id, organizationId, cacheKey) || []
+    setOfflineCache(
+      user?.id,
+      organizationId,
+      cacheKey,
+      prevCache.map((t) =>
+        t.id === args.tripId
+          ? ({
+              ...t,
+              ...args.patch,
+              _offline_pending: true,
+            } as ExtendedTrip)
+          : t
+      )
+    )
+    const photoNote =
+      args.files.length > 0
+        ? ` · ${args.files.length} photo${args.files.length === 1 ? '' : 's'} queued`
+        : ''
+    toast.success(`Trip edit saved offline — will sync when online${photoNote}`, {
+      icon: '📶',
+    })
     return true
   }
 
@@ -555,8 +616,8 @@ export default function TripsPage() {
       setExistingPhotoUrls([])
     }
 
-    // Offline path: queue create (edits require server row id)
-    if (!isBrowserOnline() && !editingTripId) {
+    // Offline path: queue create or edit (photos → IndexedDB)
+    if (!isBrowserOnline()) {
       if (!selectedSite || !plate) {
         toast.error('Site and vehicle number are required offline')
         setSubmitting(false)
@@ -568,12 +629,23 @@ export default function TripsPage() {
         setSubmitting(false)
         return
       }
-      queueTripCreateOffline({
-        vehicleId: vehicleId || null,
-        plate,
-        photoPaths: existingPhotoUrls,
-        payload,
-      })
+      if (editingTripId) {
+        await queueTripUpdateOffline({
+          tripId: editingTripId,
+          plate,
+          photoPaths: existingPhotoUrls,
+          files: photoFiles,
+          patch: payload,
+        })
+      } else {
+        await queueTripCreateOffline({
+          vehicleId: vehicleId || null,
+          plate,
+          photoPaths: existingPhotoUrls,
+          files: photoFiles,
+          payload,
+        })
+      }
       resetFormAfterSave()
       setSubmitting(false)
       return
@@ -633,15 +705,16 @@ export default function TripsPage() {
       let tripId = editingTripId
 
       if (editingTripId) {
-        const { error: updateError } = await supabase
-          .from('trips')
-          .update(payload)
-          .eq('id', editingTripId)
-
-        if (updateError) throw updateError
+        await tripsRepository.update(supabase, editingTripId, {
+          ...payload,
+          _vehicle_plate: plate || null,
+        })
         toast.success('Trip updated successfully')
       } else {
-        const newTrip = await tripsRepository.create(supabase, payload)
+        const newTrip = await tripsRepository.create(supabase, {
+          ...payload,
+          _vehicle_plate: plate || null,
+        })
         tripId = newTrip.id
         toast.success('Trip logged successfully')
       }
@@ -664,16 +737,24 @@ export default function TripsPage() {
       resetFormAfterSave()
       loadTrips()
     } catch (error: unknown) {
-      if (!editingTripId && shouldQueueOffline(error) && plate) {
+      if (shouldQueueOffline(error) && plate) {
         const payload = buildPayload(vehicleId || null, existingPhotoUrls)
-        if (
-          queueTripCreateOffline({
-            vehicleId: vehicleId || null,
-            plate,
-            photoPaths: existingPhotoUrls,
-            payload,
-          })
-        ) {
+        const ok = editingTripId
+          ? await queueTripUpdateOffline({
+              tripId: editingTripId,
+              plate,
+              photoPaths: existingPhotoUrls,
+              files: photoFiles,
+              patch: payload,
+            })
+          : await queueTripCreateOffline({
+              vehicleId: vehicleId || null,
+              plate,
+              photoPaths: existingPhotoUrls,
+              files: photoFiles,
+              payload,
+            })
+        if (ok) {
           resetFormAfterSave()
           setSubmitting(false)
           return
@@ -1073,7 +1154,7 @@ export default function TripsPage() {
                     return { ...f, trip_worth: next, total_shipment_cost: ship }
                   })
                 }
-                placeholder="Auto from customer / type rate"
+                placeholder="Enter trip cost"
               />
               <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
                 {(() => {
@@ -1085,13 +1166,36 @@ export default function TripsPage() {
                     cust || null,
                     rates
                   )
+                  if (rate == null) {
+                    return 'Enter cost manually (no customer/org rate set)'
+                  }
                   const srcLabel =
                     source === 'customer_type' || source === 'customer_default'
-                      ? `customer ${cust?.name || ''}`
-                      : source === 'vehicle_type'
-                        ? 'org rates'
-                        : 'app default'
-                  return `₹${rate}/trip (${srcLabel.trim()}) · ${form.vehicle_type}`
+                      ? `customer ${cust?.name || ''}`.trim()
+                      : 'org rates'
+                  return (
+                    <>
+                      Hint ₹{rate}/trip ({srcLabel}) ·{' '}
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        style={{ padding: 0, fontSize: '0.65rem', textDecoration: 'underline' }}
+                        onClick={() => {
+                          const w = String(computeTripWorthFromRate(null, rate))
+                          setForm((f) => ({
+                            ...f,
+                            trip_worth: w,
+                            total_shipment_cost:
+                              !f.total_shipment_cost || f.total_shipment_cost === f.trip_worth
+                                ? w
+                                : f.total_shipment_cost,
+                          }))
+                        }}
+                      >
+                        Apply
+                      </button>
+                    </>
+                  )
                 })()}
               </span>
             </div>
@@ -1102,6 +1206,9 @@ export default function TripsPage() {
               <label className="form-label">Advance Amount (₹)</label>
               <input className="form-input" type="number" step="any" value={form.advance_amount}
                 onChange={e => setForm(f => ({ ...f, advance_amount: e.target.value }))} />
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                Posted as cash out · Advance for trip
+              </span>
             </div>
             <div className="form-group">
               <label className="form-label">Total shipment / billing cost (₹)</label>

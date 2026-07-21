@@ -9,7 +9,11 @@ import { useAuth } from '@/lib/auth-context'
 import { computeTripWorthFromRate } from '@/lib/calculations'
 import { cashBookRepository } from '@/lib/repositories/cash-book'
 import { tripsRepository } from '@/lib/repositories/trips'
-import { enqueueOutbox } from '@/lib/offline-outbox'
+import {
+  enqueueOutbox,
+  enqueueTripCreateWithPhotos,
+  enqueueTripUpdateWithPhotos,
+} from '@/lib/offline-outbox'
 import { isBrowserOnline, shouldQueueOffline } from '@/lib/offline-network'
 import { compressImageFile, prepareUploadImages } from '@/lib/image-utils'
 import BottomSheet from '@/components/BottomSheet'
@@ -158,22 +162,7 @@ function EmployeePage() {
     router.replace('/dashboard/my-work', { scroll: false })
   }, [authLoading, loading, searchParams, canTrips, canCash, router])
 
-  // Auto-fill billing from customer rate → org type rate
-  useEffect(() => {
-    const cust = customers.find((c) => c.id === tripForm.customer_id)
-    const { rate } = resolveTripRateForCustomer(tripForm.vehicle_type, cust || null, negotiatedRates)
-    const worth = String(computeTripWorthFromRate(null, rate))
-    setTripForm((f) => (f.total_shipment_cost === worth ? f : { ...f, total_shipment_cost: worth }))
-  }, [tripForm.vehicle_type, tripForm.customer_id, negotiatedRates, customers])
-
-  useEffect(() => {
-    const cust = customers.find((c) => c.id === editForm.customer_id)
-    const { rate } = resolveTripRateForCustomer(editForm.vehicle_type, cust || null, negotiatedRates)
-    const worth = String(computeTripWorthFromRate(null, rate))
-    setEditForm((f) =>
-      f.total_shipment_cost === worth ? f : { ...f, total_shipment_cost: worth }
-    )
-  }, [editForm.vehicle_type, editForm.customer_id, negotiatedRates, customers])
+  // Trip cost is entered manually — no app-default auto-fill.
 
   const loadInitialData = async () => {
     if (!user) {
@@ -391,7 +380,12 @@ function EmployeePage() {
     const cust = customers.find((c) => c.id === tripForm.customer_id)
     const { rate } = resolveTripRateForCustomer(tripForm.vehicle_type, cust || null, negotiatedRates)
     const capacity = parseFloat(tripForm.cubic_capacity) || 0
-    const worth = computeTripWorthFromRate(null, rate)
+    // Explicit cost only — never invent from app defaults
+    const entered =
+      parseFloat(tripForm.total_shipment_cost) ||
+      parseFloat(String(tripForm.total_shipment_cost)) ||
+      0
+    const worth = Number.isFinite(entered) && entered > 0 ? entered : null
     const ownership = tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership
 
     const tripBase = {
@@ -399,12 +393,12 @@ function EmployeePage() {
       contractor_id: tripForm.contractor_id || null,
       trip_date: todayStr,
       cubic_capacity: capacity,
-      rate_per_cubic: rate,
+      rate_per_cubic: rate != null && rate > 0 ? rate : null,
       advance_amount: parseFloat(tripForm.advance_amount) || 0,
       customer_id: tripForm.customer_id || null,
       drop_location: tripForm.drop_location || null,
       distance_km: parseFloat(tripForm.distance_km) || null,
-      total_shipment_cost: parseFloat(tripForm.total_shipment_cost) || worth,
+      total_shipment_cost: worth,
       trip_worth: worth,
       permit_number: tripForm.permit_number || null,
       notes: tripForm.notes || null,
@@ -414,6 +408,7 @@ function EmployeePage() {
       payment_status: tripForm.settled ? 'settled' : 'pending',
       payment_method: tripForm.settled ? tripForm.settlement_method : null,
       payment_reference: tripForm.settled ? tripForm.settlement_ref : null,
+      _vehicle_plate: upperPlate || null,
     }
 
     const resetTripForm = () => {
@@ -439,14 +434,14 @@ function EmployeePage() {
       })
     }
 
-    const queueTripOffline = (vehicleId: string | null) => {
-      const item = enqueueOutbox(user.id, organizationId, {
-        kind: 'trip_create',
+    const queueTripOffline = async (vehicleId: string | null) => {
+      const item = await enqueueTripCreateWithPhotos(user.id, organizationId, {
         client_id: crypto.randomUUID(),
         vehicle_plate: upperPlate,
         vehicle_type: tripForm.vehicle_type,
         ownership,
         photo_paths: [],
+        files: allPhotoFiles,
         trip: {
           ...tripBase,
           vehicle_id: vehicleId,
@@ -458,10 +453,11 @@ function EmployeePage() {
         toast.error('Could not queue trip offline')
         return false
       }
-      toast.success('Trip saved offline — will sync when online', { icon: '📶' })
-      if (allPhotoFiles.length > 0) {
-        toast('Photos not stored offline — re-attach after sync if needed', { icon: '📷' })
-      }
+      const photoNote =
+        allPhotoFiles.length > 0
+          ? ` · ${allPhotoFiles.length} photo${allPhotoFiles.length === 1 ? '' : 's'} queued`
+          : ''
+      toast.success(`Trip saved offline — will sync when online${photoNote}`, { icon: '📶' })
       resetTripForm()
       return true
     }
@@ -473,7 +469,7 @@ function EmployeePage() {
         return
       }
       const existingVeh = vehicles.find(v => v.plate_number === upperPlate)
-      queueTripOffline(existingVeh?.id || null)
+      await queueTripOffline(existingVeh?.id || null)
       setSubmittingTrip(false)
       return
     }
@@ -535,7 +531,7 @@ function EmployeePage() {
     } catch (err: unknown) {
       if (shouldQueueOffline(err) && upperPlate) {
         const existingVeh = vehicles.find(v => v.plate_number === upperPlate)
-        if (queueTripOffline(existingVeh?.id || null)) {
+        if (await queueTripOffline(existingVeh?.id || null)) {
           setSubmittingTrip(false)
           return
         }
@@ -614,10 +610,83 @@ function EmployeePage() {
     }
 
     setSubmittingTrip(true)
+    const upperPlate = editForm.vehicle_plate.toUpperCase().trim()
+    const capacity = parseFloat(editForm.cubic_capacity) || 0
+    const cust = customers.find((c) => c.id === editForm.customer_id)
+    const { rate } = resolveTripRateForCustomer(editForm.vehicle_type, cust || null, negotiatedRates)
+    const entered =
+      parseFloat(editForm.total_shipment_cost) ||
+      Number(editingTrip.trip_worth) ||
+      Number(editingTrip.total_shipment_cost) ||
+      0
+    const worth = Number.isFinite(entered) && entered > 0 ? entered : null
+    const settleAmt = Number(worth) || Number(editingTrip.settlement_amount) || 0
+    if (editForm.settled && settleAmt <= 0) {
+      toast.error('Settled trips require a positive settlement amount')
+      setSubmittingTrip(false)
+      return
+    }
+
+    const buildEditPatch = (vehicleId: string | null, photoUrls: string[]) => ({
+      vehicle_id: vehicleId,
+      contractor_id: editForm.contractor_id || null,
+      cubic_capacity: capacity,
+      rate_per_cubic: rate != null && rate > 0 ? rate : null,
+      advance_amount: parseFloat(editForm.advance_amount) || 0,
+      photo_urls: photoUrls,
+      customer_id: editForm.customer_id || null,
+      drop_location: editForm.drop_location || null,
+      distance_km: parseFloat(editForm.distance_km) || null,
+      total_shipment_cost: worth,
+      trip_worth: worth,
+      notes: editForm.notes || null,
+      ownership_snapshot: editForm.ownership,
+      settled: editForm.settled,
+      settlement_method: editForm.settled ? editForm.settlement_method : null,
+      settlement_ref: editForm.settled ? editForm.settlement_ref : null,
+      settlement_amount: editForm.settled ? settleAmt : editingTrip.settlement_amount,
+      payment_status: editForm.settled ? 'settled' : (editingTrip.payment_status || 'pending'),
+      settled_at: editForm.settled && !editingTrip.settled ? new Date().toISOString() : editingTrip.settled_at,
+      settled_by: editForm.settled && !editingTrip.settled ? user.id : editingTrip.settled_by,
+      site_id: editingTrip.site_id,
+      trip_date: editingTrip.trip_date,
+      _vehicle_plate: upperPlate || null,
+    })
+
+    const queueEditOffline = async (vehicleId: string | null) => {
+      const item = await enqueueTripUpdateWithPhotos(user.id, organizationId, {
+        client_id: crypto.randomUUID(),
+        trip_id: editingTrip.id,
+        vehicle_plate: upperPlate || null,
+        vehicle_type: editForm.vehicle_type,
+        ownership: editForm.ownership === 'lease' ? 'rented' : editForm.ownership,
+        photo_paths: editPhotoUrls,
+        files: editPhotos,
+        patch: buildEditPatch(vehicleId, editPhotoUrls),
+      })
+      if (!item) {
+        toast.error('Could not queue trip edit offline')
+        return false
+      }
+      const photoNote =
+        editPhotos.length > 0
+          ? ` · ${editPhotos.length} photo${editPhotos.length === 1 ? '' : 's'} queued`
+          : ''
+      toast.success(`Trip edit saved offline — will sync when online${photoNote}`, { icon: '📶' })
+      setShowEditSheet(false)
+      setEditingTrip(null)
+      return true
+    }
+
+    if (!isBrowserOnline()) {
+      await queueEditOffline(editingTrip.vehicle_id || null)
+      setSubmittingTrip(false)
+      return
+    }
+
     try {
       // Find or register vehicle if changed
       let vehicleId = editingTrip.vehicle_id
-      const upperPlate = editForm.vehicle_plate.toUpperCase().trim()
       if (upperPlate !== editingTrip.vehicles?.plate_number) {
         const existingVeh = vehicles.find(v => v.plate_number === upperPlate)
         if (existingVeh) {
@@ -645,45 +714,22 @@ function EmployeePage() {
       const newPhotoUrls = await uploadPhotos(editPhotos, employee.site_id)
       const updatedPhotoUrls = [...editPhotoUrls, ...newPhotoUrls]
 
-      // Calculate shipment rates (shared module)
-      const capacity = parseFloat(editForm.cubic_capacity) || 0
-      const cust = customers.find((c) => c.id === editForm.customer_id)
-      const { rate } = resolveTripRateForCustomer(editForm.vehicle_type, cust || null, negotiatedRates)
-      const worth = computeTripWorthFromRate(null, rate)
-      const settleAmt = Number(worth) || Number(editingTrip.settlement_amount) || 0
-      if (editForm.settled && settleAmt <= 0) {
-        toast.error('Settled trips require a positive settlement amount')
-        setSubmittingTrip(false)
-        return
-      }
-
-      await tripsRepository.update(supabase, editingTrip.id, {
-        vehicle_id: vehicleId,
-        contractor_id: editForm.contractor_id || null,
-        cubic_capacity: capacity,
-        rate_per_cubic: rate,
-        advance_amount: parseFloat(editForm.advance_amount) || 0,
-        photo_urls: updatedPhotoUrls,
-        customer_id: editForm.customer_id || null,
-        drop_location: editForm.drop_location || null,
-        distance_km: parseFloat(editForm.distance_km) || null,
-        total_shipment_cost: parseFloat(editForm.total_shipment_cost) || worth,
-        trip_worth: worth,
-        notes: editForm.notes || null,
-        ownership_snapshot: editForm.ownership,
-        settled: editForm.settled,
-        settlement_method: editForm.settled ? editForm.settlement_method : null,
-        settlement_ref: editForm.settled ? editForm.settlement_ref : null,
-        settlement_amount: editForm.settled ? settleAmt : editingTrip.settlement_amount,
-        payment_status: editForm.settled ? 'settled' : (editingTrip.payment_status || 'pending'),
-        settled_at: editForm.settled && !editingTrip.settled ? new Date().toISOString() : editingTrip.settled_at,
-        settled_by: editForm.settled && !editingTrip.settled ? user.id : editingTrip.settled_by,
-      })
+      await tripsRepository.update(
+        supabase,
+        editingTrip.id,
+        buildEditPatch(vehicleId, updatedPhotoUrls)
+      )
       toast.success('Trip updated successfully')
       setShowEditSheet(false)
       setEditingTrip(null)
       loadInitialData()
     } catch (err: unknown) {
+      if (shouldQueueOffline(err)) {
+        if (await queueEditOffline(editingTrip.vehicle_id || null)) {
+          setSubmittingTrip(false)
+          return
+        }
+      }
       toast.error(`Update failed: ${toErrorMessage(err)}`)
     } finally {
       setSubmittingTrip(false)
@@ -1034,18 +1080,20 @@ function EmployeePage() {
               <label className="form-label">Advance Amount Paid (₹)</label>
               <input className="form-input" type="number" placeholder="1000"
                 value={tripForm.advance_amount} onChange={e => setTripForm(f => ({ ...f, advance_amount: e.target.value }))} />
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                Posted as cash out · Advance for trip
+              </span>
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Total shipment / billing cost (₹) *</label>
+            <label className="form-label">Trip / billing cost (₹)</label>
             <input
               className="form-input"
               type="number"
-              placeholder="Calculated automatically"
+              placeholder="Enter trip cost"
               value={tripForm.total_shipment_cost}
               onChange={(e) => setTripForm((f) => ({ ...f, total_shipment_cost: e.target.value }))}
-              required
             />
             <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
               {(() => {
@@ -1055,8 +1103,29 @@ function EmployeePage() {
                   cust || null,
                   negotiatedRates
                 )
-                const worth = computeTripWorthFromRate(null, rate)
-                return `Auto: ₹${rate}/trip (${source}) → ₹${worth}`
+                if (rate == null) return 'Enter cost manually (no customer/org rate set)'
+                const src =
+                  source === 'customer_type' || source === 'customer_default'
+                    ? 'customer'
+                    : 'org rates'
+                return (
+                  <>
+                    Hint ₹{rate}/trip ({src}) ·{' '}
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: 0, fontSize: '0.65rem', textDecoration: 'underline' }}
+                      onClick={() =>
+                        setTripForm((f) => ({
+                          ...f,
+                          total_shipment_cost: String(computeTripWorthFromRate(null, rate)),
+                        }))
+                      }
+                    >
+                      Apply
+                    </button>
+                  </>
+                )
               })()}
             </span>
           </div>
@@ -1216,13 +1285,16 @@ function EmployeePage() {
               <label className="form-label">Advance Amount Paid (₹)</label>
               <input className="form-input" type="number" placeholder="1000"
                 value={editForm.advance_amount} onChange={e => setEditForm(f => ({ ...f, advance_amount: e.target.value }))} />
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                Updates cash out · Advance for trip
+              </span>
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label">Total Shipment Cost / Price (₹) *</label>
-            <input className="form-input" type="number"
-              value={editForm.total_shipment_cost} onChange={e => setEditForm(f => ({ ...f, total_shipment_cost: e.target.value }))} required />
+            <label className="form-label">Trip / billing cost (₹)</label>
+            <input className="form-input" type="number" placeholder="Enter trip cost"
+              value={editForm.total_shipment_cost} onChange={e => setEditForm(f => ({ ...f, total_shipment_cost: e.target.value }))} />
           </div>
 
           <div className="form-group">

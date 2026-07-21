@@ -339,8 +339,10 @@ export default function ReportsPage() {
   /** Monthly (and general) totals requested by ops */
   const reportTotals = (() => {
     const advancePaid = trips.reduce((s, t) => s + (Number(t.advance_amount) || 0), 0)
+    // Cash OUT excluding auto trip advances (those are shown under Advance paid)
     const expense = cashEntries
       .filter((e) => e.entry_type === 'out')
+      .filter((e) => e.category !== 'Advance for trip')
       .reduce((s, e) => s + (Number(e.amount) || 0), 0)
     const cashIn = cashEntries
       .filter((e) => e.entry_type === 'in')
