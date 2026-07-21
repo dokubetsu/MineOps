@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Plus, Save } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
-import { Site, TransportContractor, Vehicle } from '@/lib/supabase/types'
+import { Site, TransportContractor, Vehicle, Customer } from '@/lib/supabase/types'
 import {
   VEHICLE_TYPES,
   getDefaultRatePerCubic,
@@ -20,10 +20,20 @@ interface ExtendedVehicle extends Vehicle {
   } | null
 }
 
+type CustomerRow = Customer & {
+  default_trip_rate?: number | null
+  trip_rates?: Record<string, number> | null
+  notes?: string | null
+}
+
 type RateDraft = Record<string, string>
 
 function emptyRateDraft(): RateDraft {
   return Object.fromEntries(VEHICLE_TYPES.map((t) => [t, String(getDefaultRatePerCubic(t))]))
+}
+
+function emptyCustomerTypeRates(): RateDraft {
+  return Object.fromEntries(VEHICLE_TYPES.map((t) => [t, '']))
 }
 
 export default function SettingsPage() {
@@ -40,12 +50,13 @@ export default function SettingsPage() {
   const [sites, setSites] = useState<Site[]>([])
   const [contractors, setContractors] = useState<TransportContractor[]>([])
   const [vehicles, setVehicles] = useState<ExtendedVehicle[]>([])
+  const [customersList, setCustomersList] = useState<CustomerRow[]>([])
   const [rateDraft, setRateDraft] = useState<RateDraft>(emptyRateDraft)
   const [rateSaved, setRateSaved] = useState<RateDraft>(emptyRateDraft)
   const [savingRates, setSavingRates] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<
-    'sites' | 'contractors' | 'vehicles' | 'rates' | 'organization'
+    'sites' | 'contractors' | 'vehicles' | 'customers' | 'rates' | 'organization'
   >('sites')
 
   // Forms
@@ -56,6 +67,12 @@ export default function SettingsPage() {
   const [vehicleType, setVehicleType] = useState('12WH')
   const [vehicleOwnership, setVehicleOwnership] = useState('rented')
   const [vehicleContractor, setVehicleContractor] = useState('')
+  const [custName, setCustName] = useState('')
+  const [custContact, setCustContact] = useState('')
+  const [custDefaultRate, setCustDefaultRate] = useState('')
+  const [custTypeRates, setCustTypeRates] = useState<RateDraft>(emptyCustomerTypeRates)
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null)
+  const [savingCustomer, setSavingCustomer] = useState(false)
 
   const supabase = createClient()
 
@@ -76,19 +93,23 @@ export default function SettingsPage() {
         { data: c, error: cErr },
         { data: v, error: vErr },
         { data: rates, error: rErr },
+        { data: cust, error: custErr },
       ] = await Promise.all([
         supabase.from('sites').select('*').order('name').limit(200),
         supabase.from('transport_contractors').select('*').order('name').limit(200),
         supabase.from('vehicles').select('*, transport_contractors(name)').order('plate_number').limit(1000),
         supabase.from('negotiated_rates').select('vehicle_type, rate_per_cubic').limit(50),
+        supabase.from('customers').select('*').order('name').limit(500),
       ])
       if (sErr) throw sErr
       if (cErr) throw cErr
       if (vErr) throw vErr
       if (rErr) throw rErr
+      if (custErr) throw custErr
       setSites(s || [])
       setContractors(c || [])
       setVehicles((v as any) || [])
+      setCustomersList((cust as CustomerRow[]) || [])
 
       const draft = emptyRateDraft()
       for (const row of rates || []) {
@@ -164,6 +185,75 @@ export default function SettingsPage() {
     }
   }
 
+  const resetCustomerForm = () => {
+    setCustName('')
+    setCustContact('')
+    setCustDefaultRate('')
+    setCustTypeRates(emptyCustomerTypeRates())
+    setEditingCustomerId(null)
+  }
+
+  const startEditCustomer = (c: CustomerRow) => {
+    setEditingCustomerId(c.id)
+    setCustName(c.name)
+    setCustContact(c.contact || '')
+    setCustDefaultRate(c.default_trip_rate != null ? String(c.default_trip_rate) : '')
+    const tr = emptyCustomerTypeRates()
+    const map = (c.trip_rates || {}) as Record<string, number>
+    for (const t of VEHICLE_TYPES) {
+      if (map[t] != null && Number(map[t]) > 0) tr[t] = String(map[t])
+    }
+    setCustTypeRates(tr)
+    setActiveTab('customers')
+  }
+
+  const saveCustomer = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!organizationId || !custName.trim()) {
+      toast.error('Customer name is required')
+      return
+    }
+    setSavingCustomer(true)
+    try {
+      const trip_rates: Record<string, number> = {}
+      for (const t of VEHICLE_TYPES) {
+        const n = parseFloat(custTypeRates[t] || '')
+        if (Number.isFinite(n) && n > 0) trip_rates[t] = n
+      }
+      const defRaw = parseFloat(custDefaultRate || '')
+      const default_trip_rate =
+        Number.isFinite(defRaw) && defRaw > 0 ? defRaw : null
+
+      const payload = {
+        name: custName.trim(),
+        contact: custContact.trim() || null,
+        default_trip_rate,
+        trip_rates,
+        organization_id: organizationId,
+        active: true,
+      }
+
+      if (editingCustomerId) {
+        const { error } = await supabase
+          .from('customers')
+          .update(payload)
+          .eq('id', editingCustomerId)
+        if (error) throw error
+        toast.success('Customer updated')
+      } else {
+        const { error } = await supabase.from('customers').insert(payload)
+        if (error) throw error
+        toast.success('Customer added — available in Log Trip dropdown')
+      }
+      resetCustomerForm()
+      loadAll()
+    } catch (err: unknown) {
+      toast.error(`Error saving customer: ${toErrorMessage(err)}`)
+    } finally {
+      setSavingCustomer(false)
+    }
+  }
+
   const addVehicle = async (e: React.FormEvent) => {
     e.preventDefault()
     const upperPlate = vehiclePlate.toUpperCase()
@@ -218,7 +308,11 @@ export default function SettingsPage() {
     setSavingOrg(false)
   }
 
-  const toggleActive = async (table: 'sites' | 'transport_contractors' | 'vehicles', id: string, current: boolean) => {
+  const toggleActive = async (
+    table: 'sites' | 'transport_contractors' | 'vehicles' | 'customers',
+    id: string,
+    current: boolean
+  ) => {
     let errorMsg = ''
     if (table === 'sites') {
       if (current) { // deactivating
@@ -236,6 +330,9 @@ export default function SettingsPage() {
     } else if (table === 'vehicles') {
       const { error } = await supabase.from('vehicles').update({ active: !current }).eq('id', id)
       if (error) errorMsg = toErrorMessage(error)
+    } else if (table === 'customers') {
+      const { error } = await supabase.from('customers').update({ active: !current }).eq('id', id)
+      if (error) errorMsg = toErrorMessage(error)
     }
 
     if (errorMsg) {
@@ -250,7 +347,8 @@ export default function SettingsPage() {
     { key: 'sites', label: 'Sites', count: sites.length },
     { key: 'contractors', label: 'Contractors', count: contractors.length },
     { key: 'vehicles', label: 'Vehicles', count: vehicles.length },
-    { key: 'rates', label: 'Rates', count: VEHICLE_TYPES.length },
+    { key: 'customers', label: 'Customers', count: customersList.length },
+    { key: 'rates', label: 'Org rates', count: VEHICLE_TYPES.length },
   ]
   if (isAdmin) {
     tabs.push({ key: 'organization', label: 'Organization', count: 1 })
@@ -434,17 +532,144 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* Negotiated rates (₹/m³) — drives trip cost auto-fill */}
+          {/* Customers + negotiated rates per customer */}
+          {activeTab === 'customers' && (
+            <div>
+              <form onSubmit={saveCustomer} className="card mb-4" style={{ maxWidth: 560 }}>
+                <h3 style={{ marginBottom: '0.5rem', fontSize: '0.95rem', fontWeight: 600 }}>
+                  {editingCustomerId ? 'Edit customer' : 'Add customer'}
+                </h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: 1.45 }}>
+                  Customers appear in Log Trip. Set rates discussed with them (₹ per trip). Type-specific
+                  rates override the default; if empty, org rates (Org rates tab) apply.
+                </p>
+                <div className="form-group">
+                  <label className="form-label">Name *</label>
+                  <input
+                    className="form-input"
+                    value={custName}
+                    onChange={(e) => setCustName(e.target.value)}
+                    placeholder="e.g. DSR Infra / Madha buyer"
+                    required
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Contact</label>
+                  <input
+                    className="form-input"
+                    value={custContact}
+                    onChange={(e) => setCustContact(e.target.value)}
+                    placeholder="Phone or person"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Default rate (₹ / trip)</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={custDefaultRate}
+                    onChange={(e) => setCustDefaultRate(e.target.value)}
+                    placeholder="Used if type rate blank"
+                  />
+                </div>
+                <div style={{ fontSize: '0.8rem', fontWeight: 600, marginBottom: '0.5rem' }}>
+                  Rate by vehicle type (optional)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem' }}>
+                  {VEHICLE_TYPES.map((t) => (
+                    <div key={t} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ minWidth: 100, fontSize: '0.8rem' }}>{vehicleTypeLabel(t)}</span>
+                      <input
+                        className="form-input"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        style={{ flex: 1 }}
+                        value={custTypeRates[t] || ''}
+                        onChange={(e) =>
+                          setCustTypeRates((prev) => ({ ...prev, [t]: e.target.value }))
+                        }
+                        placeholder="—"
+                      />
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>₹/trip</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <button type="submit" className="btn btn-primary" disabled={savingCustomer}>
+                    {savingCustomer ? 'Saving…' : editingCustomerId ? 'Update customer' : (
+                      <>
+                        <Plus size={16} /> Add customer
+                      </>
+                    )}
+                  </button>
+                  {editingCustomerId && (
+                    <button type="button" className="btn btn-secondary" onClick={resetCustomerForm}>
+                      Cancel edit
+                    </button>
+                  )}
+                </div>
+              </form>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {customersList.length === 0 && (
+                  <div className="card" style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
+                    No customers yet — add one so Log Trip “Choose customer” is not empty.
+                  </div>
+                )}
+                {customersList.map((c) => {
+                  const rates = (c.trip_rates || {}) as Record<string, number>
+                  const rateBits = VEHICLE_TYPES.filter((t) => rates[t] != null && Number(rates[t]) > 0)
+                    .map((t) => `${t}: ₹${rates[t]}`)
+                    .join(' · ')
+                  return (
+                    <div
+                      key={c.id}
+                      className="card"
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}
+                    >
+                      <div style={{ flex: 1, minWidth: 160 }}>
+                        <div style={{ fontWeight: 700 }}>{c.name}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          {c.contact || 'No contact'}
+                          {c.default_trip_rate != null ? ` · default ₹${c.default_trip_rate}/trip` : ''}
+                        </div>
+                        {rateBits && (
+                          <div style={{ fontSize: '0.7rem', color: 'var(--accent)', marginTop: 2 }}>
+                            {rateBits}
+                          </div>
+                        )}
+                      </div>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => startEditCustomer(c)}>
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${c.active ? 'btn-success' : 'btn-danger'}`}
+                        onClick={() => toggleActive('customers', c.id, !!c.active)}
+                      >
+                        {c.active ? 'Active' : 'Off'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Org-level vehicle type rates (fallback when customer has no rate) */}
           {activeTab === 'rates' && (
             <div>
               <form onSubmit={saveRates} className="card mb-4" style={{ maxWidth: 520 }}>
                 <h3 style={{ marginBottom: '0.5rem', fontSize: '0.95rem', fontWeight: 600 }}>
-                  Negotiated rates (₹ per trip)
+                  Org fallback rates (₹ per trip)
                 </h3>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: 1.45 }}>
-                  Field model: <strong>flat amount per trip by vehicle type</strong> (not distance, not m³).
-                  Used on Log Trip for <strong>trip cost</strong> and billing cost. Defaults match paper
-                  (12WH ₹1000, 10WH ₹800).
+                  Used when a trip has <strong>no customer</strong> or the customer has no rate for that
+                  vehicle type. Prefer setting rates on the <strong>Customers</strong> tab (rate discussed
+                  with buyer). Defaults: 12WH ₹1000, 10WH ₹800.
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {VEHICLE_TYPES.map((t) => (

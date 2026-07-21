@@ -249,13 +249,19 @@ export default function CashBookPage() {
     }
   }
 
-  const handlePhotoSelect = (file: File) => {
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error('File size exceeds the 5MB limit')
+  const handlePhotoSelect = async (file: File, fromCamera = false) => {
+    const { compressImageFile, saveCaptureToDevice } = await import('@/lib/image-utils')
+    const compressed = await compressImageFile(file)
+    if (compressed.size > 5 * 1024 * 1024) {
+      toast.error('File still exceeds 5MB after compress')
       return
     }
-    setPhotoFile(file)
-    setPhotoPreview(URL.createObjectURL(file))
+    if (fromCamera) {
+      void saveCaptureToDevice(compressed)
+      toast.success('Receipt saved to device and attached', { icon: '📷' })
+    }
+    setPhotoFile(compressed)
+    setPhotoPreview(URL.createObjectURL(compressed))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -786,7 +792,7 @@ export default function CashBookPage() {
                 <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
                   onChange={e => {
                     const f = e.target.files?.[0]
-                    if (f) handlePhotoSelect(f)
+                    if (f) void handlePhotoSelect(f, true)
                   }} />
               </label>
               <label style={{
@@ -800,7 +806,7 @@ export default function CashBookPage() {
                 <input type="file" accept="image/*" style={{ display: 'none' }}
                   onChange={e => {
                     const f = e.target.files?.[0]
-                    if (f) handlePhotoSelect(f)
+                    if (f) void handlePhotoSelect(f, false)
                   }} />
               </label>
             </div>

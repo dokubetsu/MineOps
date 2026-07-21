@@ -219,3 +219,26 @@ VALUES
   ('00000000-0000-0000-0000-000000000702', '10WH', 800.0, '00000000-0000-0000-0000-000000000000'),
   ('00000000-0000-0000-0000-000000000703', '6WH', 600.0, '00000000-0000-0000-0000-000000000000')
 ON CONFLICT (organization_id, vehicle_type) DO NOTHING;
+
+-- Seed customers with trip rates (buyer-specific negotiated prices)
+INSERT INTO public.customers (id, name, contact, active, organization_id, default_trip_rate, trip_rates)
+VALUES
+  (
+    '00000000-0000-0000-0000-000000000801',
+    'DSR Infra',
+    null,
+    true,
+    '00000000-0000-0000-0000-000000000000',
+    1000,
+    '{"12WH": 1000, "10WH": 800, "6WH": 600}'::jsonb
+  ),
+  (
+    '00000000-0000-0000-0000-000000000802',
+    'Madha Buyer',
+    null,
+    true,
+    '00000000-0000-0000-0000-000000000000',
+    950,
+    '{"12WH": 950, "10WH": 750}'::jsonb
+  )
+ON CONFLICT (id) DO NOTHING;

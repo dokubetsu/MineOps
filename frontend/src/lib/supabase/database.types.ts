@@ -232,28 +232,37 @@ export type Database = {
           active: boolean
           contact: string | null
           created_at: string | null
+          default_trip_rate: number | null
           id: string
           name: string
+          notes: string | null
           organization_id: string
           site_id: string | null
+          trip_rates: Record<string, number> | null
         }
         Insert: {
           active?: boolean
           contact?: string | null
           created_at?: string | null
+          default_trip_rate?: number | null
           id?: string
           name: string
+          notes?: string | null
           organization_id: string
           site_id?: string | null
+          trip_rates?: Record<string, number> | null
         }
         Update: {
           active?: boolean
           contact?: string | null
           created_at?: string | null
+          default_trip_rate?: number | null
           id?: string
           name?: string
+          notes?: string | null
           organization_id?: string
           site_id?: string | null
+          trip_rates?: Record<string, number> | null
         }
         Relationships: [
           {

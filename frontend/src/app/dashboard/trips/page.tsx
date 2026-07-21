@@ -21,8 +21,13 @@ import {
   VEHICLE_TYPES,
   OWNERSHIP_TYPES,
   getCapacityForType,
-  resolveRatePerCubic,
+  resolveTripRateForCustomer,
 } from '@/lib/trip-constants'
+import {
+  getCachedSignedUrl,
+  prepareUploadImages,
+  setCachedSignedUrl,
+} from '@/lib/image-utils'
 
 interface ExtendedVehicle extends Vehicle {
   transport_contractors?: {
@@ -179,10 +184,12 @@ export default function TripsPage() {
     }
   }, [photoPreviews])
 
-  // Auto-fill trip cost + billing from flat ₹/trip by vehicle type
-  // (Settings → Rates / negotiated_rates; capacity is ops-only, not price)
+  // Auto-fill trip cost: customer rate (type or default) → org vehicle rate → app default
   useEffect(() => {
-    const { rate } = resolveRatePerCubic(form.vehicle_type, rates)
+    const cust = customers.find((c) => c.id === form.customer_id) as
+      | { default_trip_rate?: number | null; trip_rates?: Record<string, number> | null }
+      | undefined
+    const { rate } = resolveTripRateForCustomer(form.vehicle_type, cust || null, rates)
     const worth = String(computeTripWorthFromRate(null, rate))
     setForm((f) => {
       if (f.trip_worth === worth && f.total_shipment_cost === worth) return f
@@ -194,7 +201,7 @@ export default function TripsPage() {
           : f.total_shipment_cost
       return { ...f, trip_worth: worth, total_shipment_cost: ship }
     })
-  }, [form.vehicle_type, rates])
+  }, [form.vehicle_type, form.customer_id, rates, customers])
 
   const loadInitialData = async () => {
     try {
@@ -261,15 +268,22 @@ export default function TripsPage() {
           .order('sort_order')
 
         const photoUrls = photos && photos.length > 0 ? photos.map(p => p.photo_url) : (trip.photo_url ? [trip.photo_url] : [])
-        const signedUrls = await Promise.all(photoUrls.map(async (p) => {
+        // Only sign first photo for list view (faster); full set on edit
+        const listPaths = photoUrls.slice(0, 1)
+        const signedUrls = await Promise.all(listPaths.map(async (p) => {
           let path = p
           if (path.includes('trip-photos/')) {
             path = path.split('trip-photos/').pop() || path
           }
+          const cacheKey = `trip-photos:${path}`
+          const cached = getCachedSignedUrl(cacheKey)
+          if (cached) return cached
           const { data: signed } = await supabase.storage
             .from('trip-photos')
             .createSignedUrl(path, 3600)
-          return signed?.signedUrl || null
+          const url = signed?.signedUrl || null
+          if (url) setCachedSignedUrl(cacheKey, url)
+          return url
         }))
 
         return {
@@ -338,25 +352,38 @@ export default function TripsPage() {
     }))
   }
 
-  const handlePhotosSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotosSelect = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    opts?: { fromCamera?: boolean }
+  ) => {
     const files = e.target.files
     if (!files) return
-    const newFiles = Array.from(files)
-    if (photoFiles.length + existingPhotoUrls.length + newFiles.length > 10) {
+    const picked = Array.from(files)
+    if (photoFiles.length + existingPhotoUrls.length + picked.length > 10) {
       toast.error('You can upload a maximum of 10 photos')
+      e.target.value = ''
       return
     }
 
-    for (const f of newFiles) {
-      if (f.size > 5 * 1024 * 1024) {
-        toast.error(`${f.name} exceeds the 5MB size limit`)
+    for (const f of picked) {
+      if (f.size > 12 * 1024 * 1024) {
+        toast.error(`${f.name} is too large (max 12MB before compress)`)
+        e.target.value = ''
         return
       }
     }
 
-    const newPreviews = newFiles.map(f => URL.createObjectURL(f))
-    setPhotoFiles(prev => [...prev, ...newFiles])
-    setPhotoPreviews(prev => [...prev, ...newPreviews])
+    const newFiles = await prepareUploadImages(picked, {
+      saveToGallery: !!opts?.fromCamera,
+    })
+    if (opts?.fromCamera && newFiles.length > 0) {
+      toast.success('Photo saved to device and attached', { icon: '📷' })
+    }
+
+    const newPreviews = newFiles.map((f) => URL.createObjectURL(f))
+    setPhotoFiles((prev) => [...prev, ...newFiles])
+    setPhotoPreviews((prev) => [...prev, ...newPreviews])
+    e.target.value = ''
   }
 
   const removePhoto = (index: number) => {
@@ -414,10 +441,15 @@ export default function TripsPage() {
       if (path.includes('trip-photos/')) {
         path = path.split('trip-photos/').pop() || path
       }
+      const cacheKey = `trip-photos:${path}`
+      const cached = getCachedSignedUrl(cacheKey)
+      if (cached) return cached
       const { data: signed } = await supabase.storage
         .from('trip-photos')
         .createSignedUrl(path, 3600)
-      return signed?.signedUrl || p
+      const url = signed?.signedUrl || p
+      if (signed?.signedUrl) setCachedSignedUrl(cacheKey, signed.signedUrl)
+      return url
     }))
 
     setPhotoPreviews(signedUrls.filter(Boolean) as string[])
@@ -573,19 +605,21 @@ export default function TripsPage() {
         }
       }
 
-      // 2. Upload new photo files
-      const uploadedPaths: string[] = []
-      for (const file of photoFiles) {
-        const ext = file.name.split('.').pop() || 'jpg'
-        const fileUuid = crypto.randomUUID()
-        const path = `${selectedSite}/${selectedDate}/${fileUuid}.${ext}`
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('trip-photos')
-          .upload(path, file, { upsert: true })
-        
-        if (uploadError) throw uploadError
-        if (uploadData) uploadedPaths.push(path)
-      }
+      // 2. Upload photos in parallel (already compressed client-side)
+      const uploadedPaths = (
+        await Promise.all(
+          photoFiles.map(async (file) => {
+            const ext = file.name.split('.').pop() || 'jpg'
+            const fileUuid = crypto.randomUUID()
+            const path = `${selectedSite}/${selectedDate}/${fileUuid}.${ext}`
+            const { data: uploadData, error: uploadError } = await supabase.storage
+              .from('trip-photos')
+              .upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg' })
+            if (uploadError) throw uploadError
+            return uploadData ? path : null
+          })
+        )
+      ).filter(Boolean) as string[]
 
       const finalPhotos = [...existingPhotoUrls, ...uploadedPaths]
       const payload = buildPayload(vehicleId || null, finalPhotos)
@@ -991,9 +1025,20 @@ export default function TripsPage() {
               <label className="form-label">Customer</label>
               <select className="form-input form-select" value={form.customer_id}
                 onChange={e => setForm(f => ({ ...f, customer_id: e.target.value }))}>
-                <option value="">Choose customer</option>
-                {customers.map(cust => <option key={cust.id} value={cust.id}>{cust.name}</option>)}
+                <option value="">
+                  {customers.length === 0 ? 'No customers — add in Settings' : 'Choose customer'}
+                </option>
+                {customers.map((cust) => (
+                  <option key={cust.id} value={cust.id}>
+                    {cust.name}
+                  </option>
+                ))}
               </select>
+              {customers.length === 0 && (
+                <span style={{ fontSize: '0.65rem', color: 'var(--accent)' }}>
+                  Settings → Customers to add buyers and their rates
+                </span>
+              )}
             </div>
             <div className="form-group">
               <label className="form-label">Drop Location</label>
@@ -1028,12 +1073,25 @@ export default function TripsPage() {
                     return { ...f, trip_worth: next, total_shipment_cost: ship }
                   })
                 }
-                placeholder="Auto from vehicle type rate"
+                placeholder="Auto from customer / type rate"
               />
               <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
                 {(() => {
-                  const { rate, fromNegotiated } = resolveRatePerCubic(form.vehicle_type, rates)
-                  return `${form.vehicle_type}: ₹${rate} per trip${fromNegotiated ? '' : ' (default)'} — Settings → Rates`
+                  const cust = customers.find((c) => c.id === form.customer_id) as
+                    | { default_trip_rate?: number | null; trip_rates?: Record<string, number> | null; name?: string }
+                    | undefined
+                  const { rate, source } = resolveTripRateForCustomer(
+                    form.vehicle_type,
+                    cust || null,
+                    rates
+                  )
+                  const srcLabel =
+                    source === 'customer_type' || source === 'customer_default'
+                      ? `customer ${cust?.name || ''}`
+                      : source === 'vehicle_type'
+                        ? 'org rates'
+                        : 'app default'
+                  return `₹${rate}/trip (${srcLabel.trim()}) · ${form.vehicle_type}`
                 })()}
               </span>
             </div>
@@ -1117,8 +1175,13 @@ export default function TripsPage() {
                 color: 'var(--text-muted)', transition: 'all 0.15s',
               }}>
                 <Camera size={18} /> Capture
-                <input type="file" accept="image/*" capture="environment" style={{ display: 'none' }}
-                  onChange={handlePhotosSelect} multiple />
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  style={{ display: 'none' }}
+                  onChange={(e) => void handlePhotosSelect(e, { fromCamera: true })}
+                />
               </label>
               <label style={{
                 flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1128,8 +1191,13 @@ export default function TripsPage() {
                 color: 'var(--text-muted)', transition: 'all 0.15s',
               }}>
                 <ImageIcon size={18} /> Gallery
-                <input type="file" accept="image/*" style={{ display: 'none' }}
-                  onChange={handlePhotosSelect} multiple />
+                <input
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={(e) => void handlePhotosSelect(e, { fromCamera: false })}
+                  multiple
+                />
               </label>
             </div>
             {photoPreviews.length > 0 && (

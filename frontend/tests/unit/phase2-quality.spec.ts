@@ -107,6 +107,24 @@ test.describe('Phase 4 error + trip helpers', () => {
       resolveRatePerCubic('12WH', [{ vehicle_type: '12WH', rate_per_cubic: 1200 }]).fromNegotiated
     ).toBe(true)
   })
+
+  test('resolveTripRateForCustomer prefers customer rates', async () => {
+    const { resolveTripRateForCustomer } = await import('../../src/lib/trip-constants')
+    const r = resolveTripRateForCustomer(
+      '12WH',
+      { trip_rates: { '12WH': 1100 }, default_trip_rate: 900 },
+      [{ vehicle_type: '12WH', rate_per_cubic: 1000 }]
+    )
+    expect(r.rate).toBe(1100)
+    expect(r.source).toBe('customer_type')
+    const r2 = resolveTripRateForCustomer(
+      '6WH',
+      { trip_rates: {}, default_trip_rate: 900 },
+      []
+    )
+    expect(r2.rate).toBe(900)
+    expect(r2.source).toBe('customer_default')
+  })
 })
 
 test.describe('Attendance save partition (Phase 0 unmark)', () => {

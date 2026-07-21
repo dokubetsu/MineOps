@@ -11,6 +11,7 @@ import { cashBookRepository } from '@/lib/repositories/cash-book'
 import { tripsRepository } from '@/lib/repositories/trips'
 import { enqueueOutbox } from '@/lib/offline-outbox'
 import { isBrowserOnline, shouldQueueOffline } from '@/lib/offline-network'
+import { compressImageFile, prepareUploadImages } from '@/lib/image-utils'
 import BottomSheet from '@/components/BottomSheet'
 import toast from 'react-hot-toast'
 import { toErrorMessage } from '@/lib/errors'
@@ -19,7 +20,7 @@ import {
   VEHICLE_TYPES,
   expenseRequiresContractor,
   getCapacityForType,
-  resolveRatePerCubic,
+  resolveTripRateForCustomer,
   vehicleTypeLabel,
 } from '@/lib/trip-constants'
 
@@ -157,20 +158,22 @@ function EmployeePage() {
     router.replace('/dashboard/my-work', { scroll: false })
   }, [authLoading, loading, searchParams, canTrips, canCash, router])
 
-  // Auto-fill billing = flat ₹/trip by vehicle type (reference paper model)
+  // Auto-fill billing from customer rate → org type rate
   useEffect(() => {
-    const { rate } = resolveRatePerCubic(tripForm.vehicle_type, negotiatedRates)
+    const cust = customers.find((c) => c.id === tripForm.customer_id)
+    const { rate } = resolveTripRateForCustomer(tripForm.vehicle_type, cust || null, negotiatedRates)
     const worth = String(computeTripWorthFromRate(null, rate))
     setTripForm((f) => (f.total_shipment_cost === worth ? f : { ...f, total_shipment_cost: worth }))
-  }, [tripForm.vehicle_type, negotiatedRates])
+  }, [tripForm.vehicle_type, tripForm.customer_id, negotiatedRates, customers])
 
   useEffect(() => {
-    const { rate } = resolveRatePerCubic(editForm.vehicle_type, negotiatedRates)
+    const cust = customers.find((c) => c.id === editForm.customer_id)
+    const { rate } = resolveTripRateForCustomer(editForm.vehicle_type, cust || null, negotiatedRates)
     const worth = String(computeTripWorthFromRate(null, rate))
     setEditForm((f) =>
       f.total_shipment_cost === worth ? f : { ...f, total_shipment_cost: worth }
     )
-  }, [editForm.vehicle_type, negotiatedRates])
+  }, [editForm.vehicle_type, editForm.customer_id, negotiatedRates, customers])
 
   const loadInitialData = async () => {
     if (!user) {
@@ -348,26 +351,26 @@ function EmployeePage() {
     }
   }
 
-  const MAX_PHOTO_BYTES = 5 * 1024 * 1024 // matches storage.buckets file_size_limit (Phase E2)
+  const MAX_PHOTO_BYTES = 5 * 1024 * 1024 // after compress
 
   const uploadPhotos = async (files: File[], siteId: string): Promise<string[]> => {
-    const urls: string[] = []
-    for (const file of files) {
-      if (file.size > MAX_PHOTO_BYTES) {
-        throw new Error(`Photo "${file.name}" exceeds 5MB limit`)
-      }
-      const ext = file.name.split('.').pop() || 'jpg'
-      const fileUuid = crypto.randomUUID()
-      // Path must start with site_id for storage RLS (026/045)
-      const path = `${siteId}/${todayStr}/${fileUuid}.${ext}`
-      const { data, error } = await supabase.storage
-        .from('trip-photos')
-        .upload(path, file, { upsert: true })
-      
-      if (error) throw error
-      if (data) urls.push(path)
-    }
-    return urls
+    const compressed = await Promise.all(files.map((f) => compressImageFile(f)))
+    const results = await Promise.all(
+      compressed.map(async (file) => {
+        if (file.size > MAX_PHOTO_BYTES) {
+          throw new Error(`Photo "${file.name}" still exceeds 5MB after compress`)
+        }
+        const ext = file.name.split('.').pop() || 'jpg'
+        const fileUuid = crypto.randomUUID()
+        const path = `${siteId}/${todayStr}/${fileUuid}.${ext}`
+        const { data, error } = await supabase.storage
+          .from('trip-photos')
+          .upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg' })
+        if (error) throw error
+        return data ? path : null
+      })
+    )
+    return results.filter(Boolean) as string[]
   }
 
   const handleTripSubmit = async (e: React.FormEvent) => {
@@ -385,7 +388,8 @@ function EmployeePage() {
 
     setSubmittingTrip(true)
     const upperPlate = tripForm.vehicle_plate.toUpperCase().trim()
-    const { rate } = resolveRatePerCubic(tripForm.vehicle_type, negotiatedRates)
+    const cust = customers.find((c) => c.id === tripForm.customer_id)
+    const { rate } = resolveTripRateForCustomer(tripForm.vehicle_type, cust || null, negotiatedRates)
     const capacity = parseFloat(tripForm.cubic_capacity) || 0
     const worth = computeTripWorthFromRate(null, rate)
     const ownership = tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership
@@ -643,7 +647,8 @@ function EmployeePage() {
 
       // Calculate shipment rates (shared module)
       const capacity = parseFloat(editForm.cubic_capacity) || 0
-      const { rate } = resolveRatePerCubic(editForm.vehicle_type, negotiatedRates)
+      const cust = customers.find((c) => c.id === editForm.customer_id)
+      const { rate } = resolveTripRateForCustomer(editForm.vehicle_type, cust || null, negotiatedRates)
       const worth = computeTripWorthFromRate(null, rate)
       const settleAmt = Number(worth) || Number(editingTrip.settlement_amount) || 0
       if (editForm.settled && settleAmt <= 0) {
@@ -1006,7 +1011,9 @@ function EmployeePage() {
               <label className="form-label">Customer</label>
               <select className="form-input form-select" value={tripForm.customer_id}
                 onChange={e => setTripForm(f => ({ ...f, customer_id: e.target.value }))}>
-                <option value="">Select Customer</option>
+                <option value="">
+                  {customers.length === 0 ? 'No customers (admin: Settings)' : 'Select Customer'}
+                </option>
                 {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
@@ -1042,12 +1049,14 @@ function EmployeePage() {
             />
             <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
               {(() => {
-                const { rate, fromNegotiated } = resolveRatePerCubic(
+                const cust = customers.find((c) => c.id === tripForm.customer_id)
+                const { rate, source } = resolveTripRateForCustomer(
                   tripForm.vehicle_type,
+                  cust || null,
                   negotiatedRates
                 )
                 const worth = computeTripWorthFromRate(null, rate)
-                return `Auto: ${tripForm.vehicle_type} = ₹${rate}/trip${fromNegotiated ? '' : ' (default)'} → ₹${worth}`
+                return `Auto: ₹${rate}/trip (${source}) → ₹${worth}`
               })()}
             </span>
           </div>

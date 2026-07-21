@@ -93,13 +93,45 @@ export type RateRow = { vehicle_type?: string | null; rate_per_cubic?: number | 
 export function resolveTripRate(
   vehicleType: string,
   rates: RateRow[] | null | undefined
-): { rate: number; fromNegotiated: boolean } {
+): { rate: number; fromNegotiated: boolean; source: 'vehicle_type' | 'default' } {
   const row = (rates || []).find((r) => r.vehicle_type === vehicleType)
   const negotiated = row != null ? Number(row.rate_per_cubic) : NaN
   if (Number.isFinite(negotiated) && negotiated > 0) {
-    return { rate: negotiated, fromNegotiated: true }
+    return { rate: negotiated, fromNegotiated: true, source: 'vehicle_type' }
   }
-  return { rate: getDefaultTripRate(vehicleType), fromNegotiated: false }
+  return { rate: getDefaultTripRate(vehicleType), fromNegotiated: false, source: 'default' }
+}
+
+export type CustomerRateRow = {
+  id?: string
+  default_trip_rate?: number | string | null
+  trip_rates?: Record<string, number | string> | null
+}
+
+/**
+ * Price resolution for a trip (field model: rate discussed with customer):
+ * 1) customer trip_rates[vehicleType]
+ * 2) customer default_trip_rate
+ * 3) org negotiated_rates / default by vehicle type
+ */
+export function resolveTripRateForCustomer(
+  vehicleType: string,
+  customer: CustomerRateRow | null | undefined,
+  orgRates: RateRow[] | null | undefined
+): { rate: number; source: 'customer_type' | 'customer_default' | 'vehicle_type' | 'default' } {
+  if (customer) {
+    const map = customer.trip_rates || {}
+    const typed = Number(map[vehicleType])
+    if (Number.isFinite(typed) && typed > 0) {
+      return { rate: typed, source: 'customer_type' }
+    }
+    const def = Number(customer.default_trip_rate)
+    if (Number.isFinite(def) && def > 0) {
+      return { rate: def, source: 'customer_default' }
+    }
+  }
+  const base = resolveTripRate(vehicleType, orgRates)
+  return { rate: base.rate, source: base.source }
 }
 
 /** @deprecated Use resolveTripRate */
