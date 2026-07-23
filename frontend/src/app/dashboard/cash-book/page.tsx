@@ -23,6 +23,8 @@ import {
   CASH_ENTRY_CATEGORIES_OUT,
   expenseRequiresContractor,
 } from '@/lib/trip-constants'
+import ContractorInput from '@/components/ContractorInput'
+import { resolveOrCreateContractorId, contractorNameById } from '@/lib/resolve-contractor'
 
 const ENTRY_CATEGORIES_IN = [...CASH_ENTRY_CATEGORIES_IN]
 const ENTRY_CATEGORIES_OUT = [...CASH_ENTRY_CATEGORIES_OUT]
@@ -42,13 +44,13 @@ export default function CashBookPage() {
     category: string
     amount: string
     note: string
-    contractor_id: string
+    contractor_name: string
   }>({
     entry_type: 'out',
     category: ENTRY_CATEGORIES_OUT[0],
     amount: '',
     note: '',
-    contractor_id: '',
+    contractor_name: '',
   })
   const [contractors, setContractors] = useState<Array<{ id: string; name: string }>>([])
   const [photoFile, setPhotoFile] = useState<File | null>(null)
@@ -60,7 +62,7 @@ export default function CashBookPage() {
     category: ENTRY_CATEGORIES_OUT[0],
     amount: '',
     note: '',
-    contractor_id: '',
+    contractor_name: '',
   })
 
   // Pagination states
@@ -280,9 +282,9 @@ export default function CashBookPage() {
     if (
       form.entry_type === 'out' &&
       expenseRequiresContractor(form.category) &&
-      !form.contractor_id
+      !form.contractor_name.trim()
     ) {
-      toast.error('Select a transport contractor for this expense type')
+      toast.error('Enter or select a transport contractor for this expense type')
       return
     }
 
@@ -290,6 +292,9 @@ export default function CashBookPage() {
 
     const queueCashOffline = async (receiptUrl: string | null, receiptFile: File | null) => {
       const clientId = crypto.randomUUID()
+      const known = contractors.find(
+        (c) => c.name.trim().toLowerCase() === form.contractor_name.trim().toLowerCase()
+      )
       const item = await enqueueCashEntryWithReceipt(user?.id, organizationId, {
         client_id: clientId,
         cash_book_id: cashBook.id,
@@ -300,7 +305,8 @@ export default function CashBookPage() {
         amount: amt,
         note: form.note || null,
         receipt_url: receiptUrl,
-        contractor_id: form.contractor_id || null,
+        contractor_id: known?.id || null,
+        contractor_name: form.contractor_name || null,
         receiptFile,
       })
       if (!item) {
@@ -315,7 +321,7 @@ export default function CashBookPage() {
         amount: amt,
         note: form.note || null,
         receipt_url: receiptUrl,
-        contractor_id: form.contractor_id || null,
+        contractor_id: known?.id || null,
         active: true,
         created_at: new Date().toISOString(),
       } as CashEntry
@@ -339,6 +345,25 @@ export default function CashBookPage() {
     }
 
     try {
+      let contractorId: string | null = null
+      if (
+        form.entry_type === 'out' &&
+        expenseRequiresContractor(form.category) &&
+        form.contractor_name.trim()
+      ) {
+        contractorId = await resolveOrCreateContractorId(
+          supabase,
+          organizationId,
+          form.contractor_name
+        )
+        if (contractorId && !contractors.some((c) => c.id === contractorId)) {
+          setContractors((prev) => [
+            ...prev,
+            { id: contractorId!, name: form.contractor_name.trim() },
+          ])
+        }
+      }
+
       let receiptUrl: string | null = null
       if (photoFile) {
         // Path must start with cash_book_id for storage RLS (migration 026/042)
@@ -359,7 +384,7 @@ export default function CashBookPage() {
         amount: amt,
         note: form.note || null,
         receipt_url: receiptUrl,
-        contractor_id: form.contractor_id || null,
+        contractor_id: contractorId,
       })
 
       toast.success('Cash entry recorded successfully')
@@ -598,6 +623,11 @@ export default function CashBookPage() {
                       <span className={`cash-dot ${entry.entry_type}`} />
                       <div>
                         <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{entry.category}</div>
+                        {entry.contractor_id && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '0.125rem', fontWeight: 500 }}>
+                            Contractor: {contractorNameById(contractors, entry.contractor_id)}
+                          </div>
+                        )}
                         {entry.note && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>{entry.note}</div>}
                         <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
                           {entry.created_at ? format(new Date(entry.created_at), 'hh:mm a') : ''}
@@ -717,7 +747,9 @@ export default function CashBookPage() {
                 setForm((f) => ({
                   ...f,
                   category: e.target.value,
-                  contractor_id: expenseRequiresContractor(e.target.value) ? f.contractor_id : '',
+                  contractor_name: expenseRequiresContractor(e.target.value)
+                    ? f.contractor_name
+                    : '',
                 }))
               }
             >
@@ -736,22 +768,15 @@ export default function CashBookPage() {
           </div>
 
           {form.entry_type === 'out' && expenseRequiresContractor(form.category) && (
-            <div className="form-group">
-              <label className="form-label">Transport contractor *</label>
-              <select
-                className="form-input form-select"
-                value={form.contractor_id}
-                onChange={(e) => setForm((f) => ({ ...f, contractor_id: e.target.value }))}
-                required
-              >
-                <option value="">Select contractor</option>
-                {contractors.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <ContractorInput
+              label="Transport contractor"
+              value={form.contractor_name}
+              onChange={(name) => setForm((f) => ({ ...f, contractor_name: name }))}
+              contractors={contractors}
+              required
+              placeholder="Type name or pick from list"
+              hint="Pick from list or type a new name"
+            />
           )}
 
           <div className="form-group">

@@ -1129,6 +1129,10 @@ export type Database = {
         Args: never
         Returns: { id: string; name: string; location: string | null }[]
       }
+      resolve_or_create_contractor: {
+        Args: { p_name: string }
+        Returns: string
+      }
       get_user_organization_id: { Args: never; Returns: string }
       get_user_role: { Args: never; Returns: string }
       get_user_site_ids: { Args: never; Returns: string[] }

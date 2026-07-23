@@ -32,6 +32,11 @@ import {
   prepareUploadImages,
   setCachedSignedUrl,
 } from '@/lib/image-utils'
+import ContractorInput from '@/components/ContractorInput'
+import {
+  contractorNameById,
+  resolveOrCreateContractorId,
+} from '@/lib/resolve-contractor'
 
 interface ExtendedVehicle extends Vehicle {
   transport_contractors?: {
@@ -84,7 +89,8 @@ export default function TripsPage() {
   const [form, setForm] = useState({
     vehicle_id: '',
     plate_number: '',
-    contractor_id: '',
+    /** Free-text contractor (list or new name) — resolved to id on save */
+    contractor_name: '',
     ownership: 'rented',
     vehicle_type: '12WH',
     cubic_capacity: '',
@@ -323,7 +329,7 @@ export default function TripsPage() {
       ...f,
       vehicle_id: vehicle.id,
       plate_number: vehicle.plate_number,
-      contractor_id: vehicle.default_contractor_id || '',
+      contractor_name: contractorNameById(contractors, vehicle.default_contractor_id),
       ownership: vehicle.ownership || 'rented',
       vehicle_type: vType,
       cubic_capacity: defaultCap,
@@ -400,7 +406,10 @@ export default function TripsPage() {
     setForm({
       vehicle_id: trip.vehicle_id || '',
       plate_number: trip.vehicles?.plate_number || '',
-      contractor_id: trip.contractor_id || '',
+      contractor_name:
+        trip.transport_contractors?.name ||
+        contractorNameById(contractors, trip.contractor_id) ||
+        '',
       ownership: (trip.ownership_snapshot as any) || 'rented',
       vehicle_type: (trip.vehicles?.vehicle_type as any) || '12WH',
       cubic_capacity: String(trip.cubic_capacity || ''),
@@ -456,6 +465,7 @@ export default function TripsPage() {
     photoPaths: string[]
     files: File[]
     payload: Parameters<typeof tripsRepository.create>[1]
+    contractorName?: string | null
   }) => {
     const clientId = crypto.randomUUID()
     const item = await enqueueTripCreateWithPhotos(user?.id, organizationId, {
@@ -463,6 +473,7 @@ export default function TripsPage() {
       vehicle_plate: args.plate || null,
       vehicle_type: form.vehicle_type,
       ownership: form.ownership,
+      contractor_name: args.contractorName || null,
       photo_paths: args.photoPaths,
       files: args.files,
       trip: {
@@ -488,7 +499,9 @@ export default function TripsPage() {
         plate_number: (args.plate || 'PENDING').toUpperCase(),
         vehicle_type: form.vehicle_type,
       },
-      transport_contractors: null,
+      transport_contractors: args.contractorName
+        ? { name: args.contractorName }
+        : null,
       _offline_pending: true,
     } as ExtendedTrip & { _offline_pending?: boolean }
     setTrips((prev) => [optimistic, ...prev])
@@ -509,6 +522,7 @@ export default function TripsPage() {
     photoPaths: string[]
     files: File[]
     patch: Parameters<typeof tripsRepository.create>[1] & { vehicle_id?: string | null }
+    contractorName?: string | null
   }) => {
     const item = await enqueueTripUpdateWithPhotos(user?.id, organizationId, {
       client_id: crypto.randomUUID(),
@@ -516,6 +530,7 @@ export default function TripsPage() {
       vehicle_plate: args.plate || null,
       vehicle_type: form.vehicle_type,
       ownership: form.ownership,
+      contractor_name: args.contractorName || null,
       photo_paths: args.photoPaths,
       files: args.files,
       patch: {
@@ -575,10 +590,14 @@ export default function TripsPage() {
     let vehicleId = form.vehicle_id
     const plate = vehicleSearch.toUpperCase().trim()
 
-    const buildPayload = (vId: string | null, photoPaths: string[]) => ({
+    const buildPayload = (
+      vId: string | null,
+      photoPaths: string[],
+      contractorId: string | null
+    ) => ({
       site_id: selectedSite,
       vehicle_id: vId || null,
-      contractor_id: form.contractor_id || null,
+      contractor_id: contractorId,
       trip_date: selectedDate,
       ownership_snapshot: form.ownership,
       permit_number: form.permit_number || null,
@@ -604,7 +623,7 @@ export default function TripsPage() {
       setShowForm(false)
       setEditingTripId(null)
       setForm({
-        vehicle_id: '', plate_number: '', contractor_id: form.contractor_id,
+        vehicle_id: '', plate_number: '', contractor_name: form.contractor_name,
         ownership: form.ownership, vehicle_type: form.vehicle_type, cubic_capacity: '',
         advance_amount: '0', customer_id: '', drop_location: '', distance_km: '',
         trip_worth: '', total_shipment_cost: '', payment_status: 'pending',
@@ -623,7 +642,12 @@ export default function TripsPage() {
         setSubmitting(false)
         return
       }
-      const payload = buildPayload(vehicleId || null, existingPhotoUrls)
+      // Offline: cannot create contractor server-side yet — match known name only
+      const known = contractors.find(
+        (c) => c.name.trim().toLowerCase() === form.contractor_name.trim().toLowerCase()
+      )
+      const contractorId = known?.id || null
+      const payload = buildPayload(vehicleId || null, existingPhotoUrls, contractorId)
       if (payload.settled && !(Number(payload.settlement_amount) > 0)) {
         toast.error('Settled trips require trip worth / settlement amount greater than zero')
         setSubmitting(false)
@@ -636,6 +660,7 @@ export default function TripsPage() {
           photoPaths: existingPhotoUrls,
           files: photoFiles,
           patch: payload,
+          contractorName: form.contractor_name || null,
         })
       } else {
         await queueTripCreateOffline({
@@ -644,6 +669,7 @@ export default function TripsPage() {
           photoPaths: existingPhotoUrls,
           files: photoFiles,
           payload,
+          contractorName: form.contractor_name || null,
         })
       }
       resetFormAfterSave()
@@ -652,6 +678,27 @@ export default function TripsPage() {
     }
 
     try {
+      // 0. Resolve free-text contractor (create if new)
+      const contractorId = await resolveOrCreateContractorId(
+        supabase,
+        organizationId,
+        form.contractor_name
+      )
+      if (form.contractor_name.trim() && contractorId) {
+        // Keep local list fresh for next open
+        if (!contractors.some((c) => c.id === contractorId)) {
+          setContractors((prev) => [
+            ...prev,
+            {
+              id: contractorId,
+              name: form.contractor_name.trim(),
+              active: true,
+              organization_id: organizationId!,
+            } as TransportContractor,
+          ])
+        }
+      }
+
       // 1. Resolve/create vehicle
       if (!vehicleId && vehicleSearch) {
         const upperPlate = vehicleSearch.toUpperCase()
@@ -667,7 +714,7 @@ export default function TripsPage() {
             plate_number: upperPlate,
             vehicle_type: form.vehicle_type,
             ownership: form.ownership,
-            default_contractor_id: form.contractor_id || null,
+            default_contractor_id: contractorId,
             active: true,
             organization_id: organizationId!,
           }).select().single()
@@ -694,7 +741,7 @@ export default function TripsPage() {
       ).filter(Boolean) as string[]
 
       const finalPhotos = [...existingPhotoUrls, ...uploadedPaths]
-      const payload = buildPayload(vehicleId || null, finalPhotos)
+      const payload = buildPayload(vehicleId || null, finalPhotos, contractorId)
 
       if (payload.settled && !(Number(payload.settlement_amount) > 0)) {
         toast.error('Settled trips require trip worth / settlement amount greater than zero')
@@ -738,7 +785,10 @@ export default function TripsPage() {
       loadTrips()
     } catch (error: unknown) {
       if (shouldQueueOffline(error) && plate) {
-        const payload = buildPayload(vehicleId || null, existingPhotoUrls)
+        const known = contractors.find(
+          (c) => c.name.trim().toLowerCase() === form.contractor_name.trim().toLowerCase()
+        )
+        const payload = buildPayload(vehicleId || null, existingPhotoUrls, known?.id || null)
         const ok = editingTripId
           ? await queueTripUpdateOffline({
               tripId: editingTripId,
@@ -746,6 +796,7 @@ export default function TripsPage() {
               photoPaths: existingPhotoUrls,
               files: photoFiles,
               patch: payload,
+              contractorName: form.contractor_name || null,
             })
           : await queueTripCreateOffline({
               vehicleId: vehicleId || null,
@@ -753,6 +804,7 @@ export default function TripsPage() {
               photoPaths: existingPhotoUrls,
               files: photoFiles,
               payload,
+              contractorName: form.contractor_name || null,
             })
         if (ok) {
           resetFormAfterSave()
@@ -835,7 +887,7 @@ export default function TripsPage() {
           setPhotoPreviews([])
           setExistingPhotoUrls([])
           setForm({
-            vehicle_id: '', plate_number: '', contractor_id: '',
+            vehicle_id: '', plate_number: '', contractor_name: '',
             ownership: 'rented', vehicle_type: '12WH', cubic_capacity: getCapacityForType('12WH'),
             advance_amount: '0', customer_id: '', drop_location: '', distance_km: '',
             trip_worth: '', total_shipment_cost: '', payment_status: 'pending',
@@ -1091,14 +1143,14 @@ export default function TripsPage() {
             </div>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Transport Contractor</label>
-            <select className="form-input form-select" value={form.contractor_id}
-              onChange={e => setForm(f => ({ ...f, contractor_id: e.target.value }))}>
-              <option value="">Select contractor</option>
-              {contractors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
+          <ContractorInput
+            label="Transport Contractor"
+            value={form.contractor_name}
+            onChange={(name) => setForm((f) => ({ ...f, contractor_name: name }))}
+            contractors={contractors}
+            placeholder="Type name or pick from list"
+            hint="Optional — pick from list or type a new name"
+          />
 
           {/* New fields for Customer & Scopes */}
           <div className="grid-2">

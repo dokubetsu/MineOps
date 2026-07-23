@@ -19,6 +19,7 @@ import {
   getOfflinePhotosByOutbox,
   putOfflinePhotos,
 } from '@/lib/offline-photo-store'
+import { resolveOrCreateContractorId } from '@/lib/resolve-contractor'
 
 const OUTBOX_PREFIX = 'mineops_outbox_v1'
 const MAX_ATTEMPTS = 8
@@ -32,6 +33,8 @@ export interface TripCreateOutboxPayload {
   vehicle_plate?: string | null
   vehicle_type?: string | null
   ownership?: string | null
+  /** Free-text contractor — resolved to id on flush if trip.contractor_id missing */
+  contractor_name?: string | null
   /** Already-uploaded storage paths */
   photo_paths?: string[]
   /** IndexedDB blob ids to upload on flush */
@@ -46,6 +49,7 @@ export interface TripUpdateOutboxPayload {
   vehicle_plate?: string | null
   vehicle_type?: string | null
   ownership?: string | null
+  contractor_name?: string | null
   /** Replace trip_photos with these storage paths after update */
   photo_paths?: string[]
   photo_blob_ids?: string[]
@@ -73,6 +77,8 @@ export interface CashEntryOutboxPayload {
   /** IndexedDB blob for receipt when offline */
   receipt_blob_id?: string | null
   contractor_id?: string | null
+  /** Free-text contractor for expense lines */
+  contractor_name?: string | null
   client_id: string
 }
 
@@ -471,9 +477,14 @@ async function processItem(
       `${siteId}/${tripDate}`
     )
     const allPhotos = [...(p.photo_paths || []), ...blobPaths]
+    let contractorId = p.trip.contractor_id || null
+    if (!contractorId && p.contractor_name) {
+      contractorId = await resolveOrCreateContractorId(supabase, orgId, p.contractor_name)
+    }
     const tripPayload: TripCreateInput = {
       ...p.trip,
       vehicle_id: vehicleId,
+      contractor_id: contractorId,
       organization_id: p.trip.organization_id || orgId,
       photo_url: allPhotos[0] || p.trip.photo_url || null,
       _vehicle_plate: p.vehicle_plate || null,
@@ -514,6 +525,10 @@ async function processItem(
       'trip-photos',
       `${siteId}/${tripDate}`
     )
+    if (!patch.contractor_id && p.contractor_name) {
+      const cid = await resolveOrCreateContractorId(supabase, orgId, p.contractor_name)
+      if (cid) patch = { ...patch, contractor_id: cid }
+    }
     await tripsRepository.update(supabase, p.trip_id, {
       ...patch,
       _vehicle_plate: p.vehicle_plate || null,
@@ -551,6 +566,10 @@ async function processItem(
       const paths = await uploadOfflineBlobs(supabase, item.id, 'cash-receipts', bookId)
       if (paths[0]) receiptUrl = paths[0]
     }
+    let contractorId = p.contractor_id ?? null
+    if (!contractorId && p.contractor_name) {
+      contractorId = await resolveOrCreateContractorId(supabase, orgId, p.contractor_name)
+    }
     await cashBookRepository.createEntry(supabase, {
       cash_book_id: bookId,
       entry_type: p.entry_type,
@@ -558,7 +577,7 @@ async function processItem(
       amount: p.amount,
       note: p.note,
       receipt_url: receiptUrl,
-      contractor_id: p.contractor_id ?? null,
+      contractor_id: contractorId,
     })
     await deleteOfflinePhotosByOutbox(item.id)
   }

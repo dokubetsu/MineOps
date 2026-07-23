@@ -19,6 +19,11 @@ import { compressImageFile, prepareUploadImages } from '@/lib/image-utils'
 import BottomSheet from '@/components/BottomSheet'
 import toast from 'react-hot-toast'
 import { toErrorMessage } from '@/lib/errors'
+import ContractorInput from '@/components/ContractorInput'
+import {
+  contractorNameById,
+  resolveOrCreateContractorId,
+} from '@/lib/resolve-contractor'
 import {
   EXPENSE_CATEGORIES,
   VEHICLE_TYPES,
@@ -78,7 +83,7 @@ function EmployeePage() {
     vehicle_type: '12WH',
     cubic_capacity: '20',
     ownership: 'rented',
-    contractor_id: '',
+    contractor_name: '',
     permit_number: '',
     advance_amount: '0',
     customer_id: '',
@@ -100,7 +105,7 @@ function EmployeePage() {
     category: EXPENSE_CATEGORIES[0] as string,
     amount: '',
     note: '',
-    contractor_id: '',
+    contractor_name: '',
   })
   const [expenseReceipt, setExpenseReceipt] = useState<File | null>(null)
   const [todayExpenses, setTodayExpenses] = useState<
@@ -121,7 +126,7 @@ function EmployeePage() {
     vehicle_type: '12WH',
     cubic_capacity: '20',
     ownership: 'rented',
-    contractor_id: '',
+    contractor_name: '',
     permit_number: '',
     advance_amount: '0',
     customer_id: '',
@@ -465,9 +470,35 @@ function EmployeePage() {
           : null
     const ownership = tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership
 
+    let contractorId: string | null = null
+    if (isBrowserOnline()) {
+      try {
+        contractorId = await resolveOrCreateContractorId(
+          supabase,
+          organizationId,
+          tripForm.contractor_name
+        )
+        if (contractorId && !contractors.some((c) => c.id === contractorId)) {
+          setContractors((prev) => [
+            ...prev,
+            { id: contractorId!, name: tripForm.contractor_name.trim() },
+          ])
+        }
+      } catch (err) {
+        toast.error(`Contractor: ${toErrorMessage(err)}`)
+        setSubmittingTrip(false)
+        return
+      }
+    } else {
+      const known = contractors.find(
+        (c) => c.name.trim().toLowerCase() === tripForm.contractor_name.trim().toLowerCase()
+      )
+      contractorId = known?.id || null
+    }
+
     const tripBase = {
       site_id: employee.site_id,
-      contractor_id: tripForm.contractor_id || null,
+      contractor_id: contractorId,
       trip_date: todayStr,
       cubic_capacity: capacity,
       rate_per_cubic: rate != null && rate > 0 ? rate : null,
@@ -497,7 +528,7 @@ function EmployeePage() {
         vehicle_type: '12WH',
         cubic_capacity: '20',
         ownership: 'rented',
-        contractor_id: '',
+        contractor_name: '',
         permit_number: '',
         advance_amount: '0',
         customer_id: '',
@@ -517,6 +548,7 @@ function EmployeePage() {
         vehicle_plate: upperPlate,
         vehicle_type: tripForm.vehicle_type,
         ownership,
+        contractor_name: tripForm.contractor_name || null,
         photo_paths: [],
         files: allPhotoFiles,
         trip: {
@@ -565,7 +597,7 @@ function EmployeePage() {
             plate_number: upperPlate,
             vehicle_type: tripForm.vehicle_type,
             ownership,
-            default_contractor_id: tripForm.contractor_id || null,
+            default_contractor_id: contractorId,
             active: true,
             organization_id: organizationId!
           })
@@ -627,22 +659,33 @@ function EmployeePage() {
     }
     e.preventDefault()
     if (!employee || !user) return
-    if (expenseRequiresContractor(expenseForm.category) && !expenseForm.contractor_id) {
-      toast.error('Select a transport contractor for this expense type')
+    if (expenseRequiresContractor(expenseForm.category) && !expenseForm.contractor_name.trim()) {
+      toast.error('Enter or select a transport contractor for this expense type')
       return
     }
     setSubmittingExpense(true)
     try {
+      const contractorId = await resolveOrCreateContractorId(
+        supabase,
+        organizationId,
+        expenseForm.contractor_name
+      )
+      if (contractorId && !contractors.some((c) => c.id === contractorId)) {
+        setContractors((prev) => [
+          ...prev,
+          { id: contractorId!, name: expenseForm.contractor_name.trim() },
+        ])
+      }
       await cashBookRepository.logSiteExpense(supabase, employee.site_id, todayStr, {
         category: expenseForm.category,
         amount: parseFloat(expenseForm.amount),
         note: expenseForm.note || null,
         receiptFile: expenseReceipt,
-        contractor_id: expenseForm.contractor_id || null,
+        contractor_id: contractorId,
       })
       toast.success('Expense logged to site cash book')
       setShowExpenseSheet(false)
-      setExpenseForm({ category: EXPENSE_CATEGORIES[0], amount: '', note: '', contractor_id: '' })
+      setExpenseForm({ category: EXPENSE_CATEGORIES[0], amount: '', note: '', contractor_name: '' })
       setExpenseReceipt(null)
       void loadInitialData()
     } catch (err: unknown) {
@@ -660,7 +703,10 @@ function EmployeePage() {
       vehicle_type: trip.vehicles?.vehicle_type || '12WH',
       cubic_capacity: String(trip.cubic_capacity || ''),
       ownership: trip.ownership_snapshot || 'rented',
-      contractor_id: trip.contractor_id || '',
+      contractor_name:
+        trip.transport_contractors?.name ||
+        contractorNameById(contractors, trip.contractor_id) ||
+        '',
       permit_number: trip.permit_number || '',
       advance_amount: String(trip.advance_amount || 0),
       customer_id: trip.customer_id || '',
@@ -710,9 +756,13 @@ function EmployeePage() {
       return
     }
 
-    const buildEditPatch = (vehicleId: string | null, photoUrls: string[]) => ({
+    const buildEditPatch = (
+      vehicleId: string | null,
+      photoUrls: string[],
+      contractorId: string | null
+    ) => ({
       vehicle_id: vehicleId,
-      contractor_id: editForm.contractor_id || null,
+      contractor_id: contractorId,
       cubic_capacity: capacity,
       rate_per_cubic: rate != null && rate > 0 ? rate : null,
       advance_amount: parseFloat(editForm.advance_amount) || 0,
@@ -737,15 +787,19 @@ function EmployeePage() {
     })
 
     const queueEditOffline = async (vehicleId: string | null) => {
+      const known = contractors.find(
+        (c) => c.name.trim().toLowerCase() === editForm.contractor_name.trim().toLowerCase()
+      )
       const item = await enqueueTripUpdateWithPhotos(user.id, organizationId, {
         client_id: crypto.randomUUID(),
         trip_id: editingTrip.id,
         vehicle_plate: upperPlate || null,
         vehicle_type: editForm.vehicle_type,
         ownership: editForm.ownership === 'lease' ? 'rented' : editForm.ownership,
+        contractor_name: editForm.contractor_name || null,
         photo_paths: editPhotoUrls,
         files: editPhotos,
-        patch: buildEditPatch(vehicleId, editPhotoUrls),
+        patch: buildEditPatch(vehicleId, editPhotoUrls, known?.id || null),
       })
       if (!item) {
         toast.error('Could not queue trip edit offline')
@@ -768,6 +822,18 @@ function EmployeePage() {
     }
 
     try {
+      const contractorId = await resolveOrCreateContractorId(
+        supabase,
+        organizationId,
+        editForm.contractor_name
+      )
+      if (contractorId && !contractors.some((c) => c.id === contractorId)) {
+        setContractors((prev) => [
+          ...prev,
+          { id: contractorId!, name: editForm.contractor_name.trim() },
+        ])
+      }
+
       // Find or register vehicle if changed
       let vehicleId = editingTrip.vehicle_id
       if (upperPlate !== editingTrip.vehicles?.plate_number) {
@@ -781,7 +847,7 @@ function EmployeePage() {
               plate_number: upperPlate,
               vehicle_type: editForm.vehicle_type,
               ownership: editForm.ownership === 'lease' ? 'rented' : editForm.ownership,
-              default_contractor_id: editForm.contractor_id || null,
+              default_contractor_id: contractorId,
               active: true,
               organization_id: organizationId!
             })
@@ -800,7 +866,7 @@ function EmployeePage() {
       await tripsRepository.update(
         supabase,
         editingTrip.id,
-        buildEditPatch(vehicleId, updatedPhotoUrls)
+        buildEditPatch(vehicleId, updatedPhotoUrls, contractorId)
       )
       toast.success('Trip updated successfully')
       setShowEditSheet(false)
@@ -1173,14 +1239,13 @@ function EmployeePage() {
                 <option value="lease">Leased</option>
               </select>
             </div>
-            <div className="form-group">
-              <label className="form-label">Contractor (Optional)</label>
-              <select className="form-input form-select" value={tripForm.contractor_id}
-                onChange={e => setTripForm(f => ({ ...f, contractor_id: e.target.value }))}>
-                <option value="">None / Select Contractor</option>
-                {contractors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
+            <ContractorInput
+              label="Contractor (optional)"
+              value={tripForm.contractor_name}
+              onChange={(name) => setTripForm((f) => ({ ...f, contractor_name: name }))}
+              contractors={contractors}
+              hint="Pick from list or type a new name"
+            />
           </div>
 
           <div className="form-group">
@@ -1381,14 +1446,13 @@ function EmployeePage() {
                 <option value="lease">Leased</option>
               </select>
             </div>
-            <div className="form-group">
-              <label className="form-label">Contractor (Optional)</label>
-              <select className="form-input form-select" value={editForm.contractor_id}
-                onChange={e => setEditForm(f => ({ ...f, contractor_id: e.target.value }))}>
-                <option value="">None / Select Contractor</option>
-                {contractors.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
+            <ContractorInput
+              label="Contractor (optional)"
+              value={editForm.contractor_name}
+              onChange={(name) => setEditForm((f) => ({ ...f, contractor_name: name }))}
+              contractors={contractors}
+              hint="Pick from list or type a new name"
+            />
           </div>
 
           <div className="grid-2">
@@ -1546,7 +1610,9 @@ function EmployeePage() {
                 setExpenseForm((f) => ({
                   ...f,
                   category: e.target.value,
-                  contractor_id: expenseRequiresContractor(e.target.value) ? f.contractor_id : '',
+                  contractor_name: expenseRequiresContractor(e.target.value)
+                    ? f.contractor_name
+                    : '',
                 }))
               }
               required
@@ -1557,20 +1623,15 @@ function EmployeePage() {
             </select>
           </div>
           {expenseRequiresContractor(expenseForm.category) && (
-            <div className="form-group">
-              <label className="form-label">Transport contractor *</label>
-              <select
-                className="form-input form-select"
-                value={expenseForm.contractor_id}
-                onChange={(e) => setExpenseForm((f) => ({ ...f, contractor_id: e.target.value }))}
-                required
-              >
-                <option value="">Select contractor</option>
-                {contractors.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
+            <ContractorInput
+              label="Transport contractor"
+              value={expenseForm.contractor_name}
+              onChange={(name) => setExpenseForm((f) => ({ ...f, contractor_name: name }))}
+              contractors={contractors}
+              required
+              placeholder="Type name or pick from list"
+              hint="Required for Fastag / diesel — pick or type a name"
+            />
           )}
           <div className="form-group">
             <label className="form-label">Amount (₹) *</label>
