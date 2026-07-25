@@ -145,7 +145,7 @@ export default function SettingsPage() {
         if (!raw) return null
         const n = parseFloat(raw)
         if (!Number.isFinite(n) || n <= 0) {
-          throw new Error(`Invalid rate for ${vehicle_type} (enter a positive ₹/trip or leave blank)`)
+          throw new Error(`Invalid rate for ${vehicle_type} (enter a positive ₹/m³ or leave blank)`)
         }
         return {
           organization_id: organizationId,
@@ -159,7 +159,7 @@ export default function SettingsPage() {
       }>
 
       if (rows.length === 0) {
-        throw new Error('Enter at least one vehicle type rate (₹ per trip)')
+        throw new Error('Enter at least one vehicle type rate (₹ per m³)')
       }
 
       const { error } = await supabase.from('negotiated_rates').upsert(rows, {
@@ -556,7 +556,7 @@ export default function SettingsPage() {
                   {editingCustomerId ? 'Edit customer' : 'Add customer'}
                 </h3>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: 1.45 }}>
-                  Customers appear in Log Trip. Set rates discussed with them (₹ per trip). Type-specific
+                  Customers appear in Log Trip. Set rates discussed with them (₹ per m³). Type-specific
                   rates override the default; if empty, org rates (Org rates tab) apply.
                 </p>
                 <div className="form-group">
@@ -579,7 +579,7 @@ export default function SettingsPage() {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Default rate (₹ / trip)</label>
+                  <label className="form-label">Default rate (₹ / m³)</label>
                   <input
                     className="form-input"
                     type="number"
@@ -609,7 +609,7 @@ export default function SettingsPage() {
                         }
                         placeholder="—"
                       />
-                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>₹/trip</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>₹/m³</span>
                     </div>
                   ))}
                 </div>
@@ -650,7 +650,7 @@ export default function SettingsPage() {
                         <div style={{ fontWeight: 700 }}>{c.name}</div>
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                           {c.contact || 'No contact'}
-                          {c.default_trip_rate != null ? ` · default ₹${c.default_trip_rate}/trip` : ''}
+                          {c.default_trip_rate != null ? ` · default ₹${c.default_trip_rate}/m³` : ''}
                         </div>
                         {rateBits && (
                           <div style={{ fontSize: '0.7rem', color: 'var(--accent)', marginTop: 2 }}>
@@ -680,12 +680,12 @@ export default function SettingsPage() {
             <div>
               <form onSubmit={saveRates} className="card mb-4" style={{ maxWidth: 520 }}>
                 <h3 style={{ marginBottom: '0.5rem', fontSize: '0.95rem', fontWeight: 600 }}>
-                  Org fallback rates (₹ per trip)
+                  Org fallback rates (₹ per m³)
                 </h3>
                 <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem', lineHeight: 1.45 }}>
                   Used when a trip has <strong>no customer</strong> or the customer has no rate for that
                   vehicle type. Prefer setting rates on the <strong>Customers</strong> tab (rate discussed
-                  with buyer). Defaults: 12WH ₹1000, 10WH ₹800.
+                  with buyer).
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                   {VEHICLE_TYPES.map((t) => (
@@ -720,7 +720,7 @@ export default function SettingsPage() {
                           placeholder="—"
                         />
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                          / trip
+                          / m³
                         </span>
                       </div>
                     </div>
@@ -767,8 +767,7 @@ export default function SettingsPage() {
                 </div>
               </form>
               <div className="card" style={{ maxWidth: 520, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Example:</strong> 12WH at ₹1,000/trip ×
-                1,572 trips → ₹15,72,000 (same as May–June business report).
+                <strong style={{ color: 'var(--text-primary)' }}>Example:</strong> 12WH at ₹370/m³ × 20m³ capacity → ₹7,400 per trip.
               </div>
             </div>
           )}

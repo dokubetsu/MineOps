@@ -2,9 +2,8 @@
  * Shared trip / expense domain constants used by admin trips + my-work.
  *
  * Trip pricing follows field reference paper (local reference/ folder, untracked):
- *   trip value = fixed ₹ per trip by vehicle type (not distance, not m³).
- * Column `negotiated_rates.rate_per_cubic` stores that ₹/trip value
- * (historical column name; product meaning is per trip).
+ *   trip value = ₹/m³ rate × cubic capacity of vehicle.
+ * Column `negotiated_rates.rate_per_cubic` stores the ₹/m³ unit rate.
  */
 
 export const VEHICLE_TYPES = ['12WH', '10WH', '6WH', 'Other'] as const
@@ -64,23 +63,14 @@ export function getCapacityForType(type: string): string {
 }
 
 /**
- * Suggested seed values for Settings → Org rates only (not used to auto-price trips).
- * Matches field business report (12WH ₹1000, 10WH ₹800).
+ * @deprecated Removed — admin must configure rates in Settings → Org rates.
+ * Returns 0 to signal "no default available."
  */
-export function getDefaultTripRate(type: string): number {
-  switch (type) {
-    case '12WH':
-      return 1000
-    case '10WH':
-      return 800
-    case '6WH':
-      return 600
-    default:
-      return 500
-  }
+export function getDefaultTripRate(_type: string): number {
+  return 0
 }
 
-/** @deprecated Use getDefaultTripRate — same values, old name */
+/** @deprecated Use org negotiated rates. Returns 0. */
 export function getDefaultRatePerCubic(type: string): number {
   return getDefaultTripRate(type)
 }
@@ -88,7 +78,7 @@ export function getDefaultRatePerCubic(type: string): number {
 export type RateRow = { vehicle_type?: string | null; rate_per_cubic?: number | string | null }
 
 /**
- * Prefer org negotiated rate (stored in rate_per_cubic as ₹/trip).
+ * Prefer org negotiated rate (stored in rate_per_cubic as ₹/m³).
  * No app default — trip cost is entered manually when no rate is configured.
  */
 export function resolveTripRate(
@@ -116,10 +106,10 @@ export type TripRateSource =
   | 'none'
 
 /**
- * Optional rate hint for a trip (never invents an app default):
- * 1) customer trip_rates[vehicleType]
- * 2) customer default_trip_rate
- * 3) org negotiated_rates by vehicle type
+ * ₹/m³ rate hint for a trip (never invents an app default):
+ * 1) customer trip_rates[vehicleType] (₹/m³)
+ * 2) customer default_trip_rate (₹/m³)
+ * 3) org negotiated_rates by vehicle type (₹/m³)
  * 4) none — user enters trip cost manually
  */
 export function resolveTripRateForCustomer(

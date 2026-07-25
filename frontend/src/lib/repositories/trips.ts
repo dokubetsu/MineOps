@@ -19,7 +19,7 @@ export type TripCreateInput = Omit<
   TripInsert,
   'id' | 'created_at' | 'updated_at' | 'entry_time' | 'active'
 > & {
-  /** Flat ₹ per trip by vehicle type (column name historical: rate_per_cubic) */
+  /** Unit rate ₹/m³ by vehicle type or customer rate */
   rate_per_cubic?: number | null
   /** Optional plate for cash advance note */
   _vehicle_plate?: string | null

@@ -856,6 +856,7 @@ export type Database = {
           photo_url: string | null
           photo_urls: string[] | null
           rate_per_cubic: number | null
+          rate_source: string | null
           settled: boolean
           settled_at: string | null
           settled_by: string | null
@@ -894,6 +895,7 @@ export type Database = {
           photo_url?: string | null
           photo_urls?: string[] | null
           rate_per_cubic?: number | null
+          rate_source?: string | null
           settled?: boolean
           settled_at?: string | null
           settled_by?: string | null
@@ -932,6 +934,7 @@ export type Database = {
           photo_url?: string | null
           photo_urls?: string[] | null
           rate_per_cubic?: number | null
+          rate_source?: string | null
           settled?: boolean
           settled_at?: string | null
           settled_by?: string | null

@@ -99,8 +99,8 @@ test.describe('Phase 4 error + trip helpers', () => {
   test('resolveTripRate uses negotiated rates only (no app default price)', () => {
     expect(resolveRatePerCubic('12WH', []).rate).toBeNull()
     expect(resolveRatePerCubic('12WH', []).fromNegotiated).toBe(false)
-    // Seed helpers still exist for Settings UI only
-    expect(getDefaultRatePerCubic('10WH')).toBe(800)
+    // Deprecated seed helper returns 0
+    expect(getDefaultRatePerCubic('10WH')).toBe(0)
     expect(
       resolveRatePerCubic('12WH', [{ vehicle_type: '12WH', rate_per_cubic: 1200 }]).rate
     ).toBe(1200)

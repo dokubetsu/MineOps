@@ -594,30 +594,50 @@ export default function TripsPage() {
       vId: string | null,
       photoPaths: string[],
       contractorId: string | null
-    ) => ({
-      site_id: selectedSite,
-      vehicle_id: vId || null,
-      contractor_id: contractorId,
-      trip_date: selectedDate,
-      ownership_snapshot: form.ownership,
-      permit_number: form.permit_number || null,
-      load_info: form.load_info || null,
-      notes: form.notes || null,
-      photo_url: photoPaths[0] || null,
-      cubic_capacity: parseFloat(form.cubic_capacity) || null,
-      advance_amount: parseFloat(form.advance_amount) || 0,
-      customer_id: form.customer_id || null,
-      drop_location: form.drop_location || null,
-      distance_km: parseFloat(form.distance_km) || null,
-      trip_worth: parseFloat(form.trip_worth) || null,
-      total_shipment_cost: parseFloat(form.total_shipment_cost) || null,
-      payment_status: form.payment_status,
-      payment_method: form.payment_status === 'settled' ? form.payment_method : null,
-      payment_reference: form.payment_status === 'settled' ? form.payment_reference : null,
-      settled: form.payment_status === 'settled',
-      settlement_amount: form.payment_status === 'settled' ? (parseFloat(form.trip_worth) || 0) : 0,
-      settlement_account: form.payment_status === 'settled' ? (form.payment_reference || 'UPI/Cash') : null,
-    })
+    ) => {
+      const cust = customers.find((c) => c.id === form.customer_id) as any
+      const { rate, source } = resolveTripRateForCustomer(
+        form.vehicle_type,
+        cust || null,
+        rates
+      )
+      const cap = parseFloat(form.cubic_capacity) || 0
+      const calcWorth = rate != null && cap > 0 ? computeTripWorthFromRate(cap, rate) : null
+      const enteredWorth = parseFloat(form.trip_worth) || null
+      const rateSource =
+        enteredWorth == null
+          ? null
+          : calcWorth != null && Math.abs(enteredWorth - calcWorth) < 0.01
+            ? source
+            : 'manual'
+
+      return {
+        site_id: selectedSite,
+        vehicle_id: vId || null,
+        contractor_id: contractorId,
+        trip_date: selectedDate,
+        ownership_snapshot: form.ownership,
+        permit_number: form.permit_number || null,
+        load_info: form.load_info || null,
+        notes: form.notes || null,
+        photo_url: photoPaths[0] || null,
+        cubic_capacity: cap || null,
+        rate_per_cubic: rate || null,
+        rate_source: rateSource,
+        advance_amount: parseFloat(form.advance_amount) || 0,
+        customer_id: form.customer_id || null,
+        drop_location: form.drop_location || null,
+        distance_km: parseFloat(form.distance_km) || null,
+        trip_worth: enteredWorth,
+        total_shipment_cost: parseFloat(form.total_shipment_cost) || null,
+        payment_status: form.payment_status,
+        payment_method: form.payment_status === 'settled' ? form.payment_method : null,
+        payment_reference: form.payment_status === 'settled' ? form.payment_reference : null,
+        settled: form.payment_status === 'settled',
+        settlement_amount: form.payment_status === 'settled' ? (parseFloat(form.trip_worth) || 0) : 0,
+        settlement_account: form.payment_status === 'settled' ? (form.payment_reference || 'UPI/Cash') : null,
+      }
+    }
 
     const resetFormAfterSave = () => {
       setShowForm(false)
@@ -1225,15 +1245,20 @@ export default function TripsPage() {
                     source === 'customer_type' || source === 'customer_default'
                       ? `customer ${cust?.name || ''}`.trim()
                       : 'org rates'
+                  const cap = parseFloat(form.cubic_capacity) || 0
+                  const totalWorth = cap > 0 ? computeTripWorthFromRate(cap, rate) : rate
+                  const hintText = cap > 0 
+                    ? `Hint ₹${rate}/m³ × ${cap}m³ = ₹${totalWorth} (${srcLabel})`
+                    : `Hint ₹${rate}/m³ (${srcLabel})`
                   return (
                     <>
-                      Hint ₹{rate}/trip ({srcLabel}) ·{' '}
+                      {hintText} ·{' '}
                       <button
                         type="button"
                         className="btn btn-ghost btn-sm"
                         style={{ padding: 0, fontSize: '0.65rem', textDecoration: 'underline' }}
                         onClick={() => {
-                          const w = String(computeTripWorthFromRate(null, rate))
+                          const w = String(totalWorth)
                           setForm((f) => ({
                             ...f,
                             trip_worth: w,

@@ -75,11 +75,11 @@ export function calculateStakeholderShare(net: number, sharePercent: number): nu
 /**
  * Trip worth from rate card / manual entry.
  *
- * Field reference (paper business report): **flat ₹ per trip by vehicle type**
- * (e.g. 12WH × ₹1000, 10WH × ₹800). Distance and m³ are not part of price.
+ * Pricing model: trip_worth = ₹/m³ rate × cubic capacity of vehicle.
+ * e.g. ₹370/m³ × 20m³ (12WH) = ₹7,400 per trip.
  *
- * Prefer explicit `tripWorth`; else use `rateAmount` as **₹ per trip**.
- * `cubicCapacity` is ignored for pricing (kept for API compatibility / logging).
+ * Prefer explicit `tripWorth`; else use `rateAmount × cubicCapacity`.
+ * When `cubicCapacity` is provided with `rateAmount`, they are multiplied.
  */
 export function computeTripWorth(params: {
   tripWorth?: number | null
@@ -90,6 +90,11 @@ export function computeTripWorth(params: {
     return roundMoney(Number(params.tripWorth))
   }
   const rate = Number(params.rateAmount) || 0
+  const capacity = Number(params.cubicCapacity) || 0
+  if (rate > 0 && capacity > 0) {
+    return roundMoney(rate * capacity)
+  }
+  // If only rate is provided (no capacity), treat as flat amount for backward compat
   return roundMoney(rate)
 }
 
@@ -151,23 +156,28 @@ export function leaveDaysBetween(fromDate: string, toDate: string): number {
 }
 
 /**
- * Auto trip cost from type rate (flat ₹/trip).
- * First arg was historically capacity — ignored for price (reference model).
+ * Auto trip cost from ₹/m³ rate × cubic capacity.
+ * trip_worth = ratePerCubic × cubicCapacity
  */
 export function computeTripWorthFromRate(
-  _cubicCapacity: number | string | null | undefined,
-  ratePerTrip: number | string | null | undefined
+  cubicCapacity: number | string | null | undefined,
+  ratePerCubic: number | string | null | undefined
 ): number {
   return computeTripWorth({
-    rateAmount: ratePerTrip != null ? Number(ratePerTrip) : null,
+    rateAmount: ratePerCubic != null ? Number(ratePerCubic) : null,
+    cubicCapacity: cubicCapacity != null ? Number(cubicCapacity) : null,
   })
 }
 
-/** Flat ₹/trip from rate card only. */
+/** ₹/m³ rate × capacity → trip worth. Capacity defaults to 0 if not provided. */
 export function computeTripWorthFromTripRate(
-  ratePerTrip: number | string | null | undefined
+  ratePerCubic: number | string | null | undefined,
+  cubicCapacity?: number | string | null | undefined
 ): number {
-  return computeTripWorth({ rateAmount: ratePerTrip != null ? Number(ratePerTrip) : null })
+  return computeTripWorth({
+    rateAmount: ratePerCubic != null ? Number(ratePerCubic) : null,
+    cubicCapacity: cubicCapacity != null ? Number(cubicCapacity) : null,
+  })
 }
 
 /**

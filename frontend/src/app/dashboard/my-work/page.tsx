@@ -32,6 +32,7 @@ import {
   resolveTripRateForCustomer,
   vehicleTypeLabel,
 } from '@/lib/trip-constants'
+import { computeTripWorthFromRate } from '@/lib/calculations'
 
 interface EmployeeData {
   id: string
@@ -183,12 +184,14 @@ function EmployeePage() {
       cust || null,
       negotiatedRates
     )
+    const cap = parseFloat(tripForm.cubic_capacity) || 0
     if (rate != null && rate > 0) {
+      const worth = cap > 0 ? computeTripWorthFromRate(cap, rate) : rate
       setTripForm((f) =>
-        f.total_shipment_cost === String(rate) ? f : { ...f, total_shipment_cost: String(rate) }
+        f.total_shipment_cost === String(worth) ? f : { ...f, total_shipment_cost: String(worth) }
       )
     }
-  }, [tripForm.vehicle_type, tripForm.customer_id, negotiatedRates, customers])
+  }, [tripForm.vehicle_type, tripForm.cubic_capacity, tripForm.customer_id, negotiatedRates, customers])
 
   useEffect(() => {
     const cust = customers.find((c) => c.id === editForm.customer_id)
@@ -197,12 +200,14 @@ function EmployeePage() {
       cust || null,
       negotiatedRates
     )
+    const cap = parseFloat(editForm.cubic_capacity) || 0
     if (rate != null && rate > 0) {
+      const worth = cap > 0 ? computeTripWorthFromRate(cap, rate) : rate
       setEditForm((f) =>
-        f.total_shipment_cost === String(rate) ? f : { ...f, total_shipment_cost: String(rate) }
+        f.total_shipment_cost === String(worth) ? f : { ...f, total_shipment_cost: String(worth) }
       )
     }
-  }, [editForm.vehicle_type, editForm.customer_id, negotiatedRates, customers])
+  }, [editForm.vehicle_type, editForm.cubic_capacity, editForm.customer_id, negotiatedRates, customers])
 
   const loadInitialData = async () => {
     if (!user) {
@@ -458,15 +463,21 @@ function EmployeePage() {
     setSubmittingTrip(true)
     const upperPlate = tripForm.vehicle_plate.toUpperCase().trim()
     const cust = customers.find((c) => c.id === tripForm.customer_id)
-    const { rate } = resolveTripRateForCustomer(tripForm.vehicle_type, cust || null, negotiatedRates)
+    const { rate, source } = resolveTripRateForCustomer(tripForm.vehicle_type, cust || null, negotiatedRates)
     const capacity = parseFloat(tripForm.cubic_capacity) || 0
-    // Admin/customer rate wins when set; otherwise use field-entered cost (never app defaults)
+    const calcWorth = rate != null && rate > 0 ? computeTripWorthFromRate(capacity, rate) : null
     const entered = parseFloat(tripForm.total_shipment_cost)
     const worth =
-      rate != null && rate > 0
-        ? rate
+      calcWorth != null && calcWorth > 0
+        ? calcWorth
         : Number.isFinite(entered) && entered > 0
           ? entered
+          : null
+    const rateSource =
+      rate != null && rate > 0
+        ? source
+        : Number.isFinite(entered) && entered > 0
+          ? 'manual'
           : null
     const ownership = tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership
 
@@ -502,6 +513,7 @@ function EmployeePage() {
       trip_date: todayStr,
       cubic_capacity: capacity,
       rate_per_cubic: rate != null && rate > 0 ? rate : null,
+      rate_source: rateSource,
       advance_amount: parseFloat(tripForm.advance_amount) || 0,
       customer_id: tripForm.customer_id || null,
       drop_location: tripForm.drop_location || null,
