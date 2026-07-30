@@ -451,6 +451,7 @@ export type Database = {
           id: string
           organization_id: string
           rate_per_cubic: number
+          rate_per_km: number | null
           vehicle_type: string
         }
         Insert: {
@@ -458,6 +459,7 @@ export type Database = {
           id?: string
           organization_id: string
           rate_per_cubic?: number
+          rate_per_km?: number | null
           vehicle_type: string
         }
         Update: {
@@ -465,6 +467,7 @@ export type Database = {
           id?: string
           organization_id?: string
           rate_per_cubic?: number
+          rate_per_km?: number | null
           vehicle_type?: string
         }
         Relationships: [
@@ -840,6 +843,7 @@ export type Database = {
           created_by: string | null
           cubic_capacity: number | null
           customer_id: string | null
+          distance_cost: number | null
           distance_km: number | null
           driver_id: string | null
           drop_location: string | null
@@ -856,6 +860,7 @@ export type Database = {
           photo_url: string | null
           photo_urls: string[] | null
           rate_per_cubic: number | null
+          rate_per_km: number | null
           rate_source: string | null
           settled: boolean
           settled_at: string | null
@@ -879,6 +884,7 @@ export type Database = {
           created_by?: string | null
           cubic_capacity?: number | null
           customer_id?: string | null
+          distance_cost?: number | null
           distance_km?: number | null
           driver_id?: string | null
           drop_location?: string | null
@@ -895,6 +901,7 @@ export type Database = {
           photo_url?: string | null
           photo_urls?: string[] | null
           rate_per_cubic?: number | null
+          rate_per_km?: number | null
           rate_source?: string | null
           settled?: boolean
           settled_at?: string | null
@@ -918,6 +925,7 @@ export type Database = {
           created_by?: string | null
           cubic_capacity?: number | null
           customer_id?: string | null
+          distance_cost?: number | null
           distance_km?: number | null
           driver_id?: string | null
           drop_location?: string | null
@@ -934,6 +942,7 @@ export type Database = {
           photo_url?: string | null
           photo_urls?: string[] | null
           rate_per_cubic?: number | null
+          rate_per_km?: number | null
           rate_source?: string | null
           settled?: boolean
           settled_at?: string | null

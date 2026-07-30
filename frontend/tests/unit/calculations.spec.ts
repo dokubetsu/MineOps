@@ -109,4 +109,12 @@ test.describe('Business Calculations (shared module)', () => {
     expect(b.periodDays).toBe(31)
     expect(b.endIso).toBe('2026-07-31')
   })
+
+  test('should compute distance cost as ratePerKm × distanceKm', async () => {
+    const { computeDistanceCost } = await import('../../src/lib/calculations')
+    expect(computeDistanceCost(10, 200)).toBe(2000)
+    expect(computeDistanceCost(15.5, 150)).toBe(2325)
+    expect(computeDistanceCost(null, 200)).toBeNull()
+    expect(computeDistanceCost(10, 0)).toBeNull()
+  })
 })

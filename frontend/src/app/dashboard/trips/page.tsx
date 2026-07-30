@@ -14,7 +14,7 @@ import {
   enqueueTripUpdateWithPhotos,
 } from '@/lib/offline-outbox'
 import { isBrowserOnline, shouldQueueOffline } from '@/lib/offline-network'
-import { computeTripWorthFromRate } from '@/lib/calculations'
+import { computeDistanceCost, computeTripWorthFromRate, roundMoney } from '@/lib/calculations'
 // computeTripWorthFromRate used only for optional "apply rate" hint
 import BottomSheet from '@/components/BottomSheet'
 import ConfirmDialog from '@/components/ConfirmDialog'
@@ -26,6 +26,7 @@ import {
   OWNERSHIP_TYPES,
   getCapacityForType,
   resolveTripRateForCustomer,
+  resolveDistanceRate,
 } from '@/lib/trip-constants'
 import {
   getCachedSignedUrl,
@@ -611,6 +612,10 @@ export default function TripsPage() {
             ? source
             : 'manual'
 
+      const distKm = parseFloat(form.distance_km) || null
+      const distRate = resolveDistanceRate(form.vehicle_type, rates)
+      const distCost = computeDistanceCost(distKm, distRate)
+
       return {
         site_id: selectedSite,
         vehicle_id: vId || null,
@@ -624,10 +629,12 @@ export default function TripsPage() {
         cubic_capacity: cap || null,
         rate_per_cubic: rate || null,
         rate_source: rateSource,
+        rate_per_km: distRate,
+        distance_cost: distCost,
         advance_amount: parseFloat(form.advance_amount) || 0,
         customer_id: form.customer_id || null,
         drop_location: form.drop_location || null,
-        distance_km: parseFloat(form.distance_km) || null,
+        distance_km: distKm,
         trip_worth: enteredWorth,
         total_shipment_cost: parseFloat(form.total_shipment_cost) || null,
         payment_status: form.payment_status,
@@ -1016,7 +1023,12 @@ export default function TripsPage() {
                     {trip.cubic_capacity && <span>Capacity: {trip.cubic_capacity} m³</span>}
                     {trip.permit_number && <span>Permit: {trip.permit_number}</span>}
                     {trip.drop_location && <span>Drop: {trip.drop_location}</span>}
-                    {trip.distance_km && <span>Dist: {trip.distance_km} km</span>}
+                    {trip.distance_km && (
+                      <span>
+                        Dist: {trip.distance_km} km
+                        {trip.distance_cost ? ` (₹${trip.distance_cost.toLocaleString('en-IN')})` : ''}
+                      </span>
+                    )}
                     {trip.advance_amount ? <span>Advance: ₹{trip.advance_amount}</span> : null}
                   </div>
 
@@ -1207,6 +1219,18 @@ export default function TripsPage() {
               <input className="form-input" type="number" step="any" value={form.distance_km}
                 onChange={e => setForm(f => ({ ...f, distance_km: e.target.value }))}
                 placeholder="e.g. 45" />
+              {(() => {
+                const dist = parseFloat(form.distance_km)
+                const kmRate = resolveDistanceRate(form.vehicle_type, rates)
+                if (dist > 0 && kmRate && kmRate > 0) {
+                  return (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '0.25rem' }}>
+                      Distance value: ₹{kmRate}/km × {dist} km = <strong>₹{roundMoney(dist * kmRate).toLocaleString('en-IN')}</strong>
+                    </div>
+                  )
+                }
+                return null
+              })()}
             </div>
             <div className="form-group">
               <label className="form-label">Trip cost (₹)</label>

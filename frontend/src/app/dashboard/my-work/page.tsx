@@ -30,9 +30,10 @@ import {
   expenseRequiresContractor,
   getCapacityForType,
   resolveTripRateForCustomer,
+  resolveDistanceRate,
   vehicleTypeLabel,
 } from '@/lib/trip-constants'
-import { computeTripWorthFromRate } from '@/lib/calculations'
+import { computeDistanceCost, computeTripWorthFromRate, roundMoney } from '@/lib/calculations'
 
 interface EmployeeData {
   id: string
@@ -507,6 +508,10 @@ function EmployeePage() {
       contractorId = known?.id || null
     }
 
+    const distKm = parseFloat(tripForm.distance_km) || null
+    const distRate = resolveDistanceRate(tripForm.vehicle_type, negotiatedRates)
+    const distCost = computeDistanceCost(distKm, distRate)
+
     const tripBase = {
       site_id: employee.site_id,
       contractor_id: contractorId,
@@ -514,10 +519,12 @@ function EmployeePage() {
       cubic_capacity: capacity,
       rate_per_cubic: rate != null && rate > 0 ? rate : null,
       rate_source: rateSource,
+      rate_per_km: distRate,
+      distance_cost: distCost,
       advance_amount: parseFloat(tripForm.advance_amount) || 0,
       customer_id: tripForm.customer_id || null,
       drop_location: tripForm.drop_location || null,
-      distance_km: parseFloat(tripForm.distance_km) || null,
+      distance_km: distKm,
       total_shipment_cost: worth,
       trip_worth: worth,
       permit_number: tripForm.permit_number || null,
@@ -1285,6 +1292,18 @@ function EmployeePage() {
               <label className="form-label">Distance (KM)</label>
               <input className="form-input" type="number" placeholder="45"
                 value={tripForm.distance_km} onChange={e => setTripForm(f => ({ ...f, distance_km: e.target.value }))} />
+              {(() => {
+                const dist = parseFloat(tripForm.distance_km)
+                const kmRate = resolveDistanceRate(tripForm.vehicle_type, negotiatedRates)
+                if (dist > 0 && kmRate && kmRate > 0) {
+                  return (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '0.25rem' }}>
+                      Distance value: ₹{kmRate}/km × {dist} km = <strong>₹{roundMoney(dist * kmRate).toLocaleString('en-IN')}</strong>
+                    </div>
+                  )
+                }
+                return null
+              })()}
             </div>
             <div className="form-group">
               <label className="form-label">Advance Amount Paid (₹)</label>

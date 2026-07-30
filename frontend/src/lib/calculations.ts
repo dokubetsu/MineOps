@@ -181,6 +181,22 @@ export function computeTripWorthFromTripRate(
 }
 
 /**
+ * Compute distance cost from rate per km × distance in km.
+ * e.g. ₹200/km × 10 km = ₹2,000.
+ */
+export function computeDistanceCost(
+  distanceKm: number | string | null | undefined,
+  ratePerKm: number | string | null | undefined
+): number | null {
+  const dist = distanceKm != null && distanceKm !== '' ? Number(distanceKm) : 0
+  const rate = ratePerKm != null && ratePerKm !== '' ? Number(ratePerKm) : 0
+  if (dist > 0 && rate > 0) {
+    return roundMoney(dist * rate)
+  }
+  return null
+}
+
+/**
  * Format INR for KPI cards and dense UI.
  * Uses compact notation (e.g. ₹1L) for |amount| ≥ 1,00,000 so values fit small cards.
  * Full amount is still available via title tooltips in the UI.

@@ -54,6 +54,8 @@ export default function SettingsPage() {
   const [customersList, setCustomersList] = useState<CustomerRow[]>([])
   const [rateDraft, setRateDraft] = useState<RateDraft>(emptyRateDraft)
   const [rateSaved, setRateSaved] = useState<RateDraft>(emptyRateDraft)
+  const [kmRateDraft, setKmRateDraft] = useState<RateDraft>(emptyRateDraft)
+  const [kmRateSaved, setKmRateSaved] = useState<RateDraft>(emptyRateDraft)
   const [savingRates, setSavingRates] = useState(false)
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<
@@ -99,7 +101,7 @@ export default function SettingsPage() {
         supabase.from('sites').select('*').order('name').limit(200),
         supabase.from('transport_contractors').select('*').order('name').limit(200),
         supabase.from('vehicles').select('*, transport_contractors(name)').order('plate_number').limit(1000),
-        supabase.from('negotiated_rates').select('vehicle_type, rate_per_cubic').limit(50),
+        supabase.from('negotiated_rates').select('vehicle_type, rate_per_cubic, rate_per_km').limit(50),
         supabase.from('customers').select('*').order('name').limit(500),
       ])
       if (sErr) throw sErr
@@ -113,17 +115,20 @@ export default function SettingsPage() {
       setCustomersList((cust as CustomerRow[]) || [])
 
       const draft = emptyRateDraft()
+      const kmDraft = emptyRateDraft()
       for (const row of rates || []) {
         if (
           row.vehicle_type &&
-          VEHICLE_TYPES.includes(row.vehicle_type as (typeof VEHICLE_TYPES)[number]) &&
-          row.rate_per_cubic != null
+          VEHICLE_TYPES.includes(row.vehicle_type as (typeof VEHICLE_TYPES)[number])
         ) {
-          draft[row.vehicle_type] = String(row.rate_per_cubic)
+          if (row.rate_per_cubic != null) draft[row.vehicle_type] = String(row.rate_per_cubic)
+          if (row.rate_per_km != null) kmDraft[row.vehicle_type] = String(row.rate_per_km)
         }
       }
       setRateDraft(draft)
       setRateSaved({ ...draft })
+      setKmRateDraft(kmDraft)
+      setKmRateSaved({ ...kmDraft })
     } catch (err: unknown) {
       toast.error(`Error loading configurations: ${toErrorMessage(err)}`)
     } finally {
@@ -139,27 +144,27 @@ export default function SettingsPage() {
     }
     setSavingRates(true)
     try {
-      // Only upsert types with a positive rate entered (blank = leave unset)
       const rows = VEHICLE_TYPES.map((vehicle_type) => {
-        const raw = (rateDraft[vehicle_type] || '').trim()
-        if (!raw) return null
-        const n = parseFloat(raw)
-        if (!Number.isFinite(n) || n <= 0) {
-          throw new Error(`Invalid rate for ${vehicle_type} (enter a positive ₹/m³ or leave blank)`)
-        }
+        const rawCubic = (rateDraft[vehicle_type] || '').trim()
+        const rawKm = (kmRateDraft[vehicle_type] || '').trim()
+        if (!rawCubic && !rawKm) return null
+        const nCubic = rawCubic ? parseFloat(rawCubic) : 0
+        const nKm = rawKm ? parseFloat(rawKm) : 0
         return {
           organization_id: organizationId,
           vehicle_type,
-          rate_per_cubic: n,
+          rate_per_cubic: nCubic > 0 ? nCubic : 0,
+          rate_per_km: nKm > 0 ? nKm : 0,
         }
       }).filter(Boolean) as Array<{
         organization_id: string
         vehicle_type: string
         rate_per_cubic: number
+        rate_per_km: number
       }>
 
       if (rows.length === 0) {
-        throw new Error('Enter at least one vehicle type rate (₹ per m³)')
+        throw new Error('Enter at least one vehicle rate (₹ per m³ or ₹ per km)')
       }
 
       const { error } = await supabase.from('negotiated_rates').upsert(rows, {
@@ -167,7 +172,8 @@ export default function SettingsPage() {
       })
       if (error) throw error
       setRateSaved({ ...rateDraft })
-      toast.success('Org rates saved — used as trip price when customer has no rate')
+      setKmRateSaved({ ...kmRateDraft })
+      toast.success('Org rates saved successfully')
     } catch (err: unknown) {
       toast.error(`Error saving rates: ${toErrorMessage(err)}`)
     } finally {
@@ -175,7 +181,7 @@ export default function SettingsPage() {
     }
   }
 
-  const ratesDirty = VEHICLE_TYPES.some((t) => rateDraft[t] !== rateSaved[t])
+  const ratesDirty = VEHICLE_TYPES.some((t) => rateDraft[t] !== rateSaved[t] || kmRateDraft[t] !== kmRateSaved[t])
 
   const addSite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -705,7 +711,7 @@ export default function SettingsPage() {
                       >
                         {vehicleTypeLabel(t)}
                       </label>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: '1 1 140px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: '1 1 130px' }}>
                         <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>₹</span>
                         <input
                           id={`rate-${t}`}
@@ -721,6 +727,24 @@ export default function SettingsPage() {
                         />
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                           / m³
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', flex: '1 1 130px' }}>
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>₹</span>
+                        <input
+                          id={`km-rate-${t}`}
+                          className="form-input"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={kmRateDraft[t] ?? ''}
+                          onChange={(e) =>
+                            setKmRateDraft((prev) => ({ ...prev, [t]: e.target.value }))
+                          }
+                          placeholder="e.g. 200"
+                        />
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                          / km
                         </span>
                       </div>
                     </div>

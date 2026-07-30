@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
-import { computeTripWorth, roundMoney } from '../calculations'
+import { computeDistanceCost, computeTripWorth, roundMoney } from '../calculations'
 import { cashBookRepository } from './cash-book'
 
 export type TripInsert = Database['public']['Tables']['trips']['Insert']
@@ -98,6 +98,11 @@ export const tripsRepository = {
         ? roundMoney(Number(payload.total_shipment_cost))
         : worth
 
+    const distCost =
+      payload.distance_cost != null && !Number.isNaN(Number(payload.distance_cost))
+        ? roundMoney(Number(payload.distance_cost))
+        : computeDistanceCost(payload.distance_km, payload.rate_per_km)
+
     const { data, error } = await supabase
       .from('trips')
       .insert({
@@ -106,6 +111,11 @@ export const tripsRepository = {
           payload.rate_per_cubic != null && Number(payload.rate_per_cubic) > 0
             ? Number(payload.rate_per_cubic)
             : null,
+        rate_per_km:
+          payload.rate_per_km != null && Number(payload.rate_per_km) > 0
+            ? Number(payload.rate_per_km)
+            : null,
+        distance_cost: distCost,
         trip_worth: worth,
         total_shipment_cost: total,
         advance_amount: roundMoney(Number(payload.advance_amount) || 0),
@@ -143,6 +153,13 @@ export const tripsRepository = {
     if (payload.rate_per_cubic != null) {
       const r = Number(payload.rate_per_cubic)
       patch.rate_per_cubic = Number.isFinite(r) && r > 0 ? r : null
+    }
+    if (payload.rate_per_km != null) {
+      const r = Number(payload.rate_per_km)
+      patch.rate_per_km = Number.isFinite(r) && r > 0 ? r : null
+    }
+    if (payload.distance_cost !== undefined) {
+      patch.distance_cost = payload.distance_cost != null ? roundMoney(Number(payload.distance_cost)) : null
     }
     if (payload.advance_amount != null) {
       patch.advance_amount = roundMoney(Number(payload.advance_amount) || 0)

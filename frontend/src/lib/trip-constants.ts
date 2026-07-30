@@ -153,3 +153,17 @@ export function vehicleTypeLabel(type: string): string {
       return type || 'Other'
   }
 }
+
+/**
+ * Look up org rate_per_km (₹/km) for a vehicle type from org rates.
+ */
+export function resolveDistanceRate(
+  vehicleType: string,
+  negotiatedRates?: Array<{ vehicle_type: string; rate_per_km?: number | null }> | null
+): number | null {
+  if (!negotiatedRates || !vehicleType) return null
+  const match = negotiatedRates.find((r) => r.vehicle_type === vehicleType)
+  const rate = Number(match?.rate_per_km)
+  if (Number.isFinite(rate) && rate > 0) return rate
+  return null
+}
