@@ -46,4 +46,4 @@ BEGIN
 END $$;
 
 COMMENT ON SCHEMA public IS
-  'MineOps public schema. Table privileges for service_role/authenticated set in migration 053 (Supabase no longer auto-exposes).';
+  'Khani public schema. Table privileges for service_role/authenticated set in migration 053 (Supabase no longer auto-exposes).';

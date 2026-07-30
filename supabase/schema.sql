@@ -1,5 +1,5 @@
 -- ==========================================
--- MineOps Database Schema & Security Blueprints
+-- Khani Database Schema & Security Blueprints
 -- ==========================================
 -- WARNING: This file is a REFERENCE SNAPSHOT only (intentionally may lag).
 -- Do NOT apply schema.sql to deploy. Use ordered files in

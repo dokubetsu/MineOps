@@ -9,13 +9,13 @@ import {
 } from './helpers'
 
 /**
- * MineOps End-to-End Business Flow
+ * Khani End-to-End Business Flow
  *
  * Prerequisites:
  * - Supabase running with migrations + seed (or global-setup admin seed)
  * - Production build available for webServer (`npm run build`)
  */
-test.describe('MineOps End-to-End Business Flow', () => {
+test.describe('Khani End-to-End Business Flow', () => {
   test('login, log trip, attendance, generate and finalize payroll', async ({ page }) => {
     // Full path: login → trip → attendance → payroll (confirm dialogs + network)
     test.setTimeout(90_000)

@@ -2,10 +2,10 @@ import { test, expect } from '@playwright/test'
 import { E2E_EMAIL, E2E_PASSWORD, loginAsAdmin } from './helpers'
 
 /**
- * Platform owner flow (seed: platform@mineops.com / password123 after db reset).
+ * Platform owner flow (seed: platform@khani.com / password123 after db reset).
  * Skips gracefully if seed/platform owner is unavailable.
  */
-const PLATFORM_EMAIL = process.env.E2E_PLATFORM_EMAIL || 'platform@mineops.com'
+const PLATFORM_EMAIL = process.env.E2E_PLATFORM_EMAIL || 'platform@khani.com'
 const PLATFORM_PASSWORD = process.env.E2E_PLATFORM_PASSWORD || 'password123'
 
 test.describe('Platform owner console', () => {

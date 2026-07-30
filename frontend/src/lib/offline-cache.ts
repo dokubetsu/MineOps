@@ -6,7 +6,7 @@
  * - Call clearOfflineCache() on logout
  */
 
-const PREFIX = 'mineops_cache_v1'
+const PREFIX = 'khani_cache_v1'
 /** Default 7 days so multi-day field offline still has roster/trip lists. */
 const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -90,7 +90,7 @@ export function getOfflineCache<T>(
   }
 }
 
-/** Remove all MineOps offline cache + write outbox + photo blobs (call on logout). */
+/** Remove all Khani offline cache + write outbox + photo blobs (call on logout). */
 export function clearOfflineCache(): void {
   if (!isBrowser()) return
   try {
@@ -100,7 +100,7 @@ export function clearOfflineCache(): void {
       if (
         k &&
         (k.startsWith(PREFIX) ||
-          k.startsWith('mineops_outbox_v1') ||
+          k.startsWith('khani_outbox_v1') ||
           k.startsWith('cached_cashbook_') ||
           k.startsWith('cached_cashentries_') ||
           k.startsWith('cached_balances_') ||

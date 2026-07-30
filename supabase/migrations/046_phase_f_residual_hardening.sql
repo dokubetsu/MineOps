@@ -312,7 +312,7 @@ BEGIN
     RAISE EXCEPTION 'Failed to approve leave (race lost)' USING ERRCODE = 'check_violation';
   END IF;
 
-  PERFORM set_config('mineops.skip_leave_balance_sync', '1', true);
+  PERFORM set_config('khani.skip_leave_balance_sync', '1', true);
 
   v_cur_date := v_from_date;
   WHILE v_cur_date <= v_to_date LOOP
@@ -439,7 +439,7 @@ BEGIN
     AND status = 'approved';
 
   -- Restore prior attendance from snapshot (skip balance trigger)
-  PERFORM set_config('mineops.skip_leave_balance_sync', '1', true);
+  PERFORM set_config('khani.skip_leave_balance_sync', '1', true);
 
   v_cur := v_from_date;
   WHILE v_cur <= v_to_date LOOP
@@ -511,7 +511,7 @@ BEGIN
   END IF;
 
   -- Serialize concurrent bootstrap attempts
-  PERFORM pg_advisory_xact_lock(hashtext('mineops_claim_first_platform_owner'));
+  PERFORM pg_advisory_xact_lock(hashtext('khani_claim_first_platform_owner'));
 
   IF EXISTS (SELECT 1 FROM public.platform_roles LIMIT 1) THEN
     RAISE EXCEPTION 'A platform owner already exists'
@@ -550,7 +550,7 @@ DECLARE
   v_emp uuid;
   v_date date;
 BEGIN
-  v_skip := current_setting('mineops.skip_leave_balance_sync', true);
+  v_skip := current_setting('khani.skip_leave_balance_sync', true);
   IF v_skip = '1' THEN
     RETURN COALESCE(NEW, OLD);
   END IF;

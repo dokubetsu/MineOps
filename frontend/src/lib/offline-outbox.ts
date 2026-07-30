@@ -21,7 +21,7 @@ import {
 } from '@/lib/offline-photo-store'
 import { resolveOrCreateContractorId } from '@/lib/resolve-contractor'
 
-const OUTBOX_PREFIX = 'mineops_outbox_v1'
+const OUTBOX_PREFIX = 'khani_outbox_v1'
 const MAX_ATTEMPTS = 8
 const MAX_ITEMS = 200
 

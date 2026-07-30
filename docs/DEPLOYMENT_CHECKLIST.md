@@ -1,4 +1,4 @@
-# MineOps deployment checklist (Phase A)
+# Khani deployment checklist (Phase A)
 
 Use this before every production deploy. Order matters.
 
@@ -52,7 +52,7 @@ Alternative: Supabase Auth create user + SQL
 
 | Context | Allowed |
 |---------|---------|
-| Local `supabase db reset` seed | `admin@mineops.com` / `password123`, `platform@mineops.com` / `password123` — **dev only** |
+| Local `supabase db reset` seed | `admin@khani.com` / `password123`, `platform@khani.com` / `password123` — **dev only** |
 | Production | Never use seed passwords. Never apply seed.sql. Use strong platform + tenant admin passwords (API policy: 10+ chars, letter + number). |
 | E2E / CI | Defaults only against ephemeral local Supabase |
 

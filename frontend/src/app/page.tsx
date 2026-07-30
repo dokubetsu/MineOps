@@ -51,7 +51,7 @@ export default function LoginPage() {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search)
       if (params.get('error') === 'org_inactive') {
-        setError('This organization has been deactivated. Contact your MineOps operator.')
+        setError('This organization has been deactivated. Contact your Khani operator.')
       }
     }
 
@@ -61,7 +61,7 @@ export default function LoginPage() {
         if (dest) {
           router.push(dest)
         } else {
-          setError('This organization has been deactivated. Contact your MineOps operator.')
+          setError('This organization has been deactivated. Contact your Khani operator.')
           setCheckingSession(false)
         }
       } else {
@@ -83,7 +83,7 @@ export default function LoginPage() {
     } else if (data.user) {
       const dest = await resolvePostLoginPath(data.user.id)
       if (!dest) {
-        setError('This organization has been deactivated. Contact your MineOps operator.')
+        setError('This organization has been deactivated. Contact your Khani operator.')
         setLoading(false)
         return
       }
@@ -163,7 +163,7 @@ export default function LoginPage() {
             fontWeight: 800,
             color: 'var(--accent)',
             letterSpacing: '-0.03em',
-          }}>MineOps</h1>
+          }}>Khani</h1>
           <p style={{
             fontSize: '0.875rem',
             color: 'var(--text-muted)',
@@ -232,7 +232,7 @@ export default function LoginPage() {
           </form>
           
           <div style={{ textAlign: 'center', marginTop: '1.25rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-            Need an organization account? Contact your MineOps platform operator.
+            Need an organization account? Contact your Khani platform operator.
           </div>
           <div style={{ textAlign: 'center', marginTop: '0.75rem', fontSize: '0.75rem' }}>
             <a href="/platform/setup" style={{ color: 'var(--text-muted)', textDecoration: 'underline' }}>
@@ -243,7 +243,7 @@ export default function LoginPage() {
 
         {/* Footer */}
         <p style={{ textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '1.5rem' }}>
-          MineOps Operations Platform
+          Khani Operations Platform
         </p>
       </div>
     </div>

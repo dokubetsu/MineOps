@@ -7,7 +7,7 @@
 
 -- Seed default organization
 INSERT INTO public.organizations (id, name, active)
-VALUES ('00000000-0000-0000-0000-000000000000', 'MineOps Demo Org', true)
+VALUES ('00000000-0000-0000-0000-000000000000', 'Khani Demo Org', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- Seed org feature entitlements (migration 036 creates table + seed_organization_features)
@@ -46,7 +46,7 @@ INSERT INTO auth.users (
   'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0'::uuid,
   'authenticated',
   'authenticated',
-  'admin@mineops.com',
+  'admin@khani.com',
   '$2b$10$JiePxFoho6oUAiA2KRIQYub1rY0xXpjWOa9g8rqIkO2Veon5GK1KW', -- bcrypt hash for password123
   now(),
   null,
@@ -76,7 +76,7 @@ INSERT INTO auth.identities (
 ) VALUES (
   'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0'::uuid,
   'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0'::uuid,
-  '{"sub":"d0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0","email":"admin@mineops.com","email_verified":true,"phone_verified":false}'::jsonb,
+  '{"sub":"d0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0","email":"admin@khani.com","email_verified":true,"phone_verified":false}'::jsonb,
   'email',
   'd0a0b0c0-d0e0-f0a0-b0c0-d0e0f0a0b0c0',
   now(),
@@ -91,7 +91,7 @@ ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
 -- Platform owner (control plane) — separate from tenant admin
--- Login: platform@mineops.com / password123
+-- Login: platform@khani.com / password123
 -- ============================================================
 INSERT INTO auth.users (
   instance_id,
@@ -118,7 +118,7 @@ INSERT INTO auth.users (
   'e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1'::uuid,
   'authenticated',
   'authenticated',
-  'platform@mineops.com',
+  'platform@khani.com',
   '$2b$10$JiePxFoho6oUAiA2KRIQYub1rY0xXpjWOa9g8rqIkO2Veon5GK1KW', -- password123
   now(),
   null,
@@ -147,7 +147,7 @@ INSERT INTO auth.identities (
 ) VALUES (
   'e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1'::uuid,
   'e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1'::uuid,
-  '{"sub":"e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1","email":"platform@mineops.com","email_verified":true,"phone_verified":false}'::jsonb,
+  '{"sub":"e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1","email":"platform@khani.com","email_verified":true,"phone_verified":false}'::jsonb,
   'email',
   'e1b1c1d1-e1f1-a1b1-c1d1-e1f1a1b1c1d1',
   now(),

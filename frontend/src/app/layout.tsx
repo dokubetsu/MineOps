@@ -20,13 +20,13 @@ const spaceGrotesk = Space_Grotesk({
 })
 
 export const metadata: Metadata = {
-  title: 'MineOps — Mine Logistics & Workforce',
+  title: 'Khani — Mine Logistics & Workforce',
   description: 'Digital logbook for mine operations — trips, cash book, attendance & payroll',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'MineOps',
+    title: 'Khani',
   },
   keywords: ['mine logistics', 'workforce management', 'cash book', 'trips', 'attendance'],
 }

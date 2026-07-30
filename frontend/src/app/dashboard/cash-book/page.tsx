@@ -96,8 +96,8 @@ export default function CashBookPage() {
     const onFlushed = () => {
       if (selectedSite) void loadCashBook(false)
     }
-    window.addEventListener('mineops:outbox-flushed', onFlushed)
-    return () => window.removeEventListener('mineops:outbox-flushed', onFlushed)
+    window.addEventListener('khani:outbox-flushed', onFlushed)
+    return () => window.removeEventListener('khani:outbox-flushed', onFlushed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSite, selectedDate])
 

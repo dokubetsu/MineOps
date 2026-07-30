@@ -1,4 +1,4 @@
-name: MineOps CI
+name: Khani CI
 
 on:
   push:
@@ -137,7 +137,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
-          E2E_ADMIN_EMAIL: admin@mineops.com
+          E2E_ADMIN_EMAIL: admin@khani.com
           E2E_ADMIN_PASSWORD: password123
           CSP_ALLOW_LOCAL_SUPABASE: '1'
 
@@ -149,6 +149,6 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ env.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
-          E2E_ADMIN_EMAIL: admin@mineops.com
+          E2E_ADMIN_EMAIL: admin@khani.com
           E2E_ADMIN_PASSWORD: password123
           CSP_ALLOW_LOCAL_SUPABASE: '1'

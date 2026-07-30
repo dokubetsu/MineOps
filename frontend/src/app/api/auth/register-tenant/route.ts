@@ -10,7 +10,7 @@ export async function POST() {
   return NextResponse.json(
     {
       error:
-        'Public organization registration is disabled. Contact your MineOps platform operator to provision your organization and admin account.',
+        'Public organization registration is disabled. Contact your Khani platform operator to provision your organization and admin account.',
       code: 'REGISTRATION_DISABLED_PLATFORM_ONLY',
     },
     { status: 403 }

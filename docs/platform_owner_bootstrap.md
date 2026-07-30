@@ -39,8 +39,8 @@ After `supabase db reset` (local Docker Supabase):
 
 | Email | Password | Role |
 |-------|----------|------|
-| `platform@mineops.com` | `password123` | platform_owner |
-| `admin@mineops.com` | `password123` | tenant admin (demo org) |
+| `platform@khani.com` | `password123` | platform_owner |
+| `admin@khani.com` | `password123` | tenant admin (demo org) |
 
 These passwords are **dev/E2E only**. Do **not** apply `seed.sql` to production. Do **not** reuse them live.
 

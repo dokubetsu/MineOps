@@ -50,7 +50,7 @@ export async function compressImageFile(
 
 /** Best-effort save of a just-captured photo to the device (gallery/downloads). */
 export async function saveCaptureToDevice(file: File, filename?: string): Promise<'shared' | 'downloaded' | 'skipped'> {
-  const name = filename || file.name || `mineops-${Date.now()}.jpg`
+  const name = filename || file.name || `khani-${Date.now()}.jpg`
   const toShare =
     file.type && file.name
       ? file

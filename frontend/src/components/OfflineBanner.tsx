@@ -52,7 +52,7 @@ export default function OfflineBanner() {
         }
         // Notify pages to reload data
         if (result.succeeded > 0 && typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('mineops:outbox-flushed', { detail: result }))
+          window.dispatchEvent(new CustomEvent('khani:outbox-flushed', { detail: result }))
         }
       } catch (e) {
         if (!quiet) {

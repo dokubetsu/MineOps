@@ -122,7 +122,7 @@ function NavContent() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
             <span style={{ fontSize: '1.5rem' }}>⛏️</span>
             <div>
-              <div className="sidebar-logo-text">MineOps</div>
+              <div className="sidebar-logo-text">Khani</div>
               <div className="sidebar-logo-sub">Logistics Platform</div>
             </div>
           </div>
@@ -234,7 +234,7 @@ function NavContent() {
         <div className="mobile-header-brand">
           <span style={{ fontSize: '1.15rem' }} aria-hidden>⛏️</span>
           <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--accent)', fontSize: '0.95rem' }}>
-            MineOps
+            Khani
           </span>
         </div>
         <div className="mobile-header-actions">

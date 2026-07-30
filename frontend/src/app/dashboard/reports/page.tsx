@@ -630,7 +630,7 @@ export default function ReportsPage() {
     const siteName = sites.find(s => s.id === selectedSite)?.name || selectedSite
 
     const rows = [
-      ['MineOps Cash Flow Report'],
+      ['Khani Cash Flow Report'],
       ['Site', siteName],
       ['Period', `${exportFrom} to ${exportTo}`],
       ['Generated', format(new Date(), 'dd MMM yyyy HH:mm')],

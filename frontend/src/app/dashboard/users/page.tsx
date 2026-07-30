@@ -127,7 +127,7 @@ export default function UsersPage() {
     if (!userMap[r.user_id]) {
       userMap[r.user_id] = {
         user_id: r.user_id,
-        email: authUsers[r.user_id] || 'unregistered@mineops.com',
+        email: authUsers[r.user_id] || 'unregistered@khani.com',
         role: r.role as 'admin' | 'site_manager' | 'stakeholder' | 'employee' | 'site_employee',
         rows: [],
       }
@@ -314,7 +314,7 @@ export default function UsersPage() {
         <div className="empty-state">
           <div className="empty-icon"><Plus size={28} /></div>
           <div className="empty-title">No users configured</div>
-          <div className="empty-desc">Add users to grant them access to MineOps</div>
+          <div className="empty-desc">Add users to grant them access to Khani</div>
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

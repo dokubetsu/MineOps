@@ -1,4 +1,4 @@
-# MineOps Frontend — Vercel Deployment Guide
+# Khani Frontend — Vercel Deployment Guide
 
 Deploying the Next.js 16 mobile-first client to Vercel is straightforward. Follow these step-by-step instructions to get the live application online in under 2 minutes.
 
@@ -8,7 +8,7 @@ Deploying the Next.js 16 mobile-first client to Vercel is straightforward. Follo
 
 Before starting, ensure you have:
 1. A **Vercel Account** (linked to your GitHub).
-2. The GitHub Repository URL: `https://github.com/dokubetsu/MineOps`.
+2. The GitHub Repository URL: `https://github.com/dokubetsu/Khani`.
 3. Your **Supabase API Keys** from the Supabase Dashboard:
    - Go to [Supabase Dashboard](https://supabase.com/dashboard) → Select your project → **Settings** (Gear Icon) → **API**.
    - Copy the **Project URL**, the **anon public key**, and the **service_role secret key**.
@@ -18,7 +18,7 @@ Before starting, ensure you have:
 ## 🚀 Step 1: Import Project in Vercel
 
 1. Go to your [Vercel Dashboard](https://vercel.com/dashboard) and click **Add New** → **Project**.
-2. Find the `MineOps` repository in your GitHub list and click **Import**.
+2. Find the `Khani` repository in your GitHub list and click **Import**.
 
 ---
 

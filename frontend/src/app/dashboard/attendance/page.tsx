@@ -135,8 +135,8 @@ export default function AttendancePage() {
     const onFlushed = () => {
       if (selectedSite && !isDirtyRef.current) void loadRoster({ force: true })
     }
-    window.addEventListener('mineops:outbox-flushed', onFlushed)
-    return () => window.removeEventListener('mineops:outbox-flushed', onFlushed)
+    window.addEventListener('khani:outbox-flushed', onFlushed)
+    return () => window.removeEventListener('khani:outbox-flushed', onFlushed)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSite, selectedDate])
 

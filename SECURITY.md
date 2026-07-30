@@ -1,10 +1,10 @@
-# MineOps Security Blueprint & Compliance Document
+# Khani Security Blueprint & Compliance Document
 
-This document outlines the security architecture, threat models, and explicit design decisions made for MineOps.
+This document outlines the security architecture, threat models, and explicit design decisions made for Khani.
 
 ## 🛡️ Database-Level Security (Row-Level Security)
 
-MineOps relies on Supabase (PostgreSQL) Row-Level Security (RLS) to enforce data boundaries. Since the Next.js client interacts directly with the database using the authenticated client, every operation is validated using security context:
+Khani relies on Supabase (PostgreSQL) Row-Level Security (RLS) to enforce data boundaries. Since the Next.js client interacts directly with the database using the authenticated client, every operation is validated using security context:
 
 - **Admin Role**: Full access to all sites, data configurations, and user assignments.
 - **Site Manager Role**: Restricted access. Managers can only perform CRUD operations on resources associated with sites they are actively assigned to in the `user_roles` mapping.

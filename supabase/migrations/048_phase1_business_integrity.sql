@@ -238,7 +238,7 @@ BEGIN
     RAISE EXCEPTION 'Failed to approve leave (race lost)' USING ERRCODE = 'check_violation';
   END IF;
 
-  PERFORM set_config('mineops.skip_leave_balance_sync', '1', true);
+  PERFORM set_config('khani.skip_leave_balance_sync', '1', true);
 
   v_cur_date := v_from_date;
   WHILE v_cur_date <= v_to_date LOOP
@@ -374,7 +374,7 @@ BEGIN
   WHERE id = p_application_id
     AND status = 'approved';
 
-  PERFORM set_config('mineops.skip_leave_balance_sync', '1', true);
+  PERFORM set_config('khani.skip_leave_balance_sync', '1', true);
 
   v_cur := v_from_date;
   WHILE v_cur <= v_to_date LOOP

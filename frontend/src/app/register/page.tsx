@@ -44,7 +44,7 @@ export default function RegisterPage() {
             Registration closed
           </h1>
           <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1.5rem', lineHeight: 1.5 }}>
-            New mining organizations are provisioned by the MineOps platform operator.
+            New mining organizations are provisioned by the Khani platform operator.
             Your company admin will receive login credentials from them — you do not self-register here.
           </p>
           <Link href="/" className="btn btn-primary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>

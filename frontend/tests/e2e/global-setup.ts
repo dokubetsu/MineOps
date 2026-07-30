@@ -5,11 +5,11 @@
  * seed.sql bcrypt hashes (they often diverge from GoTrue and produce
  * "Invalid login credentials" in the browser while service checks look fine).
  *
- * Credentials: admin@mineops.com / password123 (overridable via env)
+ * Credentials: admin@khani.com / password123 (overridable via env)
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 
-const E2E_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@mineops.com'
+const E2E_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@khani.com'
 const E2E_PASSWORD = process.env.E2E_ADMIN_PASSWORD || 'password123'
 const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000000'
 
@@ -35,7 +35,7 @@ export default async function globalSetup() {
 
   // Demo org + operational fixtures
   const { error: orgErr } = await supabase.from('organizations').upsert(
-    { id: DEFAULT_ORG_ID, name: 'MineOps Demo Org', active: true },
+    { id: DEFAULT_ORG_ID, name: 'Khani Demo Org', active: true },
     { onConflict: 'id' }
   )
   if (orgErr) {

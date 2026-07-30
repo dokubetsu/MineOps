@@ -1,4 +1,4 @@
-# MineOps wage & attendance policy
+# Khani wage & attendance policy
 
 Canonical product rules for payroll generation, attendance marking, and leave.
 Implemented in `frontend/src/lib/calculations.ts`, `payrollRepository.generate`, and DB leave/attendance triggers (Phase C / **044**, Phase 1 / **048**).

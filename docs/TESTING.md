@@ -1,4 +1,4 @@
-# MineOps testing guide (Phase 5)
+# Khani testing guide (Phase 5)
 
 ## Layout
 

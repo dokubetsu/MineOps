@@ -145,8 +145,8 @@ export default function TripsPage() {
     const onFlushed = () => {
       if (selectedSite) void loadTrips(false)
     }
-    window.addEventListener('mineops:outbox-flushed', onFlushed)
-    return () => window.removeEventListener('mineops:outbox-flushed', onFlushed)
+    window.addEventListener('khani:outbox-flushed', onFlushed)
+    return () => window.removeEventListener('khani:outbox-flushed', onFlushed)
   }, [selectedSite, selectedDate])
 
   useEffect(() => {

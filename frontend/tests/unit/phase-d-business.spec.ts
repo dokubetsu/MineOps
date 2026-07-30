@@ -170,8 +170,8 @@ test.describe('Feature fail-closed + path map', () => {
 })
 
 test.describe('Password policy (create-user / bootstrap)', () => {
-  test('mineops2026 ok; short fails', () => {
-    expect(passwordSchema.safeParse('mineops2026').success).toBe(true)
+  test('khani2026pass ok; short fails', () => {
+    expect(passwordSchema.safeParse('khani2026pass').success).toBe(true)
     expect(passwordSchema.safeParse('pass1').success).toBe(false)
   })
 })

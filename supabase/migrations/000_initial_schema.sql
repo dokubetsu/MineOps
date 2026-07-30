@@ -1,5 +1,5 @@
 -- ==========================================
--- MineOps Database Schema & Security Blueprints
+-- Khani Database Schema & Security Blueprints
 -- Complete schema definition, triggers, views, and RLS policies
 -- ==========================================
 

@@ -3,7 +3,7 @@
  * Linked to outbox item ids; flushed on reconnect then deleted.
  */
 
-const DB_NAME = 'mineops_photos_v1'
+const DB_NAME = 'khani_photos_v1'
 const STORE = 'blobs'
 const DB_VERSION = 1
 

@@ -1,4 +1,4 @@
-# MineOps — Mine Logistics & Workforce Management
+# Khani — Mine Logistics & Workforce Management
 
 A mobile-first full-stack PWA web application designed to digitize manual mine registers, trip sheets, cash books, attendance rosters, payroll, and stakeholder revenue sharing calculations.
 
@@ -6,7 +6,7 @@ A mobile-first full-stack PWA web application designed to digitize manual mine r
 
 ## Architecture & Technology Stack
 
-MineOps uses a streamlined architecture (Option A: client-to-database backend-less model) to reduce duplicate logic and technical debt:
+Khani uses a streamlined architecture (Option A: client-to-database backend-less model) to reduce duplicate logic and technical debt:
 
 | Component | Technology | Purpose / Role |
 |---|---|---|
@@ -54,7 +54,7 @@ For security, production credentials are not stored in source control. Access is
 
 **Local / E2E demo admin** (seeded + Playwright global-setup):
 
-- Email: `admin@mineops.com`
+- Email: `admin@khani.com`
 - Password: `password123`
 
 **Multi-tenant model**
@@ -84,7 +84,7 @@ supabase start
 supabase db push
 ```
 
-Local seed (`supabase/seed.sql`) creates a demo organization (with feature flags), sites, employees, vehicles, E2E admin (`admin@mineops.com` / `password123`), and platform owner (`platform@mineops.com` / `password123`).
+Local seed (`supabase/seed.sql`) creates a demo organization (with feature flags), sites, employees, vehicles, E2E admin (`admin@khani.com` / `password123`), and platform owner (`platform@khani.com` / `password123`).
 
 ### 2. Run the Frontend (Next.js)
 

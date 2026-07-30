@@ -93,7 +93,7 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
       if (oB) throw oB
 
       const { data: userA, error: cA } = await supabase!.auth.admin.createUser({
-        email: `e2e-a-${orgA.slice(0, 8)}@mineops.test`,
+        email: `e2e-a-${orgA.slice(0, 8)}@khani.test`,
         password: 'TestPass1234',
         email_confirm: true,
       })
@@ -102,7 +102,7 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
       createdUserIds.push(uidA)
 
       const { data: userB, error: cB } = await supabase!.auth.admin.createUser({
-        email: `e2e-b-${orgB.slice(0, 8)}@mineops.test`,
+        email: `e2e-b-${orgB.slice(0, 8)}@khani.test`,
         password: 'TestPass1234',
         email_confirm: true,
       })
@@ -150,7 +150,7 @@ test.describe('Phase 5 multi-tenant DB (service role)', () => {
 
       // Cleanup: second admin so last-admin allows delete of first
       const { data: userA2 } = await supabase!.auth.admin.createUser({
-        email: `e2e-a2-${orgA.slice(0, 8)}@mineops.test`,
+        email: `e2e-a2-${orgA.slice(0, 8)}@khani.test`,
         password: 'TestPass1234',
         email_confirm: true,
       })

@@ -28,7 +28,7 @@ DECLARE
   v_covered boolean;
 BEGIN
   -- Skip when leave approval RPC is writing attendance after bulk balance deduct
-  v_skip := current_setting('mineops.skip_leave_balance_sync', true);
+  v_skip := current_setting('khani.skip_leave_balance_sync', true);
   IF v_skip = '1' THEN
     RETURN NEW;
   END IF;
@@ -264,7 +264,7 @@ BEGIN
   END IF;
 
   -- Skip per-day balance trigger (bulk deduct already done)
-  PERFORM set_config('mineops.skip_leave_balance_sync', '1', true);
+  PERFORM set_config('khani.skip_leave_balance_sync', '1', true);
 
   v_cur_date := v_from_date;
   WHILE v_cur_date <= v_to_date LOOP
@@ -385,7 +385,7 @@ BEGIN
     AND status = 'approved';
 
   -- Clear leave marks written for this range (skip balance restore — bulk restore done)
-  PERFORM set_config('mineops.skip_leave_balance_sync', '1', true);
+  PERFORM set_config('khani.skip_leave_balance_sync', '1', true);
 
   DELETE FROM public.attendance
   WHERE employee_id = v_employee_id
@@ -555,4 +555,4 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.sync_leave_balance_from_attendance() IS
-  'Phase C: muster Leave deducts/restores leave_balance; approve_leave sets mineops.skip_leave_balance_sync';
+  'Phase C: muster Leave deducts/restores leave_balance; approve_leave sets khani.skip_leave_balance_sync';

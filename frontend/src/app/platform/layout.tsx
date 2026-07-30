@@ -106,7 +106,7 @@ function PlatformShell({ children }: { children: React.ReactNode }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
             <Shield size={22} style={{ color: 'var(--accent)' }} />
             <div>
-              <div className="sidebar-logo-text">MineOps</div>
+              <div className="sidebar-logo-text">Khani</div>
               <div className="sidebar-logo-sub">Platform Console</div>
             </div>
           </div>

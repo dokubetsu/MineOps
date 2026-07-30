@@ -60,7 +60,7 @@ async function upstashCheck(
 ): Promise<RateLimitResult> {
   const base = process.env.UPSTASH_REDIS_REST_URL!.replace(/\/$/, '')
   const token = process.env.UPSTASH_REDIS_REST_TOKEN!
-  const redisKey = `mineops:rl:${key}`
+  const redisKey = `khani:rl:${key}`
 
   try {
     const res = await fetch(`${base}/pipeline`, {
@@ -119,7 +119,7 @@ function warnIfMemoryInProduction(): void {
   if (!prod) return
   warnedMemoryInProd = true
   console.warn(
-    '[mineops/rate-limit] Using in-memory rate limits in production. ' +
+    '[khani/rate-limit] Using in-memory rate limits in production. ' +
       'Configure UPSTASH_REDIS_REST_URL + UPSTASH_REDIS_REST_TOKEN for durable multi-instance limits. ' +
       'See docs/ENV.md and docs/DEPLOYMENT_CHECKLIST.md.'
   )

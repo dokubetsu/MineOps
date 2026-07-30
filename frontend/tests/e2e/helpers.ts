@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
-export const E2E_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@mineops.com'
+export const E2E_EMAIL = process.env.E2E_ADMIN_EMAIL || 'admin@khani.com'
 export const E2E_PASSWORD = process.env.E2E_ADMIN_PASSWORD || 'password123'
 
 /**

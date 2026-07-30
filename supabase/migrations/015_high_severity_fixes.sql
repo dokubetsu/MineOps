@@ -225,15 +225,15 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-  IF current_setting('mineops.skip_propagation', true) = 'true' THEN
+  IF current_setting('khani.skip_propagation', true) = 'true' THEN
     RETURN NEW;
   END IF;
 
-  PERFORM set_config('mineops.skip_propagation', 'true', true);
+  PERFORM set_config('khani.skip_propagation', 'true', true);
 
   PERFORM public.propagate_cash_book_balances(NEW.site_id, NEW.book_date);
 
-  PERFORM set_config('mineops.skip_propagation', 'false', true);
+  PERFORM set_config('khani.skip_propagation', 'false', true);
 
   RETURN NEW;
 END;

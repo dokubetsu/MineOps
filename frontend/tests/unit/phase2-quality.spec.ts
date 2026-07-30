@@ -197,7 +197,7 @@ test.describe('Password policy', () => {
   })
 
   test('accepts strong enough password', () => {
-    expect(passwordSchema.safeParse('mineops2026').success).toBe(true)
+    expect(passwordSchema.safeParse('khani2026pass').success).toBe(true)
     expect(PASSWORD_MIN_LENGTH).toBe(10)
   })
 })
