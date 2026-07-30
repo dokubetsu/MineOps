@@ -14,7 +14,7 @@ export type OwnershipType = (typeof OWNERSHIP_TYPES)[number]
 
 /**
  * Site expense categories (cash book OUT).
- * Trip Expense (Fastag) and Fuel/Diesel require transport contractor.
+ * Trip Expense (Fastag) and Fuel/Diesel support optional transport contractor.
  */
 export const EXPENSE_CATEGORIES = [
   'Meal Expense',
@@ -26,7 +26,7 @@ export const EXPENSE_CATEGORIES = [
 
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number]
 
-/** Categories that require an optional/required transport contractor field */
+/** Categories that display an optional transport contractor field */
 export const EXPENSE_CATEGORIES_WITH_CONTRACTOR: readonly string[] = [
   'Trip Expense (Fastag payment)',
   'Fuel / Diesel expense',

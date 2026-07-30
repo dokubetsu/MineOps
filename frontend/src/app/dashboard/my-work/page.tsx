@@ -671,10 +671,6 @@ function EmployeePage() {
     }
     e.preventDefault()
     if (!employee || !user) return
-    if (expenseRequiresContractor(expenseForm.category) && !expenseForm.contractor_name.trim()) {
-      toast.error('Enter or select a transport contractor for this expense type')
-      return
-    }
     setSubmittingExpense(true)
     try {
       const contractorId = await resolveOrCreateContractorId(
@@ -1636,13 +1632,12 @@ function EmployeePage() {
           </div>
           {expenseRequiresContractor(expenseForm.category) && (
             <ContractorInput
-              label="Transport contractor"
+              label="Transport contractor (optional)"
               value={expenseForm.contractor_name}
               onChange={(name) => setExpenseForm((f) => ({ ...f, contractor_name: name }))}
               contractors={contractors}
-              required
               placeholder="Type name or pick from list"
-              hint="Required for Fastag / diesel — pick or type a name"
+              hint="Optional — pick from list or type a new name"
             />
           )}
           <div className="form-group">

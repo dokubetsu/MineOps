@@ -279,14 +279,6 @@ export default function CashBookPage() {
       toast.error('Please enter a valid amount')
       return
     }
-    if (
-      form.entry_type === 'out' &&
-      expenseRequiresContractor(form.category) &&
-      !form.contractor_name.trim()
-    ) {
-      toast.error('Enter or select a transport contractor for this expense type')
-      return
-    }
 
     setSubmitting(true)
 
@@ -769,13 +761,12 @@ export default function CashBookPage() {
 
           {form.entry_type === 'out' && expenseRequiresContractor(form.category) && (
             <ContractorInput
-              label="Transport contractor"
+              label="Transport contractor (optional)"
               value={form.contractor_name}
               onChange={(name) => setForm((f) => ({ ...f, contractor_name: name }))}
               contractors={contractors}
-              required
               placeholder="Type name or pick from list"
-              hint="Pick from list or type a new name"
+              hint="Optional — pick from list or type a new name"
             />
           )}
 
