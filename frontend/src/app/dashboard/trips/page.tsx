@@ -928,7 +928,7 @@ export default function TripsPage() {
           setForm({
             vehicle_id: '', plate_number: '', contractor_name: '',
             ownership: 'rented', vehicle_type: '12WH', cubic_capacity: getCapacityForType('12WH'),
-            advance_amount: '0', customer_id: '', drop_location: '', distance_km: '',
+            advance_amount: '0', customer_id: '', drop_location: '', distance_km: '', distance_cost: '',
             trip_worth: '', total_shipment_cost: '', payment_status: 'pending',
             payment_method: 'cash', payment_reference: '', permit_number: '', load_info: '', notes: ''
           })
@@ -1268,6 +1268,8 @@ export default function TripsPage() {
               </span>
             </div>
           </div>
+
+          <div className="grid-2">
             <div className="form-group">
               <label className="form-label">Trip cost (₹)</label>
               <input
@@ -1307,7 +1309,7 @@ export default function TripsPage() {
                       : 'org rates'
                   const cap = parseFloat(form.cubic_capacity) || 0
                   const totalWorth = cap > 0 ? computeTripWorthFromRate(cap, rate) : rate
-                  const hintText = cap > 0 
+                  const hintText = cap > 0
                     ? `Hint ₹${rate}/m³ × ${cap}m³ = ₹${totalWorth} (${srcLabel})`
                     : `Hint ₹${rate}/m³ (${srcLabel})`
                   return (
@@ -1336,9 +1338,6 @@ export default function TripsPage() {
                 })()}
               </span>
             </div>
-          </div>
-
-          <div className="grid-2">
             <div className="form-group">
               <label className="form-label">Advance Amount (₹)</label>
               <input className="form-input" type="number" step="any" value={form.advance_amount}
@@ -1347,17 +1346,18 @@ export default function TripsPage() {
                 Posted as cash out · Advance for trip
               </span>
             </div>
-            <div className="form-group">
-              <label className="form-label">Total shipment / billing cost (₹)</label>
-              <input
-                className="form-input"
-                type="number"
-                step="any"
-                value={form.total_shipment_cost}
-                onChange={(e) => setForm((f) => ({ ...f, total_shipment_cost: e.target.value }))}
-                placeholder="Defaults to trip cost"
-              />
-            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Total shipment / billing cost (₹)</label>
+            <input
+              className="form-input"
+              type="number"
+              step="any"
+              value={form.total_shipment_cost}
+              onChange={(e) => setForm((f) => ({ ...f, total_shipment_cost: e.target.value }))}
+              placeholder="Defaults to trip cost"
+            />
           </div>
 
           {/* Payment Status & Settlement */}
