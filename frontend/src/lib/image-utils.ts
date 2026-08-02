@@ -104,6 +104,7 @@ export async function prepareUploadImages(
 
 /** In-memory signed URL cache (path → { url, exp }) to speed list reloads */
 const signedCache = new Map<string, { url: string; exp: number }>()
+const SIGNED_CACHE_MAX = 400
 
 export function getCachedSignedUrl(key: string): string | null {
   const hit = signedCache.get(key)
@@ -115,17 +116,33 @@ export function getCachedSignedUrl(key: string): string | null {
   return hit.url
 }
 
+function evictSignedCacheIfNeeded(): void {
+  if (signedCache.size <= SIGNED_CACHE_MAX) return
+  // Drop expired first, then oldest insertions (Map iteration order)
+  const now = Date.now()
+  for (const [k, v] of signedCache) {
+    if (v.exp <= now) signedCache.delete(k)
+    if (signedCache.size <= SIGNED_CACHE_MAX) return
+  }
+  while (signedCache.size > SIGNED_CACHE_MAX) {
+    const first = signedCache.keys().next().value
+    if (first == null) break
+    signedCache.delete(first)
+  }
+}
+
 export function setCachedSignedUrl(key: string, url: string, ttlMs = 50 * 60 * 1000): void {
   signedCache.set(key, { url, exp: Date.now() + ttlMs })
-  // Cap size
-  if (signedCache.size > 400) {
-    const first = signedCache.keys().next().value
-    if (first) signedCache.delete(first)
-  }
+  evictSignedCacheIfNeeded()
 }
 
 export function clearSignedUrlCache(): void {
   signedCache.clear()
+}
+
+/** Test / diagnostics helper */
+export function signedUrlCacheSize(): number {
+  return signedCache.size
 }
 
 /** Normalize a storage path that may include the bucket prefix. */

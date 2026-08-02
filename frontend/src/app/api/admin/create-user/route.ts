@@ -2,6 +2,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { passwordSchema } from '@/lib/password-policy'
+import { assertOrganizationActive } from '@/lib/admin-auth'
 
 // Zod schema for validating the incoming request body
 const createUserSchema = z.object({
@@ -85,6 +86,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: admin only' }, { status: 403 })
   }
   const callerOrganizationId = roleData[0].organization_id
+  if (!callerOrganizationId) {
+    return NextResponse.json(
+      { error: 'Caller has no organization_id on user_roles' },
+      { status: 500 }
+    )
+  }
+
+  const inactive = await assertOrganizationActive(supabase, callerOrganizationId)
+  if (inactive) return inactive
 
   let body: unknown
   try {

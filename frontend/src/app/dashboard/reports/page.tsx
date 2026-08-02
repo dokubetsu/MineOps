@@ -30,8 +30,10 @@ import {
   fetchReportTripCount,
   fetchReportCashBooks,
   fetchReportCashEntries,
+  fetchReportCashEntryCount,
   fetchReportCashTotals,
 } from '@/lib/report-fetch'
+import { REPORT_UI_MAX_ROWS } from '@/lib/supabase-pagination'
 import { toErrorMessage } from '@/lib/errors'
 import toast from 'react-hot-toast'
 
@@ -148,7 +150,7 @@ export default function ReportsPage() {
 
   useEffect(() => {
     if (!selectedSite) return
-    let query = supabase.from('employees').select('*, sites(name)').eq('active', true).order('name')
+    let query = supabase.from('employees').select('*, sites(name)').eq('active', true).order('name').limit(500)
     if (selectedSite !== 'all') {
       query = query.eq('site_id', selectedSite)
     }
@@ -167,9 +169,9 @@ export default function ReportsPage() {
 
     try {
       const [attRes, leavesRes, payrollRes, empRes] = await Promise.all([
-        supabase.from('attendance').select('*').eq('employee_id', selectedEmployee).gte('att_date', from).lte('att_date', to).order('att_date'),
-        supabase.from('leave_applications').select('*').eq('employee_id', selectedEmployee).order('from_date', { ascending: false }),
-        supabase.from('payroll_lines').select('*, payroll_runs(period_month, status)').eq('employee_id', selectedEmployee),
+        supabase.from('attendance').select('*').eq('employee_id', selectedEmployee).gte('att_date', from).lte('att_date', to).order('att_date').limit(400),
+        supabase.from('leave_applications').select('*').eq('employee_id', selectedEmployee).order('from_date', { ascending: false }).limit(100),
+        supabase.from('payroll_lines').select('*, payroll_runs(period_month, status)').eq('employee_id', selectedEmployee).limit(50),
         supabase.from('employees').select('*, sites(name)').eq('id', selectedEmployee).single()
       ])
 
@@ -222,6 +224,22 @@ export default function ReportsPage() {
     const siteFilter = selectedSite !== 'all' ? selectedSite : undefined
 
     try {
+      const [tripCount, cashEntryCount] = await Promise.all([
+        fetchReportTripCount(supabase, from, to, siteFilter),
+        fetchReportCashEntryCount(supabase, from, to, siteFilter),
+      ])
+      if (tripCount > REPORT_UI_MAX_ROWS || cashEntryCount > REPORT_UI_MAX_ROWS) {
+        setTrips([])
+        setCashBooks([])
+        setCashEntries([])
+        setTripsTruncated(true)
+        setCashTruncated(true)
+        toast.error(
+          `Too many rows for browser reports (trips ${tripCount.toLocaleString()}, cash ${cashEntryCount.toLocaleString()}; max ${REPORT_UI_MAX_ROWS.toLocaleString()}). Narrow the date range or pick a single site.`
+        )
+        return
+      }
+
       const [
         tripsResult,
         booksResult,
@@ -1025,10 +1043,10 @@ export default function ReportsPage() {
               </div>
 
               <div className="card mb-4" style={{ padding: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
-                  <strong>Business pack (₹ per trip × count)</strong>
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                  <strong>Business pack (trip value split — paper / Excel style)</strong>
                   <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                    Share %
+                    Split %
                     <input
                       className="form-input"
                       type="number"
@@ -1040,6 +1058,10 @@ export default function ReportsPage() {
                     />
                   </label>
                 </div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                  Manual % of trip billing value for the pack CSV. This is separate from the Stakeholder
+                  portal, which uses registered share % of cash book net (IN − OUT).
+                </p>
                 <div className="table-container">
                   <table className="data-table">
                     <thead>

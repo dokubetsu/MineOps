@@ -74,7 +74,7 @@ export default function DashboardPage() {
   }, [sites, viewMode, isStakeholder])
 
   const loadSites = async () => {
-    const { data } = await supabase.from('sites').select('*').eq('active', true).order('name')
+    const { data } = await supabase.from('sites').select('*').eq('active', true).order('name').limit(200)
     const loadedSites = data || []
     setSites(loadedSites)
     if (loadedSites.length > 0) {
@@ -89,14 +89,11 @@ export default function DashboardPage() {
     setLoading(true)
     try {
       const siteIds = siteList.map((s) => s.id)
-      const [{ data: trips }, { data: books }] = await Promise.all([
-        supabase
-          .from('trips')
-          .select('id, site_id, cubic_capacity, advance_amount, total_shipment_cost, trip_worth, settled')
-          .in('site_id', siteIds)
-          .eq('trip_date', today)
-          .eq('active', true)
-          .limit(5000),
+      const [{ data: tripRollups, error: rollupErr }, { data: books }] = await Promise.all([
+        supabase.rpc('dashboard_trip_day_rollup', {
+          p_site_ids: siteIds,
+          p_trip_date: today,
+        }),
         supabase
           .from('cash_books')
           .select('id, site_id, closing_balance')
@@ -104,6 +101,8 @@ export default function DashboardPage() {
           .eq('book_date', today)
           .limit(500),
       ])
+
+      if (rollupErr) throw rollupErr
 
       const bookIds = (books || []).map((b) => b.id)
       const outByBook: Record<string, number> = {}
@@ -126,22 +125,18 @@ export default function DashboardPage() {
       }
 
       const bookBySite = new Map((books || []).map((b) => [b.site_id, b]))
+      const tripBySite = new Map((tripRollups || []).map((r) => [r.site_id, r]))
       const rollups: SiteRollup[] = siteList.map((s) => {
-        const siteTrips = (trips || []).filter((t) => t.site_id === s.id)
+        const t = tripBySite.get(s.id)
         const book = bookBySite.get(s.id)
         return {
           site_id: s.id,
           name: s.name,
-          trips: siteTrips.length,
-          material: siteTrips.reduce((sum, t) => sum + (Number(t.cubic_capacity) || 0), 0),
-          advance: siteTrips.reduce((sum, t) => sum + (Number(t.advance_amount) || 0), 0),
-          inward: siteTrips.reduce(
-            (sum, t) => sum + (Number(t.total_shipment_cost) || Number(t.trip_worth) || 0),
-            0
-          ),
-          unsettled: siteTrips
-            .filter((t) => !t.settled)
-            .reduce((sum, t) => sum + (Number(t.total_shipment_cost) || Number(t.trip_worth) || 0), 0),
+          trips: Number(t?.trip_count) || 0,
+          material: Number(t?.material) || 0,
+          advance: Number(t?.advance) || 0,
+          inward: Number(t?.inward) || 0,
+          unsettled: Number(t?.unsettled) || 0,
           cash_out: book ? outByBook[book.id] || 0 : 0,
           cash_closing: book ? Number(book.closing_balance) : null,
         }
@@ -164,6 +159,7 @@ export default function DashboardPage() {
       .eq('trip_date', today)
       .eq('active', true)
       .order('created_at', { ascending: false })
+      .limit(200)
 
     setRecentTrips((trips as ExtendedTrip[]) || [])
 

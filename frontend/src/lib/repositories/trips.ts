@@ -23,6 +23,8 @@ export type TripCreateInput = Omit<
   rate_per_cubic?: number | null
   /** Optional plate for cash advance note */
   _vehicle_plate?: string | null
+  /** Offline outbox idempotency key */
+  client_id?: string | null
 }
 
 /**
@@ -86,7 +88,7 @@ export const tripsRepository = {
     supabase: SupabaseClient<Database>,
     payload: TripCreateInput
   ): Promise<TripRow> {
-    const { _vehicle_plate, ...insertPayload } = payload
+    const { _vehicle_plate, client_id, ...insertPayload } = payload
     const worth = normalizeWorth(payload)
     const total =
       payload.total_shipment_cost != null && !Number.isNaN(Number(payload.total_shipment_cost))
@@ -102,6 +104,7 @@ export const tripsRepository = {
       .from('trips')
       .insert({
         ...insertPayload,
+        client_id: client_id || null,
         rate_per_cubic:
           payload.rate_per_cubic != null && Number(payload.rate_per_cubic) > 0
             ? Number(payload.rate_per_cubic)
@@ -120,7 +123,23 @@ export const tripsRepository = {
       .select()
       .single()
 
-    if (error) throw error
+    if (error) {
+      // Offline flush retry: same client_id already inserted — return existing row
+      if (error.code === '23505' && client_id && payload.organization_id) {
+        const { data: existing, error: findErr } = await supabase
+          .from('trips')
+          .select('*')
+          .eq('organization_id', payload.organization_id)
+          .eq('client_id', client_id)
+          .maybeSingle()
+        if (findErr) throw findErr
+        if (existing) {
+          await syncAdvanceFromTrip(supabase, existing, _vehicle_plate)
+          return existing
+        }
+      }
+      throw error
+    }
     await syncAdvanceFromTrip(supabase, data, _vehicle_plate)
     return data
   },
@@ -211,6 +230,8 @@ export const tripsRepository = {
       payment_method?: string
       payment_reference?: string
       settled_by?: string
+      /** When false, skip cash-book IN (default true — settlement posts collection) */
+      postCashIn?: boolean
     }
   ): Promise<void> {
     // Phase 1: settled trips require amount > 0 (DB trigger also enforces)
@@ -221,6 +242,15 @@ export const tripsRepository = {
     if (amount <= 0) {
       throw new Error('Settlement amount must be greater than zero')
     }
+
+    const { data: trip, error: loadErr } = await supabase
+      .from('trips')
+      .select('id, site_id, trip_date, vehicle_id, vehicles(plate_number)')
+      .eq('id', id)
+      .maybeSingle()
+
+    if (loadErr) throw loadErr
+    if (!trip) throw new Error('Trip not found')
 
     const { error } = await supabase
       .from('trips')
@@ -245,5 +275,19 @@ export const tripsRepository = {
       }
       throw error
     }
+
+    if (payload.postCashIn === false) return
+
+    const plate =
+      (trip as { vehicles?: { plate_number?: string } | null }).vehicles?.plate_number || null
+    await cashBookRepository.syncTripSettlement(supabase, {
+      siteId: trip.site_id,
+      bookDate: String(trip.trip_date).slice(0, 10),
+      tripId: trip.id,
+      amount,
+      vehiclePlate: plate,
+      paymentMethod: payload.payment_method || null,
+      paymentReference: payload.payment_reference || null,
+    })
   },
 }

@@ -163,6 +163,7 @@ export type Database = {
           amount: number
           cash_book_id: string
           category: string
+          client_id: string | null
           contractor_id: string | null
           created_at: string | null
           created_by: string | null
@@ -178,6 +179,7 @@ export type Database = {
           amount?: number
           cash_book_id: string
           category: string
+          client_id?: string | null
           contractor_id?: string | null
           created_at?: string | null
           created_by?: string | null
@@ -193,6 +195,7 @@ export type Database = {
           amount?: number
           cash_book_id?: string
           category?: string
+          client_id?: string | null
           contractor_id?: string | null
           created_at?: string | null
           created_by?: string | null
@@ -237,6 +240,8 @@ export type Database = {
           name: string
           notes: string | null
           organization_id: string
+          rates_effective_from: string | null
+          rates_effective_to: string | null
           site_id: string | null
           trip_rates: Record<string, number> | null
         }
@@ -249,6 +254,8 @@ export type Database = {
           name: string
           notes?: string | null
           organization_id: string
+          rates_effective_from?: string | null
+          rates_effective_to?: string | null
           site_id?: string | null
           trip_rates?: Record<string, number> | null
         }
@@ -261,6 +268,8 @@ export type Database = {
           name?: string
           notes?: string | null
           organization_id?: string
+          rates_effective_from?: string | null
+          rates_effective_to?: string | null
           site_id?: string | null
           trip_rates?: Record<string, number> | null
         }
@@ -448,6 +457,8 @@ export type Database = {
       negotiated_rates: {
         Row: {
           created_at: string | null
+          effective_from: string
+          effective_to: string | null
           id: string
           organization_id: string
           rate_per_cubic: number
@@ -456,6 +467,8 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          effective_from?: string
+          effective_to?: string | null
           id?: string
           organization_id: string
           rate_per_cubic?: number
@@ -464,6 +477,8 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          effective_from?: string
+          effective_to?: string | null
           id?: string
           organization_id?: string
           rate_per_cubic?: number
@@ -838,6 +853,7 @@ export type Database = {
         Row: {
           active: boolean
           advance_amount: number
+          client_id: string | null
           contractor_id: string | null
           created_at: string | null
           created_by: string | null
@@ -879,6 +895,7 @@ export type Database = {
         Insert: {
           active?: boolean
           advance_amount?: number
+          client_id?: string | null
           contractor_id?: string | null
           created_at?: string | null
           created_by?: string | null
@@ -920,6 +937,7 @@ export type Database = {
         Update: {
           active?: boolean
           advance_amount?: number
+          client_id?: string | null
           contractor_id?: string | null
           created_at?: string | null
           created_by?: string | null
@@ -1206,6 +1224,18 @@ export type Database = {
       }
       regenerate_payroll_run: { Args: { p_run_id: string }; Returns: undefined }
       finalize_payroll_run: { Args: { p_run_id: string }; Returns: undefined }
+      recompute_payroll_run_amounts: { Args: { p_run_id: string }; Returns: undefined }
+      dashboard_trip_day_rollup: {
+        Args: { p_site_ids: string[]; p_trip_date: string }
+        Returns: {
+          site_id: string
+          trip_count: number
+          material: number
+          advance: number
+          inward: number
+          unsettled: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never

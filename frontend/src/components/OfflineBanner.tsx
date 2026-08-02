@@ -111,6 +111,7 @@ export default function OfflineBanner() {
 
   return (
     <div
+      aria-live="polite"
       role="status"
       data-testid="offline-banner"
       style={{

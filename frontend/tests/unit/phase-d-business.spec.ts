@@ -113,6 +113,7 @@ test.describe('Trip worth normalize', () => {
   test('volumetric rate * capacity', () => {
     expect(computeTripWorthFromRate(20, 370)).toBe(7400)
     expect(computeTripWorthFromRate(null, 370)).toBe(370)
+    expect(computeTripWorthFromRate(0, 370)).toBe(0)
   })
   test('explicit worth rounded', () => {
     expect(computeTripWorth({ tripWorth: 999.999 })).toBe(1000)
@@ -170,8 +171,9 @@ test.describe('Feature fail-closed + path map', () => {
 })
 
 test.describe('Password policy (create-user / bootstrap)', () => {
-  test('khani2026pass ok; short fails', () => {
-    expect(passwordSchema.safeParse('khani2026pass').success).toBe(true)
+  test('Khani2026!ok ok; short / no special fails', () => {
+    expect(passwordSchema.safeParse('Khani2026!ok').success).toBe(true)
+    expect(passwordSchema.safeParse('khani2026pass').success).toBe(false)
     expect(passwordSchema.safeParse('pass1').success).toBe(false)
   })
 })

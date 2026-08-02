@@ -20,7 +20,15 @@ export default function PageHeader({
         <h1 className="page-title">{title}</h1>
         {subtitle ? <p className="page-subtitle">{subtitle}</p> : null}
       </div>
-      {actions ? <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>{actions}</div> : null}
+      {actions ? (
+        <div
+          role="group"
+          aria-label="Page actions"
+          style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}
+        >
+          {actions}
+        </div>
+      ) : null}
     </div>
   )
 }

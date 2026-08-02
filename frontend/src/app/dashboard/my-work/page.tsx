@@ -34,6 +34,7 @@ import {
   vehicleTypeLabel,
 } from '@/lib/trip-constants'
 import { computeDistanceCost, computeTripWorthFromRate, roundMoney } from '@/lib/calculations'
+import { resolveMdmTripCost } from '@/lib/trip-cost'
 
 interface EmployeeData {
   id: string
@@ -182,14 +183,17 @@ function EmployeePage() {
   // (no app hard-coded defaults). Employees log ops details; price comes from MDM.
   useEffect(() => {
     const cust = customers.find((c) => c.id === tripForm.customer_id)
+    const todayStr = format(new Date(), 'yyyy-MM-dd')
     const { rate } = resolveTripRateForCustomer(
       tripForm.vehicle_type,
       cust || null,
-      negotiatedRates
+      negotiatedRates,
+      todayStr
     )
     const cap = parseFloat(tripForm.cubic_capacity) || 0
     if (rate != null && rate > 0) {
-      const worth = cap > 0 ? computeTripWorthFromRate(cap, rate) : rate
+      // MDM rule: total cost = customer/org rate (₹/m³) × cubic capacity
+      const worth = computeTripWorthFromRate(cap, rate)
       setTripForm((f) =>
         f.total_shipment_cost === String(worth) ? f : { ...f, total_shipment_cost: String(worth) }
       )
@@ -198,19 +202,23 @@ function EmployeePage() {
 
   useEffect(() => {
     const cust = customers.find((c) => c.id === editForm.customer_id)
+    const asOf = editingTrip?.trip_date
+      ? String(editingTrip.trip_date).slice(0, 10)
+      : format(new Date(), 'yyyy-MM-dd')
     const { rate } = resolveTripRateForCustomer(
       editForm.vehicle_type,
       cust || null,
-      negotiatedRates
+      negotiatedRates,
+      asOf
     )
     const cap = parseFloat(editForm.cubic_capacity) || 0
     if (rate != null && rate > 0) {
-      const worth = cap > 0 ? computeTripWorthFromRate(cap, rate) : rate
+      const worth = computeTripWorthFromRate(cap, rate)
       setEditForm((f) =>
         f.total_shipment_cost === String(worth) ? f : { ...f, total_shipment_cost: String(worth) }
       )
     }
-  }, [editForm.vehicle_type, editForm.cubic_capacity, editForm.customer_id, negotiatedRates, customers])
+  }, [editForm.vehicle_type, editForm.cubic_capacity, editForm.customer_id, negotiatedRates, customers, editingTrip?.trip_date])
 
   const loadInitialData = async () => {
     if (!user) {
@@ -283,14 +291,15 @@ function EmployeePage() {
         { data: rates },
         { data: trips },
       ] = await Promise.all([
-        supabase.from('vehicles').select('*').eq('active', true).order('plate_number'),
-        supabase.from('transport_contractors').select('*').eq('active', true).order('name'),
-        supabase.from('customers').select('*').eq('active', true).order('name'),
-        supabase.from('negotiated_rates').select('*'),
+        supabase.from('vehicles').select('*').eq('active', true).order('plate_number').limit(500),
+        supabase.from('transport_contractors').select('*').eq('active', true).order('name').limit(500),
+        supabase.from('customers').select('*').eq('active', true).order('name').limit(500),
+        supabase.from('negotiated_rates').select('vehicle_type, rate_per_cubic, rate_per_km, effective_from, effective_to').limit(100),
         supabase.from('trips').select('*, vehicles(plate_number), customers(name)')
           .eq('created_by', user.id)
           .eq('trip_date', todayStr)
           .eq('active', true)
+          .limit(100)
       ])
 
       setVehicles(veh || [])
@@ -466,22 +475,20 @@ function EmployeePage() {
     setSubmittingTrip(true)
     const upperPlate = tripForm.vehicle_plate.toUpperCase().trim()
     const cust = customers.find((c) => c.id === tripForm.customer_id)
-    const { rate, source } = resolveTripRateForCustomer(tripForm.vehicle_type, cust || null, negotiatedRates)
     const capacity = parseFloat(tripForm.cubic_capacity) || 0
-    const calcWorth = rate != null && rate > 0 ? computeTripWorthFromRate(capacity, rate) : null
+    const todayIso = format(new Date(), 'yyyy-MM-dd')
     const entered = parseFloat(tripForm.total_shipment_cost)
-    const worth =
-      calcWorth != null && calcWorth > 0
-        ? calcWorth
-        : Number.isFinite(entered) && entered > 0
-          ? entered
-          : null
-    const rateSource =
-      rate != null && rate > 0
-        ? source
-        : Number.isFinite(entered) && entered > 0
-          ? 'manual'
-          : null
+    const resolved = resolveMdmTripCost({
+      vehicleType: tripForm.vehicle_type,
+      capacity,
+      customer: cust || null,
+      orgRates: negotiatedRates,
+      asOfDate: todayIso,
+      manualEntered: Number.isFinite(entered) && entered > 0 ? entered : null,
+    })
+    const worth = resolved.worth
+    const rate = resolved.rate
+    const rateSource = resolved.source === 'none' ? null : resolved.source
     const ownership = tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership
 
     if (!upperPlate) {
@@ -771,19 +778,29 @@ function EmployeePage() {
     const upperPlate = editForm.vehicle_plate.toUpperCase().trim()
     const capacity = parseFloat(editForm.cubic_capacity) || 0
     const cust = customers.find((c) => c.id === editForm.customer_id)
-    const { rate } = resolveTripRateForCustomer(editForm.vehicle_type, cust || null, negotiatedRates)
+    const asOf = String(editingTrip.trip_date).slice(0, 10)
     const entered = parseFloat(editForm.total_shipment_cost)
     const prior =
       Number(editingTrip.trip_worth) || Number(editingTrip.total_shipment_cost) || 0
-    // Admin/customer rate wins when configured
+    const resolved = resolveMdmTripCost({
+      vehicleType: editForm.vehicle_type,
+      capacity,
+      customer: cust || null,
+      orgRates: negotiatedRates,
+      asOfDate: asOf,
+      manualEntered: Number.isFinite(entered) && entered > 0 ? entered : null,
+    })
     const worth =
-      rate != null && rate > 0
-        ? rate
-        : Number.isFinite(entered) && entered > 0
-          ? entered
-          : prior > 0
-            ? prior
-            : null
+      resolved.worth != null
+        ? resolved.worth
+        : prior > 0
+          ? prior
+          : null
+    const rate = resolved.rate
+    const rateSource =
+      resolved.source === 'none'
+        ? editingTrip.rate_source || null
+        : resolved.source
     const settleAmt = Number(worth) || Number(editingTrip.settlement_amount) || 0
     if (editForm.settled && settleAmt <= 0) {
       toast.error('Settled trips require a positive settlement amount')
@@ -805,6 +822,7 @@ function EmployeePage() {
       contractor_id: contractorId,
       cubic_capacity: capacity,
       rate_per_cubic: rate != null && rate > 0 ? rate : null,
+      rate_source: rateSource,
       advance_amount: parseFloat(editForm.advance_amount) || 0,
       photo_urls: photoUrls,
       customer_id: editForm.customer_id || null,
@@ -1528,7 +1546,10 @@ function EmployeePage() {
               const { rate, source } = resolveTripRateForCustomer(
                 editForm.vehicle_type,
                 cust || null,
-                negotiatedRates
+                negotiatedRates,
+                editingTrip?.trip_date
+                  ? String(editingTrip.trip_date).slice(0, 10)
+                  : undefined
               )
               const locked = rate != null && rate > 0
               const src =

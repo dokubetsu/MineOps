@@ -71,6 +71,24 @@ export async function fetchReportTripCount(
   return count ?? 0
 }
 
+export async function fetchReportCashEntryCount(
+  supabase: Supabase,
+  from: string,
+  to: string,
+  siteId?: string
+): Promise<number> {
+  let q = supabase
+    .from('cash_entries')
+    .select('id, cash_books!inner(book_date, site_id)', { count: 'exact', head: true })
+    .eq('active', true)
+    .gte('cash_books.book_date', from)
+    .lte('cash_books.book_date', to)
+  if (siteId && siteId !== 'all') q = q.eq('cash_books.site_id', siteId)
+  const { count, error } = await q
+  if (error) throw error
+  return count ?? 0
+}
+
 export async function fetchReportCashBooks(
   supabase: Supabase,
   from: string,

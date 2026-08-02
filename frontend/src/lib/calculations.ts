@@ -48,23 +48,55 @@ export function roundMoney(value: number): number {
  *
  * Policy (see docs/wage_policy.md):
  * - daily: (present + halfDay*0.5 + leave) * rate  — leave is paid; only marked days pay
- * - monthly: rate * (1 - (absent + halfDay*0.5) / periodDays)
+ * - monthly: rate * max(0, eligibleDays - absent - halfDay*0.5) / periodDays
  *   Leave does NOT reduce monthly salary (treated as paid leave).
  *   Days with no attendance row are NOT treated as absent — mark A explicitly.
+ *   Mid-month joiners: eligibleDays = calendar days from join_date (or period start) through period end.
  */
 export function computePayrollWage(
   emp: EmployeeWageConfig,
   att: AttendanceCounts,
-  periodDays?: number
+  periodDays?: number,
+  eligibleDays?: number
 ): number {
   const rate = Number(emp.wage_rate) || 0
+  const totalDays = periodDays && periodDays > 0 ? periodDays : 30
   if (emp.wage_type === 'monthly') {
-    const totalDays = periodDays && periodDays > 0 ? periodDays : 30
-    const computed = rate * Math.max(0, 1 - (att.absent + att.halfDay * 0.5) / totalDays)
+    const eligible =
+      eligibleDays != null && eligibleDays >= 0 ? eligibleDays : totalDays
+    if (eligible <= 0) return 0
+    const unpaid = att.absent + att.halfDay * 0.5
+    const computed = rate * Math.max(0, eligible - unpaid) / totalDays
     return roundMoney(computed)
   }
   const computed = (att.present + att.halfDay * 0.5 + att.leave) * rate
   return roundMoney(computed)
+}
+
+/**
+ * Calendar days in [periodStart, periodEnd] that the employee is eligible
+ * (on or after join_date). Null/empty join_date ⇒ full period.
+ * Join after period end ⇒ 0.
+ */
+export function eligiblePayrollDays(
+  joinDate: string | null | undefined,
+  periodStartIso: string,
+  periodEndIso: string
+): number {
+  const start = new Date(periodStartIso + 'T00:00:00')
+  const end = new Date(periodEndIso + 'T00:00:00')
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+    return 0
+  }
+  let from = start
+  if (joinDate) {
+    const join = new Date(joinDate.slice(0, 10) + 'T00:00:00')
+    if (!Number.isNaN(join.getTime())) {
+      if (join > end) return 0
+      if (join > start) from = join
+    }
+  }
+  return calendarDaysInRange(from, end)
 }
 
 /** Stakeholder revenue share rounded to nearest rupee. */
@@ -90,9 +122,12 @@ export function computeTripWorth(params: {
     return roundMoney(Number(params.tripWorth))
   }
   const rate = Number(params.rateAmount) || 0
-  const capacity = Number(params.cubicCapacity) || 0
-  if (rate > 0 && capacity > 0) {
-    return roundMoney(rate * capacity)
+  // Explicit capacity (including 0) means MDM pricing: rate × CC. Null/undefined capacity
+  // keeps the flat-rate compat path for callers that only pass an amount.
+  const hasCapacity =
+    params.cubicCapacity != null && !Number.isNaN(Number(params.cubicCapacity))
+  if (rate > 0 && hasCapacity) {
+    return roundMoney(rate * Number(params.cubicCapacity))
   }
   // If only rate is provided (no capacity), treat as flat amount for backward compat
   return roundMoney(rate)

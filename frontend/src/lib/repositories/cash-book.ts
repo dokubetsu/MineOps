@@ -6,9 +6,17 @@ import { calculateClosingBalance, roundMoney } from '../calculations'
 /** Cash OUT category for trip advances (must match expense picker). */
 export const TRIP_ADVANCE_CATEGORY = 'Advance for trip'
 
+/** Cash IN category when a trip is settled / collected. */
+export const TRIP_SETTLEMENT_CATEGORY = 'Trip settlement collection'
+
 /** Stable marker so we can update/remove the cash line when advance changes. */
 export function tripAdvanceNoteMarker(tripId: string): string {
   return `[trip_advance:${tripId}]`
+}
+
+/** Stable marker for settlement cash IN lines. */
+export function tripSettlementNoteMarker(tripId: string): string {
+  return `[trip_settle:${tripId}]`
 }
 
 export const cashBookRepository = {
@@ -88,17 +96,31 @@ export const cashBookRepository = {
       note: string | null
       receipt_url: string | null
       contractor_id?: string | null
+      /** Offline outbox idempotency key (unique per org when set) */
+      client_id?: string | null
     }
   ): Promise<void> {
-    const { error } = await supabase
-      .from('cash_entries')
-      .insert({
-        ...payload,
-        contractor_id: payload.contractor_id || null,
-        active: true,
-      })
+    const insertPayload = {
+      cash_book_id: payload.cash_book_id,
+      entry_type: payload.entry_type,
+      category: payload.category,
+      amount: payload.amount,
+      note: payload.note,
+      receipt_url: payload.receipt_url,
+      contractor_id: payload.contractor_id || null,
+      client_id: payload.client_id || null,
+      active: true,
+    }
 
-    if (error) throw error
+    const { error } = await supabase.from('cash_entries').insert(insertPayload)
+
+    if (error) {
+      // Idempotent offline retry: same client_id already posted
+      if (error.code === '23505' && payload.client_id) {
+        return
+      }
+      throw error
+    }
   },
 
   /**
@@ -188,6 +210,95 @@ export const cashBookRepository = {
       note,
       receipt_url: null,
       contractor_id: args.contractorId || null,
+    })
+  },
+
+  /**
+   * Mirror trip settlement into cash book IN (collection).
+   * - amount > 0 → cash IN "Trip settlement collection"
+   * - amount ≤ 0 → soft-delete linked settlement line
+   * Marker: [trip_settle:<tripId>]
+   * Idempotent on retries (same marker upsert).
+   */
+  async syncTripSettlement(
+    supabase: SupabaseClient<Database>,
+    args: {
+      siteId: string
+      bookDate: string
+      tripId: string
+      amount: number | null | undefined
+      vehiclePlate?: string | null
+      paymentMethod?: string | null
+      paymentReference?: string | null
+    }
+  ): Promise<void> {
+    const { siteId, bookDate, tripId } = args
+    if (!siteId || !bookDate || !tripId) return
+
+    const amount = roundMoney(Number(args.amount) || 0)
+    const marker = tripSettlementNoteMarker(tripId)
+    const book = await this.getOrCreate(supabase, siteId, bookDate)
+
+    const { data: existingRows, error: findError } = await supabase
+      .from('cash_entries')
+      .select('id, amount, active, cash_book_id')
+      .eq('cash_book_id', book.id)
+      .eq('category', TRIP_SETTLEMENT_CATEGORY)
+      .ilike('note', `%${marker}%`)
+      .limit(5)
+
+    if (findError) throw findError
+    const existing = (existingRows || [])[0] || null
+
+    if (amount <= 0) {
+      if (existing?.active) {
+        const { error } = await supabase
+          .from('cash_entries')
+          .update({ active: false })
+          .eq('id', existing.id)
+        if (error) throw error
+      }
+      return
+    }
+
+    if (book.status === 'locked') {
+      throw new Error(
+        `Cash book for ${bookDate} is locked. Ask an admin to unlock it before posting a trip settlement collection.`
+      )
+    }
+
+    const plate = (args.vehiclePlate || '').trim()
+    const method = (args.paymentMethod || '').trim()
+    const ref = (args.paymentReference || '').trim()
+    const extras = [method && `via ${method}`, ref && `ref ${ref}`].filter(Boolean).join(' · ')
+    const note = plate
+      ? `${marker} Settlement ${plate}${extras ? ` · ${extras}` : ''}`
+      : `${marker} Trip settlement${extras ? ` · ${extras}` : ''}`
+
+    if (existing) {
+      const { error } = await supabase
+        .from('cash_entries')
+        .update({
+          cash_book_id: book.id,
+          entry_type: 'in',
+          category: TRIP_SETTLEMENT_CATEGORY,
+          amount,
+          note,
+          active: true,
+          receipt_url: null,
+        })
+        .eq('id', existing.id)
+      if (error) throw error
+      return
+    }
+
+    await this.createEntry(supabase, {
+      cash_book_id: book.id,
+      entry_type: 'in',
+      category: TRIP_SETTLEMENT_CATEGORY,
+      amount,
+      note,
+      receipt_url: null,
     })
   },
 

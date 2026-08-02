@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { format } from 'date-fns'
 import { Plus, Save } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
@@ -101,7 +102,7 @@ export default function SettingsPage() {
         supabase.from('sites').select('*').order('name').limit(200),
         supabase.from('transport_contractors').select('*').order('name').limit(200),
         supabase.from('vehicles').select('*, transport_contractors(name)').order('plate_number').limit(1000),
-        supabase.from('negotiated_rates').select('vehicle_type, rate_per_cubic, rate_per_km').limit(50),
+        supabase.from('negotiated_rates').select('vehicle_type, rate_per_cubic, rate_per_km, effective_from, effective_to').limit(50),
         supabase.from('customers').select('*').order('name').limit(500),
       ])
       if (sErr) throw sErr
@@ -144,6 +145,7 @@ export default function SettingsPage() {
     }
     setSavingRates(true)
     try {
+      const todayIso = format(new Date(), 'yyyy-MM-dd')
       const rows = VEHICLE_TYPES.map((vehicle_type) => {
         const rawCubic = (rateDraft[vehicle_type] || '').trim()
         const rawKm = (kmRateDraft[vehicle_type] || '').trim()
@@ -155,12 +157,17 @@ export default function SettingsPage() {
           vehicle_type,
           rate_per_cubic: nCubic > 0 ? nCubic : 0,
           rate_per_km: nKm > 0 ? nKm : 0,
+          // Keep rate current unless admin later sets an end date
+          effective_from: todayIso,
+          effective_to: null as string | null,
         }
       }).filter(Boolean) as Array<{
         organization_id: string
         vehicle_type: string
         rate_per_cubic: number
         rate_per_km: number
+        effective_from: string
+        effective_to: string | null
       }>
 
       if (rows.length === 0) {
@@ -253,6 +260,8 @@ export default function SettingsPage() {
         trip_rates,
         organization_id: organizationId,
         active: true,
+        rates_effective_from: format(new Date(), 'yyyy-MM-dd'),
+        rates_effective_to: null as string | null,
       }
 
       if (editingCustomerId) {

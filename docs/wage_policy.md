@@ -44,13 +44,15 @@ wage = (present + half_day * 0.5 + leave) × daily_rate
 ## Monthly wages
 
 ```
-wage = monthly_rate × max(0, 1 − (absent + half_day × 0.5) / period_calendar_days)
+wage = monthly_rate × max(0, eligible_days − absent − half_day×0.5) / period_calendar_days
 ```
 
 - `period_calendar_days` = inclusive days in the payroll month (28–31), computed with **local calendar** bounds (`payrollPeriodBounds`), never UTC-shifted `Date` parse.
+- `eligible_days` = days from `max(join_date, period_start)` through `period_end` (full month when `join_date` is null or on/before period start). Join after period end ⇒ not paid.
 - **Leave does not reduce** monthly salary (paid leave).
 - **Unmarked days do not reduce** monthly salary — managers must mark **Absent** for unpaid days.
-- Half-days deduct half a day from the proration factor.
+- Half-days deduct half a day from the eligible window.
+- **Finalize** re-runs this math server-side from attendance (`recompute_payroll_run_amounts` in migration **063**) so `computed_amount` is not client-only.
 
 ## Leave applications
 
@@ -75,10 +77,10 @@ wage = monthly_rate × max(0, 1 − (absent + half_day × 0.5) / period_calendar
 
 | Rule | Detail |
 |------|--------|
-| **Total cost formula** | **`total_shipment_cost` = customer rate × cubic capacity (m³)**. Customer rate is ₹/m³ from Settings → Customers (per vehicle type or default) or org negotiated rates |
+| **Total cost formula** | **`total_shipment_cost` = customer rate × cubic capacity (m³)**. Enforced in UI and DB (`normalize_trip_worth` when `rate_source` is not `manual`). Customer rate is ₹/m³ from Settings → Customers (per vehicle type or default) or org negotiated rates |
 | **Resolution order** | 1) Customer `trip_rates[vehicleType]` 2) Customer `default_trip_rate` 3) Org `negotiated_rates.rate_per_cubic` 4) none → employee may enter cost manually |
 | **Reporting-only fields** | Distance (km), distance cost (₹/km), drop location, permit, load info — captured for ops reports but **not** added into trip total cost |
-| **Who sets rates** | Admin → Settings **Customers** and **Org rates**. Site employees cannot override when a rate exists |
+| **Who sets rates** | Admin → Settings **Customers** and **Org rates**. Site employees cannot override when a rate exists (UI + DB) |
 | **Employee ops** | My Work: plate, capacity, photos, advance, drop, settle; cost auto-calculated from rate × CC |
 | **Advance** | Separate field; **not** added into trip cost. When &gt; 0, cash book **OUT** **Advance for trip** |
 | **Reporting** | Actual `trip_worth` / `total_shipment_cost` only (no invented defaults). Month-end CSV pack; refuse download if 50,000-row safety cap is hit |
@@ -89,12 +91,15 @@ wage = monthly_rate × max(0, 1 − (absent + half_day × 0.5) / period_calendar
 - Client and server normalize via `computeTripWorth` / DB trigger `normalize_trip_worth` (2 decimal places).
 - Preferred create path: `tripsRepository.create` (admin + my-work).
 - **Settled** trips require `settlement_amount > 0` (DB trigger + `tripsRepository.settle`).
+- Settling also posts (or updates) a cash book **IN** line — category **Trip settlement collection**, marker `[trip_settle:<tripId>]` — unless `postCashIn: false`. Locked cash books block that post (same as advances).
 
 ## Stakeholder shares
 
 - Per-person share is 0–100%.
 - **Sum of `share_percent` per site cannot exceed 100%** (`check_stakeholder_share_limit` trigger).
-- Reports **Business pack** can export an optional % split of trip value (paper 50/50 style).
+- **Stakeholder portal** applies `share_percent` to **cash book net** (IN − OUT) for the period.
+- **Reports → Business pack** uses a separate manual % slider on **trip billing value** (paper 50/50 style). It does **not** read `stakeholder_site_access`.
+- Brief clients with `docs/CLIENT_ONBOARDING.md` so these two models are not confused.
 
 ## Month-end (replace Excel close)
 

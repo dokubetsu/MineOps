@@ -127,11 +127,12 @@ d:\idea2\
 │   └── next.config.ts
 ├── supabase/
 │   ├── migrations/                        # Numbered SQL migrations (source of truth)
-│   │   ├── 001_initial.sql ... 061_distance_rates.sql
+│   │   ├── 000_initial_schema.sql … 064_offline_idempotency_dashboard_rollup.sql
 │   ├── schema.sql                         # Reference dump (not applied directly)
 │   ├── seed.sql                           # Local/CI seed data only (NEVER production)
 │   └── config.toml
 └── docs/                                  # Operational documentation
+    ├── CLIENT_ONBOARDING.md               # First-client brief (settle → cash IN; share models)
     ├── ENV.md                             # Environment variables reference
     ├── SCHEMA_SSOT.md                     # Schema source-of-truth process
     ├── DEPLOYMENT_CHECKLIST.md            # Step-by-step deploy guide
@@ -149,14 +150,21 @@ These rules are **hardcoded into the platform logic** — changing them requires
 
 ### Attendance & Payroll
 - **Daily wage** = (present + half_day × 0.5 + leave) × daily_rate
-- **Monthly wage** = monthly_rate × (1 − absent_days / calendar_days)
+- **Monthly wage** = monthly_rate × max(0, eligible_days − absent − half_day×0.5) / calendar_days
+- `eligible_days` respects `join_date` (mid-month joiners are prorated)
 - Leave does **not** reduce monthly salary
 - Unmarked days do **not** reduce monthly salary — managers must explicitly mark "Absent"
-- Finalizing payroll **freezes the muster** for that month (no attendance changes allowed after)
+- Finalizing payroll **recomputes wages from attendance** then **freezes the muster** for that month
+
+### Stakeholder vs reports pack
+- Stakeholder portal: % of **cash net** (registered `share_percent`)
+- Reports business pack: manual % of **trip value** (Excel-style split; independent of stakeholder rows)
+- See `docs/CLIENT_ONBOARDING.md` for the client talking points
 
 ### Trip Pricing
 - **Total trip cost** = customer rate (₹/m³) × cubic capacity — resolved in order: Customer type rate → Customer default rate → Org type rate → manual entry
 - Site employees **cannot override** the rate when one exists (field is locked)
+- **Settling** a trip posts cash book **IN** (Trip settlement collection) by default
 - **Reporting-only fields** (not added to total cost): distance (km), distance cost, drop location, permit, load info
 - Distance cost = distance_km × rate_per_km is tracked for reports only
 

@@ -19,6 +19,16 @@ function isProduction(): boolean {
   return process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production'
 }
 
+/** Local Supabase only — preview/staging against a remote project must use a secret. */
+function isLocalSupabaseUrl(): boolean {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+  return /localhost|127\.0\.0\.1/i.test(url)
+}
+
+function requiresBootstrapSecret(): boolean {
+  return isProduction() || !isLocalSupabaseUrl() || !!process.env.VERCEL_ENV
+}
+
 /**
  * One-time bootstrap: create the first platform_owner.
  * Only works when platform_roles has zero rows.
@@ -48,13 +58,14 @@ export async function POST(req: NextRequest) {
   }
 
   const requiredSecret = process.env.PLATFORM_BOOTSTRAP_SECRET?.trim()
+  const mustHaveSecret = requiresBootstrapSecret()
 
-  if (isProduction()) {
+  if (mustHaveSecret) {
     if (!requiredSecret) {
       return NextResponse.json(
         {
           error:
-            'Platform bootstrap is locked: set PLATFORM_BOOTSTRAP_SECRET in the production environment, then retry with that secret. See docs/platform_owner_bootstrap.md.',
+            'Platform bootstrap is locked: set PLATFORM_BOOTSTRAP_SECRET in the environment, then retry with that secret. See docs/platform_owner_bootstrap.md.',
           code: 'BOOTSTRAP_SECRET_REQUIRED',
         },
         { status: 503 }
@@ -113,10 +124,28 @@ export async function POST(req: NextRequest) {
   let createdNewAuthUser = false
 
   try {
-    const { data: listed } = await supabase.auth.admin.listUsers({ perPage: 200 })
-    const existing = listed?.users?.find(
-      (u) => u.email?.toLowerCase() === email.toLowerCase()
-    )
+    // Page through Auth users — a single perPage:200 miss can allow duplicate email create
+    let existing: { id: string; email?: string } | undefined
+    let page = 1
+    const perPage = 200
+    for (;;) {
+      const { data: listed, error: listErr } = await supabase.auth.admin.listUsers({
+        page,
+        perPage,
+      })
+      if (listErr) {
+        return NextResponse.json(
+          { error: `Could not list Auth users: ${listErr.message}` },
+          { status: 500 }
+        )
+      }
+      const users = listed?.users || []
+      existing = users.find((u) => u.email?.toLowerCase() === email.toLowerCase())
+      if (existing || users.length < perPage) break
+      page += 1
+      // Safety: avoid unbounded loops on huge projects
+      if (page > 50) break
+    }
 
     if (existing) {
       if (!forceExisting) {
@@ -265,20 +294,21 @@ export async function GET() {
 
     const hasSecret = !!(process.env.PLATFORM_BOOTSTRAP_SECRET?.trim())
     const prod = isProduction()
+    const mustHaveSecret = requiresBootstrapSecret()
     const ownerCount = count ?? 0
     const available = ownerCount === 0
 
-    const blockedByMissingSecret = prod && !hasSecret && available
+    const blockedByMissingSecret = mustHaveSecret && !hasSecret && available
 
     return NextResponse.json({
       available: available && !blockedByMissingSecret,
       needs_migration: false,
-      requires_secret: hasSecret || prod,
+      requires_secret: hasSecret || mustHaveSecret,
       owner_count: ownerCount,
       production: prod,
       blocked_by_missing_secret: blockedByMissingSecret,
       message: blockedByMissingSecret
-        ? 'Set PLATFORM_BOOTSTRAP_SECRET in production env before first-time setup.'
+        ? 'Set PLATFORM_BOOTSTRAP_SECRET before first-time setup (required for non-local Supabase and production).'
         : ownerCount > 0
           ? 'Bootstrap closed — platform owner already exists.'
           : undefined,

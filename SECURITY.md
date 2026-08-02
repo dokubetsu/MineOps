@@ -109,4 +109,4 @@ Proxy limits `/api/admin/*`, `/api/platform/*`, and bootstrap. Optional durable 
 
 ## 🛡 CSP notes
 
-Production CSP drops `unsafe-eval` and localhost Supabase. Inline scripts remain required by Next.js bootstrapping until a nonce pipeline is adopted (`docs/CSP_NONCE.md` — Phase E4 long-term). PWA workers are allowed via `worker-src 'self' blob:`.
+Production CSP drops `unsafe-eval`, sets `script-src-attr 'none'`, and locks `frame-ancestors` / `object-src` / `base-uri`. Inline **scripts** still allow `'unsafe-inline'` for Next.js bootstrapping until a nonce pipeline is adopted (`docs/CSP_NONCE.md` — Phase E4). PWA workers are allowed via `worker-src 'self' blob:`.

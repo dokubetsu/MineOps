@@ -45,6 +45,7 @@ export const CASH_ENTRY_CATEGORIES_OUT = [
 
 export const CASH_ENTRY_CATEGORIES_IN = [
   'Cash received from main office',
+  'Trip settlement collection',
   'Other incoming',
 ] as const
 
@@ -75,17 +76,42 @@ export function getDefaultRatePerCubic(type: string): number {
   return getDefaultTripRate(type)
 }
 
-export type RateRow = { vehicle_type?: string | null; rate_per_cubic?: number | string | null }
+export type RateRow = {
+  vehicle_type?: string | null
+  rate_per_cubic?: number | string | null
+  rate_per_km?: number | string | null
+  effective_from?: string | null
+  effective_to?: string | null
+}
+
+/** True when asOfDate is within [effective_from, effective_to] (NULL to = open-ended). */
+export function isRateEffectiveOn(
+  asOfDate: string | null | undefined,
+  effectiveFrom?: string | null,
+  effectiveTo?: string | null
+): boolean {
+  if (!asOfDate) return true
+  const asOf = asOfDate.slice(0, 10)
+  if (effectiveFrom && asOf < effectiveFrom.slice(0, 10)) return false
+  if (effectiveTo && asOf > effectiveTo.slice(0, 10)) return false
+  return true
+}
 
 /**
  * Prefer org negotiated rate (stored in rate_per_cubic as ₹/m³).
  * No app default — trip cost is entered manually when no rate is configured.
+ * Pass asOfDate (trip_date) to honor effective_from / effective_to (migration 060).
  */
 export function resolveTripRate(
   vehicleType: string,
-  rates: RateRow[] | null | undefined
+  rates: RateRow[] | null | undefined,
+  asOfDate?: string | null
 ): { rate: number | null; fromNegotiated: boolean; source: 'vehicle_type' | 'none' } {
-  const row = (rates || []).find((r) => r.vehicle_type === vehicleType)
+  const row = (rates || []).find(
+    (r) =>
+      r.vehicle_type === vehicleType &&
+      isRateEffectiveOn(asOfDate, r.effective_from, r.effective_to)
+  )
   const negotiated = row != null ? Number(row.rate_per_cubic) : NaN
   if (Number.isFinite(negotiated) && negotiated > 0) {
     return { rate: negotiated, fromNegotiated: true, source: 'vehicle_type' }
@@ -97,6 +123,8 @@ export type CustomerRateRow = {
   id?: string
   default_trip_rate?: number | string | null
   trip_rates?: Record<string, number | string> | null
+  rates_effective_from?: string | null
+  rates_effective_to?: string | null
 }
 
 export type TripRateSource =
@@ -111,13 +139,19 @@ export type TripRateSource =
  * 2) customer default_trip_rate (₹/m³)
  * 3) org negotiated_rates by vehicle type (₹/m³)
  * 4) none — user enters trip cost manually
+ *
+ * asOfDate (typically trip_date) filters customer + org effective date windows.
  */
 export function resolveTripRateForCustomer(
   vehicleType: string,
   customer: CustomerRateRow | null | undefined,
-  orgRates: RateRow[] | null | undefined
+  orgRates: RateRow[] | null | undefined,
+  asOfDate?: string | null
 ): { rate: number | null; source: TripRateSource } {
-  if (customer) {
+  if (
+    customer &&
+    isRateEffectiveOn(asOfDate, customer.rates_effective_from, customer.rates_effective_to)
+  ) {
     const map = customer.trip_rates || {}
     const typed = Number(map[vehicleType])
     if (Number.isFinite(typed) && typed > 0) {
@@ -128,7 +162,7 @@ export function resolveTripRateForCustomer(
       return { rate: def, source: 'customer_default' }
     }
   }
-  const base = resolveTripRate(vehicleType, orgRates)
+  const base = resolveTripRate(vehicleType, orgRates, asOfDate)
   return { rate: base.rate, source: base.source }
 }
 
@@ -159,10 +193,20 @@ export function vehicleTypeLabel(type: string): string {
  */
 export function resolveDistanceRate(
   vehicleType: string,
-  negotiatedRates?: Array<{ vehicle_type: string; rate_per_km?: number | null }> | null
+  negotiatedRates?: Array<{
+    vehicle_type: string
+    rate_per_km?: number | null
+    effective_from?: string | null
+    effective_to?: string | null
+  }> | null,
+  asOfDate?: string | null
 ): number | null {
   if (!negotiatedRates || !vehicleType) return null
-  const match = negotiatedRates.find((r) => r.vehicle_type === vehicleType)
+  const match = negotiatedRates.find(
+    (r) =>
+      r.vehicle_type === vehicleType &&
+      isRateEffectiveOn(asOfDate, r.effective_from, r.effective_to)
+  )
   const rate = Number(match?.rate_per_km)
   if (Number.isFinite(rate) && rate > 0) return rate
   return null

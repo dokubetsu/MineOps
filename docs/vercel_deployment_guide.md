@@ -58,7 +58,7 @@ Expand the **Environment Variables** section and add:
 > The `SUPABASE_SERVICE_ROLE_KEY` is a secret key that bypasses Row Level Security (RLS). Next.js uses it only on the secure Node.js server to create users automatically without email verification. Never prefix it with `NEXT_PUBLIC_` or share it client-side.
 
 > [!IMPORTANT]
-> **Database:** run `supabase db push` so remote migrations through **042+** are applied before relying on `/platform`. Full checklist: `docs/DEPLOYMENT_CHECKLIST.md`.
+> **Database:** run `supabase db push` so remote migrations through **064+** are applied before relying on `/platform`. Full checklist: `docs/DEPLOYMENT_CHECKLIST.md`.
 
 ---
 

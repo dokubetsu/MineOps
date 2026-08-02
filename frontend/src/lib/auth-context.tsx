@@ -4,6 +4,7 @@ import { useState, useEffect, createContext, useContext } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/client'
 import { clearOfflineCache } from '@/lib/offline-cache'
+import { clearSignedUrlCache } from '@/lib/image-utils'
 import {
   defaultFeatureMap,
   featuresFromRows,
@@ -78,6 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsPlatformOwner(false)
       setFeatures(defaultFeatureMap(false))
       clearOfflineCache()
+      clearSignedUrlCache()
       return
     }
 
@@ -190,6 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsPlatformOwner(false)
         setFeatures(defaultFeatureMap(false))
         clearOfflineCache()
+        clearSignedUrlCache()
       }
       setLoading(false)
     })

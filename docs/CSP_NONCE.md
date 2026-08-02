@@ -1,25 +1,34 @@
 # CSP nonce pipeline (Phase E4 — long-term)
 
-## Current state
+## Current state (post low-hardening)
 
-Production CSP in `frontend/next.config.ts`:
+Enforcing CSP is built by `frontend/src/lib/csp.ts` and applied from:
 
-- Drops `'unsafe-eval'`
-- Still allows `'unsafe-inline'` for `script-src` because Next.js injects bootstrap inline scripts
-- Headers are **static** (no per-request nonce)
+- `frontend/next.config.ts` (static headers)
+- `frontend/src/proxy.ts` (request-time, same builder)
 
-This is intentional and documented in `SECURITY.md`. Full nonce removal of `unsafe-inline` is a larger Next.js change.
+| Directive | Production | Notes |
+|-----------|------------|--------|
+| `script-src` | `'self' 'unsafe-inline'` | Still required for Next.js bootstrap until nonce is wired into the HTML document |
+| `script-src-attr` | `'none'` | **Hardened** — blocks `onclick=` / inline event-handler attributes |
+| `object-src` / `frame-ancestors` / `base-uri` | locked down | Already present |
+| `unsafe-eval` | **dropped** in production | Dev keeps it for tooling |
+
+No `dangerouslySetInnerHTML` in app source. Residual XSS impact from `unsafe-inline` scripts remains until E4 completes.
+
+`buildContentSecurityPolicy({ nonce, strictScripts })` supports experimental nonce / strict modes for a future dual-header rollout — **do not** set the enforcing header to `strictScripts: true` until root layout passes the nonce into Next scripts.
 
 ## Target design
 
-1. **Proxy / middleware** generates a cryptographically random nonce per request.
+1. **Proxy** generates a cryptographically random nonce per request.
 2. Set response header:
    ```
    Content-Security-Policy: script-src 'self' 'nonce-{n}' 'strict-dynamic'; …
    ```
    (exact directives to be tuned with PWA + Workbox).
-3. Pass nonce into the HTML document (`<Script nonce={…}>` / root layout).
+3. Pass nonce into the HTML document (`headers().get('x-nonce')` → `<Script nonce={…}>` / root layout).
 4. Remove static CSP from `next.config.ts` headers (or make it a report-only baseline) so the **dynamic** header wins.
+5. Drop `'unsafe-inline'` from enforcing `script-src`.
 
 ## Next.js notes
 
@@ -34,6 +43,6 @@ This is intentional and documented in `SECURITY.md`. Full nonce removal of `unsa
 - [ ] Supabase auth + realtime `connect-src` unchanged
 - [ ] Document env/flags in `docs/ENV.md`
 
-## Out of scope for Phase E migration work
+## Out of scope without a dedicated PR
 
-E4 is **docs + planning only** in this phase. Do not flip production CSP to nonce without a dedicated PR and browser QA.
+Do not flip production CSP to nonce-only / `strictScripts` without browser QA. Incremental hardening (`script-src-attr 'none'`) is already in the enforcing policy.

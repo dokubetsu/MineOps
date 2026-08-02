@@ -203,10 +203,15 @@ export default function StakeholderDashboardPage() {
                 <div>
                   <h2 style={{ fontSize: '1.1rem', fontWeight: 700 }}>{siteData.site?.name}</h2>
                   <span style={{ fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 600 }}>
-                    {siteData.sharePercent}% Revenue Share
+                    {siteData.sharePercent}% of cash net (IN − OUT)
                   </span>
                 </div>
               </div>
+
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.875rem', lineHeight: 1.4 }}>
+                Stakeholder share is based on the site cash book net for the period — not trip billing totals.
+                The Reports business pack uses a separate manual % of trip value for paper splits.
+              </p>
 
               {/* Stats Grid */}
               <div className="grid-2 mb-4" style={{ gap: '0.75rem' }}>
@@ -218,7 +223,7 @@ export default function StakeholderDashboardPage() {
                       {siteData.myShare >= 0 ? '' : '-'}{fmt(siteData.myShare)}
                     </div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                      {siteData.sharePercent}% of {formatInr(siteData.net)} net
+                      {siteData.sharePercent}% of {formatInr(siteData.net)} cash net
                     </div>
                   </div>
                 </div>

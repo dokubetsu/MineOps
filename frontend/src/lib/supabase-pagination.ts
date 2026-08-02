@@ -1,8 +1,13 @@
 import type { PostgrestError } from '@supabase/supabase-js'
 
 const DEFAULT_PAGE_SIZE = 1000
-/** Safety cap — refuse month-end export if hit (see reports page). */
+/** Hard safety cap — refuse month-end export if hit (see reports page). */
 export const REPORT_FETCH_MAX_ROWS = 50_000
+/**
+ * Soft UI cap — refuse interactive report load before fetching when exceeded
+ * to avoid browser OOM on phones / large date ranges.
+ */
+export const REPORT_UI_MAX_ROWS = 15_000
 
 export type PageQueryResult<T> = {
   data: T[] | null

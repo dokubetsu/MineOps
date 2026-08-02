@@ -22,10 +22,14 @@ import {
   getCapacityForType,
   getDefaultRatePerCubic,
   resolveRatePerCubic,
+  resolveTripRateForCustomer,
+  isRateEffectiveOn,
   VEHICLE_TYPES,
   OWNERSHIP_TYPES,
 } from '../../src/lib/trip-constants'
 import { computeTripWorthFromRate } from '../../src/lib/calculations'
+import { resolveMdmTripCost } from '../../src/lib/trip-cost'
+import { buildContentSecurityPolicy } from '../../src/lib/csp'
 
 /**
  * Phase 2 quality suite — pure unit cases (no browser).
@@ -111,8 +115,7 @@ test.describe('Phase 4 error + trip helpers', () => {
     ).toBe(true)
   })
 
-  test('resolveTripRateForCustomer prefers customer rates; no app default', async () => {
-    const { resolveTripRateForCustomer } = await import('../../src/lib/trip-constants')
+  test('resolveTripRateForCustomer prefers customer rates; no app default', () => {
     const r = resolveTripRateForCustomer(
       '12WH',
       { trip_rates: { '12WH': 1100 }, default_trip_rate: 900 },
@@ -132,9 +135,41 @@ test.describe('Phase 4 error + trip helpers', () => {
     expect(r3.source).toBe('none')
   })
 
+  test('rate effective dates filter customer and org rates', () => {
+    expect(isRateEffectiveOn('2026-07-15', '2026-07-01', null)).toBe(true)
+    expect(isRateEffectiveOn('2026-06-30', '2026-07-01', null)).toBe(false)
+    expect(isRateEffectiveOn('2026-08-01', '2026-07-01', '2026-07-31')).toBe(false)
+
+    const expired = resolveTripRateForCustomer(
+      '12WH',
+      {
+        trip_rates: { '12WH': 999 },
+        rates_effective_from: '2026-01-01',
+        rates_effective_to: '2026-06-30',
+      },
+      [{ vehicle_type: '12WH', rate_per_cubic: 800, effective_from: '2026-07-01', effective_to: null }],
+      '2026-07-15'
+    )
+    expect(expired.rate).toBe(800)
+    expect(expired.source).toBe('vehicle_type')
+  })
+
+  test('resolveMdmTripCost multiplies rate × CC', () => {
+    const r = resolveMdmTripCost({
+      vehicleType: '12WH',
+      capacity: 20,
+      customer: { trip_rates: { '12WH': 370 } },
+      orgRates: [],
+      asOfDate: '2026-07-01',
+    })
+    expect(r.worth).toBe(7400)
+    expect(r.source).toBe('customer_type')
+  })
+
   test('trip total cost = customer rate × cubic capacity', () => {
     expect(computeTripWorthFromRate(20, 1100)).toBe(22000)
     expect(computeTripWorthFromRate(16, 800)).toBe(12800)
+    expect(computeTripWorthFromRate(0, 1100)).toBe(0)
   })
 
   test('OWNERSHIP_TYPES matches DB vehicles CHECK', () => {
@@ -209,8 +244,9 @@ test.describe('Password policy', () => {
   })
 
   test('accepts strong enough password', () => {
-    expect(passwordSchema.safeParse('khani2026pass').success).toBe(true)
-    expect(PASSWORD_MIN_LENGTH).toBe(10)
+    expect(passwordSchema.safeParse('khani2026pass').success).toBe(false)
+    expect(passwordSchema.safeParse('Khani2026!ok').success).toBe(true)
+    expect(PASSWORD_MIN_LENGTH).toBe(12)
   })
 })
 
@@ -259,5 +295,21 @@ test.describe('Rate limit helper (Phase E memory backend)', () => {
     expect(blocked.limited).toBe(true)
     expect(blocked.remaining).toBe(0)
     expect(pruneRateLimitStore(Date.now() + 120_000)).toBeGreaterThanOrEqual(0)
+  })
+})
+
+test.describe('CSP hardening', () => {
+  test('enforcing policy blocks script attributes and keeps frame lockdown', () => {
+    const csp = buildContentSecurityPolicy()
+    expect(csp).toContain("script-src-attr 'none'")
+    expect(csp).toContain("frame-ancestors 'none'")
+    expect(csp).toContain("object-src 'none'")
+    expect(csp).toContain("base-uri 'self'")
+    expect(csp).toContain("form-action 'self'")
+  })
+
+  test('nonce option is accepted for future E4 rollout', () => {
+    const csp = buildContentSecurityPolicy({ nonce: 'test-nonce' })
+    expect(csp).toContain("'nonce-test-nonce'")
   })
 })

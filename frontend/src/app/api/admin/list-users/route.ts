@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { assertOrganizationActive } from '@/lib/admin-auth'
 
 /**
  * GET /api/admin/list-users
@@ -69,6 +70,9 @@ export async function GET(req: NextRequest) {
         { status: 500 }
       )
     }
+
+    const inactive = await assertOrganizationActive(supabase, callerOrganizationId)
+    if (inactive) return inactive
 
     const { searchParams } = new URL(req.url)
     const pageParam = parseInt(searchParams.get('page') || '1', 10)

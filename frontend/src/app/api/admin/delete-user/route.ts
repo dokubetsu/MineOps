@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { assertOrganizationActive } from '@/lib/admin-auth'
 
 /**
  * POST /api/admin/delete-user
@@ -74,6 +75,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: admin only' }, { status: 403 })
   }
   const callerOrganizationId = roleData[0].organization_id as string
+
+  const inactive = await assertOrganizationActive(supabase, callerOrganizationId)
+  if (inactive) return inactive
 
   let body: unknown
   try {

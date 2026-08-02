@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { cashBookRepository } from '@/lib/repositories/cash-book'
+import { assertOrganizationActive } from '@/lib/admin-auth'
 
 /**
  * POST /api/admin/period-ops
@@ -57,6 +58,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: admin only' }, { status: 403 })
   }
   const organizationId = roleData[0].organization_id as string
+
+  const inactive = await assertOrganizationActive(supabase, organizationId)
+  if (inactive) return inactive
 
   let raw: unknown
   try {
@@ -130,7 +134,8 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'purge') {
-    // Zero trip advances before soft-delete so cash book stays consistent
+    // Zero trip advances before soft-delete so cash book stays consistent.
+    // Locked books are writable here via service_role bypass (migration 062).
     const { data: tripsBeforePurge, error: tripsLoadErr } = await supabase
       .from('trips')
       .select('id, site_id, trip_date, advance_amount')
@@ -206,6 +211,29 @@ export async function POST(req: NextRequest) {
 
     const empIds = (emps || []).map((e) => e.id)
     if (empIds.length > 0) {
+      // Restore leave_balance for approved applications before hard-delete
+      // (unapprove restores charged days; deleting alone would permanently lose balance).
+      const { data: approvedLeaves, error: approvedErr } = await supabase
+        .from('leave_applications')
+        .select('id')
+        .in('employee_id', empIds)
+        .eq('status', 'approved')
+        .lte('from_date', to_date)
+        .gte('to_date', from_date)
+
+      if (approvedErr) {
+        console.warn('[period-ops] approved leave load:', approvedErr.message)
+      } else {
+        for (const app of approvedLeaves || []) {
+          const { error: unapproveErr } = await supabase.rpc('unapprove_leave_application', {
+            p_application_id: app.id,
+          })
+          if (unapproveErr) {
+            console.warn('[period-ops] leave unapprove before purge', app.id, unapproveErr.message)
+          }
+        }
+      }
+
       const { data: attDel, error: attErr } = await supabase
         .from('attendance')
         .delete()
@@ -227,7 +255,6 @@ export async function POST(req: NextRequest) {
         .gte('to_date', from_date)
         .select('id')
       if (leaveErr) {
-        // Non-fatal if leave table policies block — still log
         counts.leave_applications = 0
         console.warn('[period-ops] leave purge:', leaveErr.message)
       } else {

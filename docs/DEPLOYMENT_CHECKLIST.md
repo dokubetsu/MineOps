@@ -6,9 +6,12 @@ Use this before every production deploy. Order matters.
 
 Remote Supabase must include **all** migrations through the latest file in `supabase/migrations/`.
 
-As of this document that is **`061_distance_rates.sql`** (and everything before it).
+As of this document that is **`064_offline_idempotency_dashboard_rollup.sql`** (and everything before it).
 **057** lets site employees read their assigned site (fixes “Unassigned” on My Work).
 **061** adds distance rates (`rate_per_km`, `distance_cost`) for reporting.
+**062** forces MDM trip cost = rate × CC, blocks employee rate overrides, and lets service_role purge locked cash books.
+**063** recomputes payroll wages on finalize from attendance + `join_date`.
+**064** offline outbox idempotency (`client_id` on trips/cash) + `dashboard_trip_day_rollup` RPC.
 After schema changes, regenerate or hand-update `frontend/src/lib/supabase/database.types.ts` — see `docs/SCHEMA_SSOT.md` (`npm run gen:types` when CLI is available).
 
 ```bash
@@ -42,7 +45,7 @@ If `platform_roles` or `is_platform_owner()` is missing, `/platform` and bootstr
 
 1. Set `PLATFORM_BOOTSTRAP_SECRET` on Vercel → Redeploy.
 2. Open `https://<your-app>/platform/setup`.
-3. Enter operator email, strong password (min 10, letter + number), and the bootstrap secret.
+3. Enter operator email, strong password (min 12, letter + number + special character), and the bootstrap secret.
 4. Sign in at `/` → should land on `/platform`.
 5. Rotate/remove the secret (step 2 above).
 
@@ -54,7 +57,7 @@ Alternative: Supabase Auth create user + SQL
 | Context | Allowed |
 |---------|---------|
 | Local `supabase db reset` seed | `admin@khani.com` / `password123`, `platform@khani.com` / `password123` — **dev only** |
-| Production | Never use seed passwords. Never apply seed.sql. Use strong platform + tenant admin passwords (API policy: 10+ chars, letter + number). |
+| Production | Never use seed passwords. Never apply seed.sql. Use strong platform + tenant admin passwords (API policy: 12+ chars, letter + number + special). |
 | E2E / CI | Defaults only against ephemeral local Supabase |
 
 ## 5. Frontend deploy
@@ -65,16 +68,19 @@ Alternative: Supabase Auth create user + SQL
 
 ## 6. Smoke test after deploy
 
-- [ ] Migrations list complete through **056** (and types/docs per `SCHEMA_SSOT.md`)  
+- [ ] Migrations list complete through **064** (and types/docs per `SCHEMA_SSOT.md`)  
 - [ ] Reports: paper pack CSV + admin period close/purge (confirm DELETE; no purge over finalized payroll)  
+- [ ] Deactivated org: dashboard blocked **and** `/api/admin/*` returns 403  
+- [ ] Trip cost: MDM rate × CC on create **and** edit (My Work)  
+- [ ] Settle trip → cash book **IN** “Trip settlement collection” (idempotent on re-settle sync)  
+- [ ] Offline retry: same `client_id` does not duplicate trip/cash (**064**)  
 - [ ] Last admin per org: cannot delete/demote sole admin of org A while org B still has admins (**047**)  
 - [ ] Attendance frozen after payroll finalize for that month; empty finalize blocked; leave net-charge; settled amount &gt; 0 (**048**)  
 - [ ] Tenant admin cannot set `organizations.active`; only platform can (**049**)  
 - [ ] Remove user from Users page deletes Auth account via `/api/admin/delete-user` (**049** + API)  
-- [ ] **Upstash** `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` set in production (recommended; memory backend logs a warning)  
+- [ ] **Upstash** `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` set in production (**required for multi-instance**); optional `RATE_LIMIT_REQUIRE_UPSTASH=1` to fail closed  
 - [ ] Storage buckets accept images only (MIME allowlist **049**)  
-- [ ] `trip_photos.organization_id` present; manager policies include org match (**050**)
-- [ ] Optional: `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` for durable API rate limits  
+- [ ] `trip_photos.organization_id` present; manager policies include org match (**050**)  
 - [ ] Login as platform owner → `/platform`  
 - [ ] Create org + admin (temp password)  
 - [ ] Tenant admin login → `/dashboard`  
@@ -84,6 +90,7 @@ Alternative: Supabase Auth create user + SQL
 - [ ] Disable **master_data** / **manage_employees** → creates fail at DB (Phase F **046**)  
 - [ ] Leave force-approve then Undo restores prior attendance statuses (**046**)  
 - [ ] Employee my-work trip photo upload works (storage policies **045**)  
+- [ ] Brief client: settle posts cash IN; stakeholder % ≠ reports pack % (see `docs/CLIENT_ONBOARDING.md`)  
 
 ## Related docs
 

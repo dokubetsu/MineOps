@@ -5,6 +5,10 @@
  * Local Supabase (127.0.0.1 / localhost :54321) is always allowed in connect-src.
  * Loopback is not a useful XSS target for remote attackers; CI runs production
  * builds against local Supabase and must not be blocked by CSP.
+ *
+ * Production still allows script-src 'unsafe-inline' for Next.js bootstrap
+ * (nonce pipeline: docs/CSP_NONCE.md). We do harden script-src-attr and related
+ * directives that Next does not need.
  */
 
 const isDev = process.env.NODE_ENV !== 'production'
@@ -16,10 +20,30 @@ const LOCAL_SUPABASE = [
   'ws://localhost:54321',
 ] as const
 
-export function buildContentSecurityPolicy(): string {
-  const scriptSrc = isDev
-    ? "script-src 'self' 'unsafe-eval' 'unsafe-inline'"
-    : "script-src 'self' 'unsafe-inline'"
+export type CspBuildOptions = {
+  /** Optional nonce for future dual-policy / report-only experiments */
+  nonce?: string
+  /** When true, omit 'unsafe-inline' from script-src (report-only / experiments only) */
+  strictScripts?: boolean
+}
+
+export function buildContentSecurityPolicy(opts: CspBuildOptions = {}): string {
+  const { nonce, strictScripts } = opts
+
+  let scriptSrc: string
+  if (strictScripts && nonce) {
+    // Experimental path — do not enable in enforcing header until layout wires nonce
+    scriptSrc = `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`
+  } else if (nonce) {
+    // Dual: nonce present for gradual adoption; keep eval in dev for tooling
+    scriptSrc = isDev
+      ? `script-src 'self' 'nonce-${nonce}' 'unsafe-eval' 'unsafe-inline'`
+      : `script-src 'self' 'nonce-${nonce}' 'unsafe-inline'`
+  } else if (isDev) {
+    scriptSrc = "script-src 'self' 'unsafe-eval' 'unsafe-inline'"
+  } else {
+    scriptSrc = "script-src 'self' 'unsafe-inline'"
+  }
 
   // Always include cloud + local Supabase so production `next start` in CI works.
   // fonts.* allowed in connect-src so the PWA service worker (Workbox) can
@@ -45,6 +69,8 @@ export function buildContentSecurityPolicy(): string {
   const directives = [
     "default-src 'self'",
     scriptSrc,
+    // Block inline event-handler attributes (onclick=…) — not used by Next bootstrap
+    "script-src-attr 'none'",
     // Prefer self-hosted next/font; keep googleapis for any residual @import / cache
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     imgSrc,
@@ -72,4 +98,9 @@ export function buildContentSecurityPolicy(): string {
   }
 
   return directives.join('; ')
+}
+
+/** True when production script-src still relies on unsafe-inline (expected until E4). */
+export function productionScriptSrcAllowsUnsafeInline(csp: string = buildContentSecurityPolicy()): boolean {
+  return /script-src[^;]*'unsafe-inline'/.test(csp)
 }

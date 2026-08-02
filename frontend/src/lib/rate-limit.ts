@@ -129,8 +129,8 @@ function warnIfMemoryInProduction(): void {
  * Async rate limit — prefers Upstash when configured (Phase E), else memory.
  * Prefer this from proxy / route handlers.
  *
- * Phase 2: logs once in production when falling back to memory (not a hard fail —
- * set Upstash for multi-instance deploys).
+ * Production without Upstash: tighter effective limits + warning (set Upstash for
+ * multi-instance durability). Optional hard fail: RATE_LIMIT_REQUIRE_UPSTASH=1.
  */
 export async function checkRateLimit(
   key: string,
@@ -140,8 +140,25 @@ export async function checkRateLimit(
   if (upstashConfigured()) {
     return upstashCheck(key, limit, windowMs)
   }
+  if (process.env.RATE_LIMIT_REQUIRE_UPSTASH === '1') {
+    const prod =
+      process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production'
+    if (prod) {
+      warnIfMemoryInProduction()
+      return {
+        limited: true,
+        remaining: 0,
+        resetAt: Date.now() + windowMs,
+        backend: 'memory',
+      }
+    }
+  }
   warnIfMemoryInProduction()
-  return memoryCheck(key, limit, windowMs)
+  // Memory backend is per-isolate — use a stricter ceiling in production
+  const prod =
+    process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production'
+  const effectiveLimit = prod ? Math.max(1, Math.floor(limit / 2)) : limit
+  return memoryCheck(key, effectiveLimit, windowMs)
 }
 
 /** Sync in-memory only — tests and non-async call sites. */

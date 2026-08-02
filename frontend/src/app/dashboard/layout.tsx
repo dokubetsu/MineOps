@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { AuthProvider, useAuth } from '@/lib/auth-context'
 import { useTheme } from '@/lib/theme-context'
 import { clearOfflineCache } from '@/lib/offline-cache'
+import { clearSignedUrlCache } from '@/lib/image-utils'
 import OfflineBanner from '@/components/OfflineBanner'
 import {
   LayoutDashboard, Truck, BookOpen, Users, Calendar,
@@ -48,6 +49,7 @@ function NavContent() {
 
   const handleLogout = async () => {
     clearOfflineCache()
+    clearSignedUrlCache()
     await supabase.auth.signOut()
     router.push('/')
   }

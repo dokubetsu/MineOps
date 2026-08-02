@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { AuthProvider, useAuth } from '@/lib/auth-context'
 import { useTheme } from '@/lib/theme-context'
 import { clearOfflineCache } from '@/lib/offline-cache'
+import { clearSignedUrlCache } from '@/lib/image-utils'
 import { Building2, LogOut, Sun, Moon, Shield, AlertTriangle } from 'lucide-react'
 
 function PlatformShell({ children }: { children: React.ReactNode }) {
@@ -37,6 +38,7 @@ function PlatformShell({ children }: { children: React.ReactNode }) {
 
   const handleLogout = async () => {
     clearOfflineCache()
+    clearSignedUrlCache()
     await supabase.auth.signOut()
     router.push('/')
   }

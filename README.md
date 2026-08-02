@@ -10,11 +10,11 @@ Khani uses a streamlined architecture (Option A: client-to-database backend-less
 
 | Component | Technology | Purpose / Role |
 |---|---|---|
-| **Frontend & Server Routes** | Next.js 16 (App Router) + TypeScript + CSS Modules | Mobile-first responsive UI, PWA features, offline readiness, and server routes for secure admin actions |
+| **Frontend & Server Routes** | Next.js 16 (App Router) + TypeScript + vanilla CSS | Mobile-first responsive UI, PWA features, offline readiness, and server routes for secure admin actions |
 | **Database & Calculations** | PostgreSQL (via Supabase) | Persistent storage, relational constraints, triggers, views, and SECURITY DEFINER RPCs |
 | **Auth** | Supabase Auth | Session tracking and secure JWT-based verification |
 | **Storage** | Supabase Storage | Private image buckets for trip slips, cash receipts, and attendance evidence |
-| **Styling** | Vanilla CSS (Dark & Light modes supported) | Theme with native UI elements |
+| **Styling** | Vanilla CSS in `globals.css` (dark & light) | Design tokens via CSS custom properties |
 
 ---
 
@@ -34,7 +34,7 @@ Khani uses a streamlined architecture (Option A: client-to-database backend-less
 │   └── package.json
 │
 ├── supabase/
-│   ├── migrations/        # Ordered SQL migrations (000–033+)
+│   ├── migrations/        # Ordered SQL migrations (000–064+)
 │   ├── seed.sql           # Local demo org, sites, employees, admin user
 │   └── config.toml
 │
@@ -72,8 +72,8 @@ For security, production credentials are not stored in source control. Access is
 
 ### 1. Database Setup
 
-Apply all Supabase migrations (currently through **`061_distance_rates.sql`**).  
-Wage & trip pricing: [`docs/wage_policy.md`](docs/wage_policy.md) (trip cost = ₹/trip by type; month-end pack + optional admin purge). Platform bootstrap: [`docs/platform_owner_bootstrap.md`](docs/platform_owner_bootstrap.md). Env: [`docs/ENV.md`](docs/ENV.md). Schema types policy: [`docs/SCHEMA_SSOT.md`](docs/SCHEMA_SSOT.md).
+Apply all Supabase migrations (currently through **`064_offline_idempotency_dashboard_rollup.sql`**).  
+Wage & trip pricing: [`docs/wage_policy.md`](docs/wage_policy.md) (trip cost = ₹/m³ × cubic capacity; month-end pack + optional admin purge). Platform bootstrap: [`docs/platform_owner_bootstrap.md`](docs/platform_owner_bootstrap.md). Env: [`docs/ENV.md`](docs/ENV.md). Schema types policy: [`docs/SCHEMA_SSOT.md`](docs/SCHEMA_SSOT.md).
 
 **Source of truth for the database is `supabase/migrations/`** — do not apply `schema.sql` alone (it is a reference snapshot).
 

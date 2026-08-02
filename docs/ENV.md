@@ -28,12 +28,13 @@ Local development (`NODE_ENV !== production` and not `VERCEL_ENV=production`) ma
 | `CSP_ALLOW_LOCAL_SUPABASE` | Set to `1` for production builds that must call local Supabase (`127.0.0.1:54321`) — used by CI e2e. Also auto-enabled when `NEXT_PUBLIC_SUPABASE_URL` host is localhost/127.0.0.1 (evaluated at **build** time). |
 | `UPSTASH_REDIS_REST_URL` | Phase E5 durable rate limit (Upstash REST). With token, proxy uses Redis counters. |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token — **server only**, never `NEXT_PUBLIC_` |
+| `RATE_LIMIT_REQUIRE_UPSTASH` | Optional. Set to `1` in production to **reject** API traffic when Upstash is missing (fail closed). |
 
 ### Rate limiting (Phase 2)
 
 | Environment | Recommendation |
 |-------------|----------------|
-| **Production / multi-instance (Vercel)** | **Strongly recommended:** set both Upstash vars. Without them, limits are **per isolate** (easy to bypass under load). App logs a one-time warning when memory backend is used in production. |
+| **Production / multi-instance (Vercel)** | **Strongly recommended:** set both Upstash vars. Without them, limits are **per isolate** and the app uses a **halved** ceiling + warning. Set `RATE_LIMIT_REQUIRE_UPSTASH=1` to hard-fail instead. |
 | **Local / single process** | In-memory is fine. |
 
 Still set edge/WAF limits in production (Vercel / Cloudflare) as defense-in-depth.
@@ -57,6 +58,6 @@ CSP nonce pipeline (not enabled yet): `docs/CSP_NONCE.md`.
 
 ## Password policy (API-created users)
 
-See `frontend/src/lib/password-policy.ts`: min 10 characters, at least one letter and one number.
+See `frontend/src/lib/password-policy.ts`: min **12** characters, at least one letter, one number, and one special character.
 
 Local seed passwords (`password123`) are **weaker by design for E2E** and must never be used in production.

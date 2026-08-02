@@ -488,6 +488,7 @@ async function processItem(
       organization_id: p.trip.organization_id || orgId,
       photo_url: allPhotos[0] || p.trip.photo_url || null,
       _vehicle_plate: p.vehicle_plate || null,
+      client_id: p.client_id,
     }
     const row = await tripsRepository.create(supabase, tripPayload)
     if (allPhotos.length > 0) {
@@ -578,6 +579,7 @@ async function processItem(
       note: p.note,
       receipt_url: receiptUrl,
       contractor_id: contractorId,
+      client_id: p.client_id,
     })
     await deleteOfflinePhotosByOutbox(item.id)
   }

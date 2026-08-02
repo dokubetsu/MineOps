@@ -204,11 +204,11 @@ export default function TripsPage() {
   const loadInitialData = async () => {
     try {
       const [{ data: sitesData }, { data: vehiclesData }, { data: contractorsData }, { data: customersData }, { data: ratesData }] = await Promise.all([
-        supabase.from('sites').select('*').eq('active', true).order('name'),
-        supabase.from('vehicles').select('*, transport_contractors(name)').eq('active', true).order('plate_number'),
-        supabase.from('transport_contractors').select('*').eq('active', true).order('name'),
-        supabase.from('customers').select('*').eq('active', true).order('name'),
-        supabase.from('negotiated_rates').select('*'),
+        supabase.from('sites').select('*').eq('active', true).order('name').limit(200),
+        supabase.from('vehicles').select('*, transport_contractors(name)').eq('active', true).order('plate_number').limit(500),
+        supabase.from('transport_contractors').select('*').eq('active', true).order('name').limit(500),
+        supabase.from('customers').select('*').eq('active', true).order('name').limit(500),
+        supabase.from('negotiated_rates').select('vehicle_type, rate_per_cubic, rate_per_km, effective_from, effective_to').limit(100),
       ])
       
       const loadedSites = sitesData || []
@@ -618,13 +618,15 @@ export default function TripsPage() {
       contractorId: string | null
     ) => {
       const cust = customers.find((c) => c.id === form.customer_id) as any
+      const asOf = selectedDate || format(new Date(), 'yyyy-MM-dd')
       const { rate, source } = resolveTripRateForCustomer(
         form.vehicle_type,
         cust || null,
-        rates
+        rates,
+        asOf
       )
       const cap = parseFloat(form.cubic_capacity) || 0
-      const calcWorth = rate != null && cap > 0 ? computeTripWorthFromRate(cap, rate) : null
+      const calcWorth = rate != null && rate > 0 ? computeTripWorthFromRate(cap, rate) : null
       const enteredWorth = parseFloat(form.trip_worth) || null
       const shipmentCost = parseFloat(form.total_shipment_cost) || null
       const tripCost = shipmentCost ?? enteredWorth
@@ -636,7 +638,7 @@ export default function TripsPage() {
             : 'manual'
 
       const distKm = parseFloat(form.distance_km) || null
-      const distRate = resolveDistanceRate(form.vehicle_type, rates)
+      const distRate = resolveDistanceRate(form.vehicle_type, rates, asOf)
       const distCost =
         parseFloat(form.distance_cost) || computeDistanceCost(distKm, distRate)
 
@@ -1310,7 +1312,8 @@ export default function TripsPage() {
                   const { rate, source } = resolveTripRateForCustomer(
                     form.vehicle_type,
                     cust || null,
-                    rates
+                    rates,
+                    selectedDate || undefined
                   )
                   if (rate == null) {
                     return 'Enter cost manually (no customer/org rate set)'
@@ -1320,10 +1323,11 @@ export default function TripsPage() {
                       ? `customer ${cust?.name || ''}`.trim()
                       : 'org rates'
                   const cap = parseFloat(form.cubic_capacity) || 0
-                  const totalWorth = cap > 0 ? computeTripWorthFromRate(cap, rate) : rate
-                  const hintText = cap > 0
-                    ? `Hint ₹${rate}/m³ × ${cap}m³ = ₹${totalWorth} (${srcLabel})`
-                    : `Hint ₹${rate}/m³ (${srcLabel})`
+                  const totalWorth = computeTripWorthFromRate(cap, rate)
+                  const hintText =
+                    cap > 0
+                      ? `Hint ₹${rate}/m³ × ${cap}m³ = ₹${totalWorth} (${srcLabel})`
+                      : `Hint ₹${rate}/m³ × CC (enter capacity)`
                   return (
                     <>
                       {hintText} ·{' '}

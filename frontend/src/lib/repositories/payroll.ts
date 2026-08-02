@@ -1,6 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
-import { computePayrollWage, payrollPeriodBounds } from '../calculations'
+import { computePayrollWage, eligiblePayrollDays, payrollPeriodBounds } from '../calculations'
 
 type PayrollRunRow = Database['public']['Tables']['payroll_runs']['Row']
 type PayrollLineRow = Database['public']['Tables']['payroll_lines']['Row']
@@ -153,7 +153,7 @@ export const payrollRepository = {
     const empIds = employees.map(e => e.id)
     const { data: allAtt, error: attError } = await supabase
       .from('attendance')
-      .select('employee_id, status')
+      .select('employee_id, status, att_date')
       .in('employee_id', empIds)
       .gte('att_date', startIso)
       .lte('att_date', endIso)
@@ -161,14 +161,20 @@ export const payrollRepository = {
 
     if (attError) throw attError
 
-    const attMap: Record<string, string[]> = {}
+    const attMap: Record<string, { status: string; att_date: string }[]> = {}
     for (const att of allAtt || []) {
       if (!attMap[att.employee_id]) attMap[att.employee_id] = []
-      attMap[att.employee_id].push(att.status)
+      attMap[att.employee_id].push({ status: att.status, att_date: String(att.att_date).slice(0, 10) })
     }
     const linesToInsert = []
     for (const emp of employees) {
-      const statuses = attMap[emp.id] || []
+      const eligibleDays = eligiblePayrollDays(emp.join_date, startIso, endIso)
+      if (eligibleDays <= 0) continue
+
+      const joinIso = emp.join_date ? String(emp.join_date).slice(0, 10) : null
+      const statuses = (attMap[emp.id] || [])
+        .filter((a) => !joinIso || a.att_date >= joinIso)
+        .map((a) => a.status)
       const present = statuses.filter(s => s === 'present').length
       const halfDay = statuses.filter(s => s === 'half-day').length
       const leave = statuses.filter(s => s === 'leave').length
@@ -178,7 +184,8 @@ export const payrollRepository = {
       const finalComputed = computePayrollWage(
         { wage_type: wageType, wage_rate: emp.wage_rate },
         { present, halfDay, leave, absent },
-        periodDays
+        periodDays,
+        eligibleDays
       )
 
       linesToInsert.push({
@@ -193,6 +200,13 @@ export const payrollRepository = {
         adjustment: 0,
         final_amount: finalComputed,
       })
+    }
+
+    if (linesToInsert.length === 0) {
+      if (isNewRun) {
+        await supabase.from('payroll_runs').delete().eq('id', activeRun.id)
+      }
+      throw new Error('No employees were eligible for this payroll period (check join dates).')
     }
 
     const { data: insertedLines, error: linesError } = await supabase
