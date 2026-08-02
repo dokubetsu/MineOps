@@ -1334,53 +1334,13 @@ function EmployeePage() {
             </div>
           </div>
 
-          <div className="grid-2">
-            <div className="form-group">
-              <label className="form-label">Advance Amount Paid (₹)</label>
-              <input className="form-input" type="number" placeholder="1000"
-                value={tripForm.advance_amount} onChange={e => setTripForm(f => ({ ...f, advance_amount: e.target.value }))} />
-              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                Posted as cash out · Advance for trip
-              </span>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Trip / billing cost (₹)</label>
-              {(() => {
-                const cust = customers.find((c) => c.id === tripForm.customer_id)
-                const { rate, source } = resolveTripRateForCustomer(
-                  tripForm.vehicle_type,
-                  cust || null,
-                  negotiatedRates
-                )
-                const locked = rate != null && rate > 0
-                const src =
-                  source === 'customer_type' || source === 'customer_default'
-                    ? 'customer rate (admin)'
-                    : source === 'vehicle_type'
-                      ? 'org rate (admin)'
-                      : ''
-                return (
-                  <>
-                    <input
-                      className="form-input"
-                      type="number"
-                      placeholder={locked ? undefined : 'No admin rate — enter cost or ask admin'}
-                      value={tripForm.total_shipment_cost}
-                      readOnly={locked}
-                      onChange={(e) =>
-                        setTripForm((f) => ({ ...f, total_shipment_cost: e.target.value }))
-                      }
-                      style={locked ? { opacity: 0.9, background: 'var(--bg-elevated)' } : undefined}
-                    />
-                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                      {locked
-                        ? `Set by admin · ₹${rate}/trip (${src})`
-                        : 'No customer/org rate — enter amount or ask admin to set rates in Settings'}
-                    </span>
-                  </>
-                )
-              })()}
-            </div>
+          <div className="form-group">
+            <label className="form-label">Advance Amount Paid (₹)</label>
+            <input className="form-input" type="number" placeholder="1000"
+              value={tripForm.advance_amount} onChange={e => setTripForm(f => ({ ...f, advance_amount: e.target.value }))} />
+            <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+              Posted as cash out · Advance for trip
+            </span>
           </div>
 
           <div className="form-group">

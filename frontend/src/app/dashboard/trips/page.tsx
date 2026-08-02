@@ -1348,18 +1348,6 @@ export default function TripsPage() {
             </div>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Total shipment / billing cost (₹)</label>
-            <input
-              className="form-input"
-              type="number"
-              step="any"
-              value={form.total_shipment_cost}
-              onChange={(e) => setForm((f) => ({ ...f, total_shipment_cost: e.target.value }))}
-              placeholder="Defaults to trip cost"
-            />
-          </div>
-
           {/* Payment Status & Settlement */}
           <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1rem' }}>
             <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.75rem', fontFamily: 'var(--font-display)', color: 'var(--accent)' }}>Payment Settlement</div>
