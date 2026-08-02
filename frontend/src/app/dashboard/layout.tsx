@@ -11,7 +11,7 @@ import OfflineBanner from '@/components/OfflineBanner'
 import {
   LayoutDashboard, Truck, BookOpen, Users, Calendar,
   DollarSign, Settings, LogOut, TrendingUp, FileText,
-  UserCheck, Shield, Sun, Moon, Menu
+  Shield, Sun, Moon, Menu
 } from 'lucide-react'
 import { featureForPath } from '@/lib/features'
 import toast from 'react-hot-toast'

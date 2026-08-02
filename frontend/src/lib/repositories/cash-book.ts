@@ -125,10 +125,11 @@ export const cashBookRepository = {
     const marker = tripAdvanceNoteMarker(tripId)
     const book = await this.getOrCreate(supabase, siteId, bookDate)
 
-    // Find existing linked entry (active or not — we may re-activate)
+    // Find existing linked entry in this cash book (active or not — we may re-activate)
     const { data: existingRows, error: findError } = await supabase
       .from('cash_entries')
       .select('id, amount, active, cash_book_id')
+      .eq('cash_book_id', book.id)
       .eq('category', TRIP_ADVANCE_CATEGORY)
       .ilike('note', `%${marker}%`)
       .limit(5)
@@ -148,12 +149,9 @@ export const cashBookRepository = {
     }
 
     if (book.status === 'locked') {
-      // Don't fail trip save — advance stays on trip; admin can unlock cash book
-      if (!existing) {
-        console.warn(
-          '[cash] trip advance not posted: cash book locked for',
-          bookDate,
-          tripId
+      if (amount > 0) {
+        throw new Error(
+          `Cash book for ${bookDate} is locked. Ask an admin to unlock it before posting a trip advance, or save the trip with zero advance.`
         )
       }
       return
@@ -315,37 +313,41 @@ export const cashBookRepository = {
   },
 
   async getBalances(supabase: SupabaseClient<Database>, cashBookId: string): Promise<{ totalIn: number; totalOut: number; closing: number }> {
-    const { data, error } = await supabase
-      .from('cash_entries')
-      .select('entry_type, amount, active')
-      .eq('cash_book_id', cashBookId)
-      .eq('active', true)
+    const [{ data: book, error: bookError }, { data: entries, error: entriesError }] = await Promise.all([
+      supabase
+        .from('cash_books')
+        .select('opening_balance, closing_balance')
+        .eq('id', cashBookId)
+        .single(),
+      supabase
+        .from('cash_entries')
+        .select('entry_type, amount')
+        .eq('cash_book_id', cashBookId)
+        .eq('active', true),
+    ])
 
-    if (error) throw error
+    if (bookError) throw bookError
+    if (entriesError) throw entriesError
 
     let totalIn = 0
     let totalOut = 0
-    for (const e of data || []) {
+    for (const e of entries || []) {
       if (e.entry_type === 'in') totalIn += Number(e.amount)
       else if (e.entry_type === 'out') totalOut += Number(e.amount)
     }
 
-    // Opening balance from parent cash book (for offline parity with calculateClosingBalance)
-    const { data: book } = await supabase
-      .from('cash_books')
-      .select('opening_balance')
-      .eq('id', cashBookId)
-      .maybeSingle()
-
     const opening = Number(book?.opening_balance) || 0
-    const closing = calculateClosingBalance(
-      opening,
-      (data || []).map((e) => ({
-        entry_type: e.entry_type as 'in' | 'out',
-        amount: Number(e.amount),
-        active: e.active !== false,
-      }))
-    )
+    const closing =
+      book?.closing_balance != null
+        ? Number(book.closing_balance)
+        : calculateClosingBalance(
+            opening,
+            (entries || []).map((e) => ({
+              entry_type: e.entry_type as 'in' | 'out',
+              amount: Number(e.amount),
+              active: true,
+            }))
+          )
 
     return { totalIn, totalOut, closing }
   },

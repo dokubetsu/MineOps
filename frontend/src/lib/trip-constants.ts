@@ -1,15 +1,15 @@
 /**
  * Shared trip / expense domain constants used by admin trips + my-work.
  *
- * Trip pricing follows field reference paper (local reference/ folder, untracked):
- *   trip value = ₹/m³ rate × cubic capacity of vehicle.
- * Column `negotiated_rates.rate_per_cubic` stores the ₹/m³ unit rate.
+ * Trip total cost = customer rate (₹/m³) × cubic capacity.
+ * Distance, drop location, etc. are reporting-only (not in total cost).
  */
 
 export const VEHICLE_TYPES = ['12WH', '10WH', '6WH', 'Other'] as const
 export type VehicleType = (typeof VEHICLE_TYPES)[number]
 
-export const OWNERSHIP_TYPES = ['rented', 'leased', 'owned'] as const
+/** Must match DB CHECK on vehicles.ownership ('rented' | 'owned'). */
+export const OWNERSHIP_TYPES = ['rented', 'owned'] as const
 export type OwnershipType = (typeof OWNERSHIP_TYPES)[number]
 
 /**

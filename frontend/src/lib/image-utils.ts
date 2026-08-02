@@ -127,3 +127,56 @@ export function setCachedSignedUrl(key: string, url: string, ttlMs = 50 * 60 * 1
 export function clearSignedUrlCache(): void {
   signedCache.clear()
 }
+
+/** Normalize a storage path that may include the bucket prefix. */
+export function normalizeStoragePath(path: string, bucket: string): string {
+  if (path.includes(`${bucket}/`)) {
+    return path.split(`${bucket}/`).pop() || path
+  }
+  return path
+}
+
+/**
+ * Batch-sign storage paths (uses createSignedUrls). Results are cached per path.
+ * Returns map of normalized path → signed URL.
+ */
+export async function signStoragePaths(
+  supabase: { storage: { from: (bucket: string) => { createSignedUrls: (paths: string[], expiresIn: number) => Promise<{ data: Array<{ path: string | null; signedUrl: string | null; error: string | null }> | null; error: Error | null }> } } },
+  bucket: string,
+  rawPaths: string[],
+  ttlSec = 3600
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>()
+  const toSign: string[] = []
+  const normalizedList: string[] = []
+
+  for (const raw of rawPaths) {
+    if (!raw) continue
+    const path = normalizeStoragePath(raw, bucket)
+    const cacheKey = `${bucket}:${path}`
+    const cached = getCachedSignedUrl(cacheKey)
+    if (cached) {
+      result.set(path, cached)
+    } else if (!normalizedList.includes(path)) {
+      normalizedList.push(path)
+      toSign.push(path)
+    }
+  }
+
+  const CHUNK = 20
+  for (let i = 0; i < toSign.length; i += CHUNK) {
+    const chunk = toSign.slice(i, i + CHUNK)
+    const { data, error } = await supabase.storage.from(bucket).createSignedUrls(chunk, ttlSec)
+    if (error || !data) continue
+    for (let j = 0; j < chunk.length; j++) {
+      const url = data[j]?.signedUrl
+      if (url) {
+        const path = chunk[j]
+        setCachedSignedUrl(`${bucket}:${path}`, url)
+        result.set(path, url)
+      }
+    }
+  }
+
+  return result
+}

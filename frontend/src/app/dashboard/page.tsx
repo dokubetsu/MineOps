@@ -12,6 +12,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Site, CashBook, CashEntry, Trip } from '@/lib/supabase/types'
 import { formatInr, formatMetric } from '@/lib/calculations'
+import { fetchAllPages } from '@/lib/supabase-pagination'
 
 interface ExtendedTrip extends Trip {
   vehicles?: {
@@ -107,14 +108,19 @@ export default function DashboardPage() {
       const bookIds = (books || []).map((b) => b.id)
       const outByBook: Record<string, number> = {}
       if (bookIds.length > 0) {
-        const { data: outs } = await supabase
-          .from('cash_entries')
-          .select('cash_book_id, amount, entry_type, active')
-          .in('cash_book_id', bookIds)
-          .eq('entry_type', 'out')
-          .eq('active', true)
-          .limit(10000)
-        for (const e of outs || []) {
+        const { rows: outs } = await fetchAllPages<{
+          cash_book_id: string
+          amount: number
+        }>((rangeFrom, rangeTo) =>
+          supabase
+            .from('cash_entries')
+            .select('cash_book_id, amount')
+            .in('cash_book_id', bookIds)
+            .eq('entry_type', 'out')
+            .eq('active', true)
+            .range(rangeFrom, rangeTo)
+        )
+        for (const e of outs) {
           outByBook[e.cash_book_id] = (outByBook[e.cash_book_id] || 0) + Number(e.amount)
         }
       }

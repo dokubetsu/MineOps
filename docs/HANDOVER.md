@@ -121,7 +121,7 @@ d:\idea2\
 │   │   │   │   ├── payroll.ts            # Payroll generation & finalization
 │   │   │   │   └── sites.ts             # Site queries
 │   │   │   └── supabase/                 # Supabase client setup + types
-│   │   └── middleware.ts                  # Auth redirect middleware
+│   │   └── proxy.ts                       # Auth redirect middleware (Next.js 16)
 │   ├── tests/                             # Playwright E2E + unit tests
 │   ├── package.json
 │   └── next.config.ts
@@ -155,9 +155,10 @@ These rules are **hardcoded into the platform logic** — changing them requires
 - Finalizing payroll **freezes the muster** for that month (no attendance changes allowed after)
 
 ### Trip Pricing
-- Trip cost is set by admin-defined rates, resolved in this order: Customer type rate → Customer default rate → Org type rate → manual entry
+- **Total trip cost** = customer rate (₹/m³) × cubic capacity — resolved in order: Customer type rate → Customer default rate → Org type rate → manual entry
 - Site employees **cannot override** the rate when one exists (field is locked)
-- Distance cost = distance_km × rate_per_km (auto-calculated, manually overridable)
+- **Reporting-only fields** (not added to total cost): distance (km), distance cost, drop location, permit, load info
+- Distance cost = distance_km × rate_per_km is tracked for reports only
 
 ### Leave Balance
 - New employees start with 15 days leave balance

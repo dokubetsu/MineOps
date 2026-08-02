@@ -3,10 +3,10 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
-import { Plus, Search, Truck, X, Camera, Image as ImageIcon, Pencil, Trash2, Check, ExternalLink } from 'lucide-react'
+import { Plus, Truck, X, Camera, Image as ImageIcon, Pencil, Trash2 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useRouter } from 'next/navigation'
-import { Site, Vehicle, TransportContractor, Trip, Customer, TripPhoto } from '@/lib/supabase/types'
+import { Site, Vehicle, TransportContractor, Trip, Customer } from '@/lib/supabase/types'
 import { tripsRepository } from '@/lib/repositories/trips'
 import { getOfflineCache, setOfflineCache } from '@/lib/offline-cache'
 import {
@@ -32,6 +32,8 @@ import {
   getCachedSignedUrl,
   prepareUploadImages,
   setCachedSignedUrl,
+  signStoragePaths,
+  normalizeStoragePath,
 } from '@/lib/image-utils'
 import ContractorInput from '@/components/ContractorInput'
 import {
@@ -254,39 +256,36 @@ export default function TripsPage() {
     try {
       const offset = loadMore ? trips.length : 0
       const data = await tripsRepository.list(supabase, selectedSite, selectedDate, PAGE_LIMIT, offset)
-      
-      const tripsWithSignedUrls = await Promise.all(data.map(async (trip) => {
-        // Load all photos for this trip from trip_photos
-        const { data: photos } = await supabase
-          .from('trip_photos')
-          .select('photo_url')
-          .eq('trip_id', trip.id)
-          .order('sort_order')
 
-        const photoUrls = photos && photos.length > 0 ? photos.map(p => p.photo_url) : (trip.photo_url ? [trip.photo_url] : [])
-        // Only sign first photo for list view (faster); full set on edit
-        const listPaths = photoUrls.slice(0, 1)
-        const signedUrls = await Promise.all(listPaths.map(async (p) => {
-          let path = p
-          if (path.includes('trip-photos/')) {
-            path = path.split('trip-photos/').pop() || path
-          }
-          const cacheKey = `trip-photos:${path}`
-          const cached = getCachedSignedUrl(cacheKey)
-          if (cached) return cached
-          const { data: signed } = await supabase.storage
-            .from('trip-photos')
-            .createSignedUrl(path, 3600)
-          const url = signed?.signedUrl || null
-          if (url) setCachedSignedUrl(cacheKey, url)
-          return url
-        }))
+      const pathsToSign = data.map((trip) => {
+        const photoUrls =
+          trip.trip_photos && trip.trip_photos.length > 0
+            ? trip.trip_photos.map((p) => p.photo_url)
+            : trip.photo_url
+              ? [trip.photo_url]
+              : []
+        const first = photoUrls[0]
+        return first ? normalizeStoragePath(first, 'trip-photos') : null
+      }).filter(Boolean) as string[]
 
+      const signedMap = await signStoragePaths(supabase, 'trip-photos', pathsToSign)
+
+      const tripsWithSignedUrls = data.map((trip) => {
+        const photoUrls =
+          trip.trip_photos && trip.trip_photos.length > 0
+            ? trip.trip_photos.map((p) => p.photo_url)
+            : trip.photo_url
+              ? [trip.photo_url]
+              : []
+        const firstPath = photoUrls[0]
+          ? normalizeStoragePath(photoUrls[0], 'trip-photos')
+          : null
+        const signedUrl = firstPath ? signedMap.get(firstPath) ?? null : null
         return {
           ...trip,
-          signed_photo_urls: signedUrls.filter(Boolean) as string[]
+          signed_photo_urls: signedUrl ? [signedUrl] : [],
         }
-      }))
+      })
 
       const cacheKey = `trips_${selectedSite}_${selectedDate}`
       // Never persist signed photo URLs
@@ -421,7 +420,12 @@ export default function TripsPage() {
         trip.transport_contractors?.name ||
         contractorNameById(contractors, trip.contractor_id) ||
         '',
-      ownership: (trip.ownership_snapshot as any) || 'rented',
+      ownership:
+        trip.ownership_snapshot === 'lease' || trip.ownership_snapshot === 'leased'
+          ? 'rented'
+          : trip.ownership_snapshot === 'owned'
+            ? 'owned'
+            : 'rented',
       vehicle_type: (trip.vehicles?.vehicle_type as any) || '12WH',
       cubic_capacity: String(trip.cubic_capacity || ''),
       advance_amount: String(trip.advance_amount || '0'),
@@ -602,6 +606,12 @@ export default function TripsPage() {
     let vehicleId = form.vehicle_id
     const plate = vehicleSearch.toUpperCase().trim()
 
+    if (!plate) {
+      toast.error('Vehicle number is required')
+      setSubmitting(false)
+      return
+    }
+
     const buildPayload = (
       vId: string | null,
       photoPaths: string[],
@@ -616,6 +626,8 @@ export default function TripsPage() {
       const cap = parseFloat(form.cubic_capacity) || 0
       const calcWorth = rate != null && cap > 0 ? computeTripWorthFromRate(cap, rate) : null
       const enteredWorth = parseFloat(form.trip_worth) || null
+      const shipmentCost = parseFloat(form.total_shipment_cost) || null
+      const tripCost = shipmentCost ?? enteredWorth
       const rateSource =
         enteredWorth == null
           ? null
@@ -647,13 +659,13 @@ export default function TripsPage() {
         customer_id: form.customer_id || null,
         drop_location: form.drop_location || null,
         distance_km: distKm,
-        trip_worth: enteredWorth,
-        total_shipment_cost: parseFloat(form.total_shipment_cost) || null,
+        trip_worth: enteredWorth ?? shipmentCost,
+        total_shipment_cost: shipmentCost ?? enteredWorth,
         payment_status: form.payment_status,
         payment_method: form.payment_status === 'settled' ? form.payment_method : null,
         payment_reference: form.payment_status === 'settled' ? form.payment_reference : null,
         settled: form.payment_status === 'settled',
-        settlement_amount: form.payment_status === 'settled' ? (parseFloat(form.trip_worth) || 0) : 0,
+        settlement_amount: form.payment_status === 'settled' ? (tripCost || 0) : 0,
         settlement_account: form.payment_status === 'settled' ? (form.payment_reference || 'UPI/Cash') : null,
       }
     }
@@ -1022,8 +1034,8 @@ export default function TripsPage() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                     <span className="trip-vehicle" style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>{trip.vehicles?.plate_number || 'Unknown'}</span>
                     <span className="badge badge-amber" style={{ fontSize: '0.65rem' }}>{trip.vehicles?.vehicle_type}</span>
-                    <span className={`badge ${trip.ownership_snapshot === 'owned' ? 'badge-blue' : trip.ownership_snapshot === 'leased' ? 'badge-purple' : 'badge-gray'}`} style={{ fontSize: '0.65rem' }}>
-                      {trip.ownership_snapshot}
+                    <span className={`badge ${trip.ownership_snapshot === 'owned' ? 'badge-blue' : 'badge-gray'}`} style={{ fontSize: '0.65rem' }}>
+                      {trip.ownership_snapshot === 'lease' || trip.ownership_snapshot === 'leased' ? 'rented' : trip.ownership_snapshot}
                     </span>
                   </div>
                   <div className="trip-contractor" style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>

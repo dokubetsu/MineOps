@@ -23,7 +23,9 @@ import {
   getDefaultRatePerCubic,
   resolveRatePerCubic,
   VEHICLE_TYPES,
+  OWNERSHIP_TYPES,
 } from '../../src/lib/trip-constants'
+import { computeTripWorthFromRate } from '../../src/lib/calculations'
 
 /**
  * Phase 2 quality suite — pure unit cases (no browser).
@@ -128,6 +130,16 @@ test.describe('Phase 4 error + trip helpers', () => {
     const r3 = resolveTripRateForCustomer('12WH', null, [])
     expect(r3.rate).toBeNull()
     expect(r3.source).toBe('none')
+  })
+
+  test('trip total cost = customer rate × cubic capacity', () => {
+    expect(computeTripWorthFromRate(20, 1100)).toBe(22000)
+    expect(computeTripWorthFromRate(16, 800)).toBe(12800)
+  })
+
+  test('OWNERSHIP_TYPES matches DB vehicles CHECK', () => {
+    expect(OWNERSHIP_TYPES).toEqual(['rented', 'owned'])
+    expect(OWNERSHIP_TYPES).not.toContain('leased')
   })
 })
 

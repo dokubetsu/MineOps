@@ -25,6 +25,14 @@ import {
   groupTripsByTransport,
 } from '@/lib/report-stats'
 import { getDefaultTripRate, VEHICLE_TYPES } from '@/lib/trip-constants'
+import {
+  fetchReportTrips,
+  fetchReportTripCount,
+  fetchReportCashBooks,
+  fetchReportCashEntries,
+  fetchReportCashTotals,
+} from '@/lib/report-fetch'
+import { toErrorMessage } from '@/lib/errors'
 import toast from 'react-hot-toast'
 
 
@@ -211,105 +219,81 @@ export default function ReportsPage() {
       prevTo = prevFrom
     }
 
-    let tripsQuery = supabase
-      .from('trips')
-      .select('*, vehicles(plate_number, vehicle_type), transport_contractors(name)')
-      .gte('trip_date', from)
-      .lte('trip_date', to)
-      .eq('active', true)
-      .order('trip_date')
-      .limit(1000)
+    const siteFilter = selectedSite !== 'all' ? selectedSite : undefined
 
-    let booksQuery = supabase
-      .from('cash_books')
-      .select('*, cash_entries(*)')
-      .gte('book_date', from)
-      .lte('book_date', to)
-      .order('book_date')
-      .limit(1000)
+    try {
+      const [
+        tripsResult,
+        booksResult,
+        entriesResult,
+        prevTripsCount,
+        prevCashTotals,
+      ] = await Promise.all([
+        fetchReportTrips(supabase, from, to, siteFilter),
+        fetchReportCashBooks(supabase, from, to, siteFilter),
+        fetchReportCashEntries(supabase, from, to, siteFilter),
+        fetchReportTripCount(supabase, prevFrom, prevTo, siteFilter),
+        fetchReportCashTotals(supabase, prevFrom, prevTo, siteFilter),
+      ])
 
-    let prevTripsQuery = supabase
-      .from('trips')
-      .select('id')
-      .gte('trip_date', prevFrom)
-      .lte('trip_date', prevTo)
-      .eq('active', true)
-      .limit(1000)
+      const currentTrips = tripsResult.rows
+      setTrips((currentTrips as any) || [])
+      setCashBooks(booksResult.rows as any)
 
-    let prevBooksQuery = supabase
-      .from('cash_books')
-      .select('*, cash_entries(*)')
-      .gte('book_date', prevFrom)
-      .lte('book_date', prevTo)
-      .limit(1000)
+      const allEntries: ExtendedCashEntry[] = entriesResult.rows as ExtendedCashEntry[]
+      setCashEntries(allEntries)
 
-    if (selectedSite !== 'all') {
-      tripsQuery = tripsQuery.eq('site_id', selectedSite)
-      booksQuery = booksQuery.eq('site_id', selectedSite)
-      prevTripsQuery = prevTripsQuery.eq('site_id', selectedSite)
-      prevBooksQuery = prevBooksQuery.eq('site_id', selectedSite)
+      const truncated =
+        tripsResult.truncated ||
+        booksResult.truncated ||
+        entriesResult.truncated ||
+        prevCashTotals.truncated
+      setTripsTruncated(tripsResult.truncated)
+      setCashTruncated(booksResult.truncated || entriesResult.truncated)
+
+      const tripsDiff = currentTrips.length - prevTripsCount
+      const tripsDiffPct =
+        prevTripsCount > 0 ? (tripsDiff / prevTripsCount) * 100 : tripsDiff > 0 ? null : 0
+
+      const currentIn = allEntries
+        .filter((e) => e.entry_type === 'in')
+        .reduce((s, e) => s + Number(e.amount), 0)
+      const currentOut = allEntries
+        .filter((e) => e.entry_type === 'out')
+        .reduce((s, e) => s + Number(e.amount), 0)
+
+      const inDiff = currentIn - prevCashTotals.totalIn
+      const inDiffPct =
+        prevCashTotals.totalIn > 0 ? (inDiff / prevCashTotals.totalIn) * 100 : inDiff > 0 ? null : 0
+
+      const outDiff = currentOut - prevCashTotals.totalOut
+      const outDiffPct =
+        prevCashTotals.totalOut > 0
+          ? (outDiff / prevCashTotals.totalOut) * 100
+          : outDiff > 0
+            ? null
+            : 0
+
+      setComparison({
+        prevTripsCount,
+        tripsDiffPct,
+        prevTotalIn: prevCashTotals.totalIn,
+        inDiffPct,
+        prevTotalOut: prevCashTotals.totalOut,
+        outDiffPct,
+      })
+
+      if (truncated) {
+        toast(
+          'Large date range — some data may be capped at 50,000 rows per query. Narrow the range for complete month-end packs.',
+          { icon: '⚠️' }
+        )
+      }
+    } catch (err: unknown) {
+      toast.error(`Error loading report data: ${toErrorMessage(err)}`)
+    } finally {
+      setLoading(false)
     }
-
-    const [
-      { data: tripsData, error: tripsError },
-      { data: booksData, error: booksError },
-      { data: prevTripsData },
-      { data: prevBooksData }
-    ] = await Promise.all([
-      tripsQuery,
-      booksQuery,
-      prevTripsQuery,
-      prevBooksQuery
-    ])
-
-    if (tripsError) toast.error(`Error loading report trips: ${tripsError.message}`)
-    if (booksError) toast.error(`Error loading report cash books: ${booksError.message}`)
-
-    const currentTrips = tripsData || []
-    setTrips((currentTrips as any) || [])
-    setCashBooks(booksData || [])
-    
-    const allEntries: ExtendedCashEntry[] = (booksData || []).flatMap((b: any) =>
-      (b.cash_entries || [])
-        .filter((e: any) => e.active === true)
-        .map((e: any) => ({ ...e, book_date: b.book_date }))
-    )
-    setCashEntries(allEntries)
-
-    setTripsTruncated(currentTrips.length === 1000)
-    setCashTruncated((booksData || []).length === 1000 || allEntries.length >= 1000)
-
-    // MoM variance math
-    const prevTripsCount = prevTripsData?.length || 0
-    const tripsDiff = currentTrips.length - prevTripsCount
-    const tripsDiffPct = prevTripsCount > 0 ? (tripsDiff / prevTripsCount) * 100 : (tripsDiff > 0 ? null : 0)
-
-    const currentIn = allEntries.filter(e => e.entry_type === 'in').reduce((s, e) => s + e.amount, 0)
-    const currentOut = allEntries.filter(e => e.entry_type === 'out').reduce((s, e) => s + e.amount, 0)
-
-    const prevEntries = (prevBooksData || []).flatMap((b: any) =>
-      (b.cash_entries || [])
-        .filter((e: any) => e.active === true)
-    )
-    const prevTotalIn = prevEntries.filter((e: any) => e.entry_type === 'in').reduce((s: number, e: any) => s + e.amount, 0)
-    const prevTotalOut = prevEntries.filter((e: any) => e.entry_type === 'out').reduce((s: number, e: any) => s + e.amount, 0)
-
-    const inDiff = currentIn - prevTotalIn
-    const inDiffPct = prevTotalIn > 0 ? (inDiff / prevTotalIn) * 100 : (inDiff > 0 ? null : 0)
-
-    const outDiff = currentOut - prevTotalOut
-    const outDiffPct = prevTotalOut > 0 ? (outDiff / prevTotalOut) * 100 : (outDiff > 0 ? null : 0)
-
-    setComparison({
-      prevTripsCount,
-      tripsDiffPct,
-      prevTotalIn,
-      inDiffPct,
-      prevTotalOut,
-      outDiffPct,
-    })
-
-    setLoading(false)
   }
 
   // Sanitizes against CSV formula injection (prevents starting with =, +, -, @)
@@ -518,10 +502,9 @@ export default function ReportsPage() {
   }
 
   const exportMonthEndPack = () => {
-    // Refuse incomplete Excel-replacement packs (hard 1000-row fetch ceiling)
     if (tripsTruncated || cashTruncated) {
       toast.error(
-        'Report data is truncated (1000-row limit). Narrow the date range or site before downloading the month-end pack.'
+        'Report data is truncated (50,000-row safety cap). Narrow the date range or site before downloading the month-end pack.'
       )
       return
     }
@@ -797,7 +780,7 @@ export default function ReportsPage() {
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <span style={{ fontSize: '1.2rem' }}>⚠️</span>
             <div style={{ fontSize: '0.8rem', color: 'var(--warning)', fontWeight: 500 }}>
-              Report data limit reached (1000 rows). Some records may not be visible. Please narrow down the date period/filter.
+              Report data limit reached (50,000 rows per query). Some records may not be visible — narrow the date range or site filter.
             </div>
           </div>
         </div>
@@ -928,7 +911,7 @@ export default function ReportsPage() {
             disabled={loading || tripsTruncated || cashTruncated}
             title={
               tripsTruncated || cashTruncated
-                ? 'Narrow date/site — data hit 1000-row limit'
+                ? 'Narrow date/site — data hit 50,000-row safety cap'
                 : 'Download 6 CSV files for month-end archive'
             }
           >

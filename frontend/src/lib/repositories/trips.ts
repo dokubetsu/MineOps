@@ -47,19 +47,14 @@ async function syncAdvanceFromTrip(
   trip: TripRow,
   vehiclePlate?: string | null
 ): Promise<void> {
-  try {
-    await cashBookRepository.syncTripAdvance(supabase, {
-      siteId: trip.site_id,
-      bookDate: String(trip.trip_date).slice(0, 10),
-      tripId: trip.id,
-      amount: trip.advance_amount,
-      contractorId: trip.contractor_id,
-      vehiclePlate: vehiclePlate ?? null,
-    })
-  } catch (err) {
-    // Feature gate / RLS / locked book — keep trip; cash can be fixed later
-    console.warn('[trips] advance → cash sync failed', err)
-  }
+  await cashBookRepository.syncTripAdvance(supabase, {
+    siteId: trip.site_id,
+    bookDate: String(trip.trip_date).slice(0, 10),
+    tripId: trip.id,
+    amount: trip.advance_amount,
+    contractorId: trip.contractor_id,
+    vehiclePlate: vehiclePlate ?? null,
+  })
 }
 
 export const tripsRepository = {
@@ -140,14 +135,14 @@ export const tripsRepository = {
 
     if (payload.trip_worth != null && !Number.isNaN(Number(payload.trip_worth))) {
       patch.trip_worth = computeTripWorth({ tripWorth: payload.trip_worth })
+      if (payload.total_shipment_cost === undefined) {
+        patch.total_shipment_cost = patch.trip_worth
+      }
     }
-    // Do not invent trip_worth from rate_per_cubic
     if (payload.total_shipment_cost != null) {
       patch.total_shipment_cost = roundMoney(Number(payload.total_shipment_cost))
-    } else if (patch.trip_worth != null && payload.trip_worth != null) {
-      // only auto-fill shipment when caller sent trip_worth and left shipment unset
-      if (payload.total_shipment_cost === undefined) {
-        // leave shipment as-is unless trip_worth was the only cost field
+      if (payload.trip_worth === undefined) {
+        patch.trip_worth = patch.total_shipment_cost
       }
     }
     if (payload.rate_per_cubic != null) {

@@ -71,20 +71,17 @@ wage = monthly_rate × max(0, 1 − (absent + half_day × 0.5) / period_calendar
 - Finalize is atomic (`finalize_payroll_run`); **requires ≥1 payroll line** (Phase 1 / **048**); lines cannot be edited after finalize.
 - After finalize, **attendance INSERT/UPDATE/DELETE** for dates in that month at the same site is blocked (muster freeze, **048**).
 
-## Trip worth / trip cost (field reference model)
-
-Source: paper ops in local `reference/` (untracked scans: daily trip sheets, weekly/monthly counts, May–June business report).
+## Trip worth / trip cost
 
 | Rule | Detail |
 |------|--------|
-| **Price unit** | **Flat ₹ per trip** set by **admin** after discussion with the customer |
-| **Who sets price** | Admin → Settings **Customers** (per-type / default) and **Org rates**. Site employees **cannot** invent prices when a rate exists (field is locked to MDM rate) |
-| **Resolution order** | 1) Customer type rate 2) Customer default rate 3) Org type rate 4) none → employee may type amount only if no rate |
-| **Not used in price** | Distance (km), cubic capacity (m³), drop location, app hard-coded defaults |
-| **Org rate UI** | Blank until admin types negotiated ₹; optional “Load example seeds” for paper-style starters (not auto-saved) |
-| **Employee ops** | My Work: plate, load, photos/proof, advance, drop, settle; price comes from admin rates |
+| **Total cost formula** | **`total_shipment_cost` = customer rate × cubic capacity (m³)**. Customer rate is ₹/m³ from Settings → Customers (per vehicle type or default) or org negotiated rates |
+| **Resolution order** | 1) Customer `trip_rates[vehicleType]` 2) Customer `default_trip_rate` 3) Org `negotiated_rates.rate_per_cubic` 4) none → employee may enter cost manually |
+| **Reporting-only fields** | Distance (km), distance cost (₹/km), drop location, permit, load info — captured for ops reports but **not** added into trip total cost |
+| **Who sets rates** | Admin → Settings **Customers** and **Org rates**. Site employees cannot override when a rate exists |
+| **Employee ops** | My Work: plate, capacity, photos, advance, drop, settle; cost auto-calculated from rate × CC |
 | **Advance** | Separate field; **not** added into trip cost. When &gt; 0, cash book **OUT** **Advance for trip** |
-| **Reporting** | Actual `trip_worth` only (no invented defaults). Month-end CSV pack; refuse download if 1000-row truncated |
+| **Reporting** | Actual `trip_worth` / `total_shipment_cost` only (no invented defaults). Month-end CSV pack; refuse download if 50,000-row safety cap is hit |
 | **Month-end** | Reports pack → payroll finalize → optional audit “close” → optional soft purge (blocked if finalized payroll) |
 
 ### Settlement (Phase 1)

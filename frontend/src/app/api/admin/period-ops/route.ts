@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { cashBookRepository } from '@/lib/repositories/cash-book'
 
 /**
  * POST /api/admin/period-ops
@@ -129,6 +130,35 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'purge') {
+    // Zero trip advances before soft-delete so cash book stays consistent
+    const { data: tripsBeforePurge, error: tripsLoadErr } = await supabase
+      .from('trips')
+      .select('id, site_id, trip_date, advance_amount')
+      .eq('site_id', site_id)
+      .eq('organization_id', organizationId)
+      .gte('trip_date', from_date)
+      .lte('trip_date', to_date)
+      .eq('active', true)
+
+    if (tripsLoadErr) {
+      return NextResponse.json({ error: `Trips load: ${tripsLoadErr.message}` }, { status: 500 })
+    }
+
+    for (const trip of tripsBeforePurge || []) {
+      if (Number(trip.advance_amount) > 0) {
+        try {
+          await cashBookRepository.syncTripAdvance(supabase, {
+            siteId: trip.site_id,
+            bookDate: String(trip.trip_date).slice(0, 10),
+            tripId: trip.id,
+            amount: 0,
+          })
+        } catch (err) {
+          console.warn('[period-ops] advance cleanup for trip', trip.id, err)
+        }
+      }
+    }
+
     // Soft-delete trips
     const { data: tripsUp, error: tripsErr } = await supabase
       .from('trips')

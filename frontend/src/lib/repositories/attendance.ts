@@ -1,6 +1,7 @@
 import { SupabaseClient } from '@supabase/supabase-js'
 import { Database } from '../supabase/database.types'
 import { Employee } from '../supabase/types'
+import { signStoragePaths, normalizeStoragePath } from '../image-utils'
 
 export type AttendanceStatus = 'present' | 'absent' | 'half-day' | 'leave'
 
@@ -115,31 +116,38 @@ export const attendanceRepository = {
 
     const attMap = Object.fromEntries((att || []).map((a) => [a.employee_id, a]))
 
-    const rosterData = await Promise.all(
-      (employees || []).map(async (emp) => {
-        const dbRecord = attMap[emp.id]
-        let displayPhotoUrl: string | null = null
-        if (dbRecord?.photo_url) {
-          let path = dbRecord.photo_url
-          if (path.includes('attendance-photos/')) {
-            path = path.split('attendance-photos/').pop() || path
-          }
-          const { data: signedData } = await supabase.storage
-            .from('attendance-photos')
-            .createSignedUrl(path, 3600)
-          displayPhotoUrl = signedData?.signedUrl || null
-        }
-
-        return {
-          ...emp,
-          att_id: dbRecord?.id || null,
-          status: normalizeStatus(dbRecord?.status),
-          photo_url: dbRecord?.photo_url || null,
-          display_photo_url: displayPhotoUrl,
-          uploading: false,
-        } as RosterEmployee
-      })
+    const photoPaths: { empId: string; path: string }[] = []
+    for (const emp of employees || []) {
+      const dbRecord = attMap[emp.id]
+      if (dbRecord?.photo_url) {
+        photoPaths.push({
+          empId: emp.id,
+          path: normalizeStoragePath(dbRecord.photo_url, 'attendance-photos'),
+        })
+      }
+    }
+    const signedMap = await signStoragePaths(
+      supabase,
+      'attendance-photos',
+      photoPaths.map((p) => p.path)
     )
+
+    const rosterData = (employees || []).map((emp) => {
+      const dbRecord = attMap[emp.id]
+      const normalized = dbRecord?.photo_url
+        ? normalizeStoragePath(dbRecord.photo_url, 'attendance-photos')
+        : null
+      const displayPhotoUrl = normalized ? signedMap.get(normalized) ?? null : null
+
+      return {
+        ...emp,
+        att_id: dbRecord?.id || null,
+        status: normalizeStatus(dbRecord?.status),
+        photo_url: dbRecord?.photo_url || null,
+        display_photo_url: displayPhotoUrl,
+        uploading: false,
+      } as RosterEmployee
+    })
 
     return rosterData
   },

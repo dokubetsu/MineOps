@@ -484,6 +484,18 @@ function EmployeePage() {
           : null
     const ownership = tripForm.ownership === 'lease' ? 'rented' : tripForm.ownership
 
+    if (!upperPlate) {
+      toast.error('Vehicle number is required')
+      setSubmittingTrip(false)
+      return
+    }
+
+    if (tripForm.settled && !(worth != null && worth > 0)) {
+      toast.error('Settled trips require a trip cost greater than zero')
+      setSubmittingTrip(false)
+      return
+    }
+
     let contractorId: string | null = null
     if (isBrowserOnline()) {
       try {
@@ -533,11 +545,12 @@ function EmployeePage() {
       permit_number: tripForm.permit_number || null,
       notes: tripForm.notes || null,
       created_by: user.id,
-      ownership_snapshot: tripForm.ownership,
+      ownership_snapshot: ownership,
       settled: tripForm.settled,
       payment_status: tripForm.settled ? 'settled' : 'pending',
       payment_method: tripForm.settled ? tripForm.settlement_method : null,
       payment_reference: tripForm.settled ? tripForm.settlement_ref : null,
+      settlement_amount: tripForm.settled && worth != null ? worth : undefined,
       _vehicle_plate: upperPlate || null,
     }
 
@@ -721,7 +734,9 @@ function EmployeePage() {
       vehicle_plate: trip.vehicles?.plate_number || '',
       vehicle_type: trip.vehicles?.vehicle_type || '12WH',
       cubic_capacity: String(trip.cubic_capacity || ''),
-      ownership: trip.ownership_snapshot || 'rented',
+      ownership: trip.ownership_snapshot === 'lease' || trip.ownership_snapshot === 'leased'
+        ? 'rented'
+        : (trip.ownership_snapshot === 'owned' ? 'owned' : 'rented'),
       contractor_name:
         trip.transport_contractors?.name ||
         contractorNameById(contractors, trip.contractor_id) ||
@@ -776,6 +791,11 @@ function EmployeePage() {
       return
     }
 
+    const editOwnership =
+      editForm.ownership === 'lease' || editForm.ownership === 'leased'
+        ? 'rented'
+        : editForm.ownership
+
     const buildEditPatch = (
       vehicleId: string | null,
       photoUrls: string[],
@@ -793,7 +813,7 @@ function EmployeePage() {
       total_shipment_cost: worth,
       trip_worth: worth,
       notes: editForm.notes || null,
-      ownership_snapshot: editForm.ownership,
+      ownership_snapshot: editOwnership,
       settled: editForm.settled,
       settlement_method: editForm.settled ? editForm.settlement_method : null,
       settlement_ref: editForm.settled ? editForm.settlement_ref : null,
@@ -1256,7 +1276,6 @@ function EmployeePage() {
                 onChange={e => setTripForm(f => ({ ...f, ownership: e.target.value }))}>
                 <option value="rented">Rented</option>
                 <option value="owned">Owned</option>
-                <option value="lease">Leased</option>
               </select>
             </div>
             <ContractorInput
@@ -1459,7 +1478,6 @@ function EmployeePage() {
                 onChange={e => setEditForm(f => ({ ...f, ownership: e.target.value }))}>
                 <option value="rented">Rented</option>
                 <option value="owned">Owned</option>
-                <option value="lease">Leased</option>
               </select>
             </div>
             <ContractorInput
