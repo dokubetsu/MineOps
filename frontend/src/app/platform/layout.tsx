@@ -103,11 +103,17 @@ function PlatformShell({ children }: { children: React.ReactNode }) {
     <div className="app-shell">
       <nav className="sidebar">
         <div className="sidebar-logo">
-          <img
-            src="/logo.png"
-            alt="Khani ERP"
-            style={{ height: '38px', width: 'auto', objectFit: 'contain' }}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <img
+              src="/logo-icon.png"
+              alt="Khani"
+              style={{ height: '40px', width: '40px', objectFit: 'cover', borderRadius: '10px', flexShrink: 0 }}
+            />
+            <div>
+              <div className="sidebar-logo-text">Khani</div>
+              <div className="sidebar-logo-sub">Platform Console</div>
+            </div>
+          </div>
         </div>
         <div className="sidebar-nav">
           <span className="sidebar-section-label">Control plane</span>

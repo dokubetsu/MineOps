@@ -119,11 +119,17 @@ function NavContent() {
       {/* Desktop Sidebar */}
       <nav className="sidebar">
         <div className="sidebar-logo">
-          <img
-            src="/logo.png"
-            alt="Khani ERP"
-            style={{ height: '38px', width: 'auto', objectFit: 'contain' }}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <img
+              src="/logo-icon.png"
+              alt="Khani"
+              style={{ height: '40px', width: '40px', objectFit: 'cover', borderRadius: '10px', flexShrink: 0 }}
+            />
+            <div>
+              <div className="sidebar-logo-text">Khani</div>
+              <div className="sidebar-logo-sub">ERP Platform</div>
+            </div>
+          </div>
         </div>
 
         <div className="sidebar-nav">
@@ -230,7 +236,8 @@ function NavContent() {
       {/* Mobile Header */}
       <header className="mobile-header">
         <div className="mobile-header-brand">
-          <img src="/logo.png" alt="Khani" style={{ height: '28px', width: 'auto', objectFit: 'contain' }} />
+          <img src="/logo-icon.png" alt="Khani" style={{ height: '30px', width: '30px', borderRadius: '8px', objectFit: 'cover' }} />
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--accent)', fontSize: '0.95rem' }}>Khani</span>
         </div>
         <div className="mobile-header-actions">
           {assignedSiteName && (

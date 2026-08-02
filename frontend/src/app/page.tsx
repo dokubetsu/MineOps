@@ -145,11 +145,21 @@ export default function LoginPage() {
       <div style={{ width: '100%', maxWidth: '380px', position: 'relative' }}>
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <img
-            src="/logo.png"
-            alt="Khani ERP"
-            style={{ height: '64px', width: 'auto', objectFit: 'contain', margin: '0 auto 0.75rem', display: 'block' }}
-          />
+          <div style={{
+            display: 'inline-block',
+            background: '#ffffff',
+            borderRadius: '16px',
+            padding: '0.75rem 1.5rem',
+            border: '1px solid var(--border)',
+            boxShadow: '0 4px 20px rgba(0,0,0,0.07)',
+            marginBottom: '0.75rem',
+          }}>
+            <img
+              src="/logo.png"
+              alt="Khani ERP"
+              style={{ height: '52px', width: 'auto', objectFit: 'contain', display: 'block' }}
+            />
+          </div>
           <p style={{
             fontSize: '0.875rem',
             color: 'var(--text-muted)',
