@@ -119,13 +119,11 @@ function NavContent() {
       {/* Desktop Sidebar */}
       <nav className="sidebar">
         <div className="sidebar-logo">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem' }}>
-            <span style={{ fontSize: '1.5rem' }}>⛏️</span>
-            <div>
-              <div className="sidebar-logo-text">Khani</div>
-              <div className="sidebar-logo-sub">Logistics Platform</div>
-            </div>
-          </div>
+          <img
+            src="/logo.png"
+            alt="Khani ERP"
+            style={{ height: '38px', width: 'auto', objectFit: 'contain' }}
+          />
         </div>
 
         <div className="sidebar-nav">
@@ -134,8 +132,8 @@ function NavContent() {
               margin: '0.5rem 0.75rem 1rem',
               padding: '0.75rem',
               borderRadius: 'var(--radius)',
-              background: 'rgba(245,158,11,0.1)',
-              border: '1px solid rgba(245,158,11,0.3)',
+              background: 'var(--accent-muted)',
+              border: '1px solid var(--accent-glow)',
               fontSize: '0.75rem',
               color: 'var(--text-secondary)',
               lineHeight: 1.4,
@@ -232,17 +230,14 @@ function NavContent() {
       {/* Mobile Header */}
       <header className="mobile-header">
         <div className="mobile-header-brand">
-          <span style={{ fontSize: '1.15rem' }} aria-hidden>⛏️</span>
-          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--accent)', fontSize: '0.95rem' }}>
-            Khani
-          </span>
+          <img src="/logo.png" alt="Khani" style={{ height: '28px', width: 'auto', objectFit: 'contain' }} />
         </div>
         <div className="mobile-header-actions">
           {assignedSiteName && (
             <span
               className="mobile-role-badge"
               style={{
-                background: 'rgba(245,158,11,0.12)',
+                background: 'var(--accent-muted)',
                 color: 'var(--accent)',
                 maxWidth: '9rem',
                 overflow: 'hidden',

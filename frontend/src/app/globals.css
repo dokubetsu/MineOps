@@ -2,8 +2,8 @@
    that broke offline PWA / Workbox under CSP connect-src). */
 
 /* =====================================================
-   MINE LOGISTICS DESIGN SYSTEM
-   Dark industrial theme with amber/orange accents
+   KHANI ERP DESIGN SYSTEM
+   Dark teal + copper gem palette (matches Khani logo)
    ===================================================== */
 
 :root {
@@ -16,19 +16,21 @@
   --border: #cbd5e1;
   --border-subtle: #cbd5e1;
 
-  /* Accent - Amber/Orange (mine equipment colors) */
-  --accent: #f59e0b;
-  --accent-bright: #fbbf24;
-  --accent-dim: #d97706;
-  --accent-muted: rgba(245, 158, 11, 0.08);
-  --accent-glow: rgba(245, 158, 11, 0.15);
+  /* Accent - Teal (Khani K letterform) + Copper gem */
+  --accent: #2a7d87;
+  --accent-bright: #35969f;
+  --accent-dim: #1f5f68;
+  --accent-muted: rgba(42, 125, 135, 0.09);
+  --accent-glow: rgba(42, 125, 135, 0.18);
+  --gem: #c87941;
+  --gem-muted: rgba(200, 121, 65, 0.12);
 
   /* Status Colors */
   --success: #10b981;
   --success-muted: rgba(16, 185, 129, 0.08);
   --danger: #ef4444;
   --danger-muted: rgba(239, 68, 68, 0.08);
-  --warning: #f59e0b;
+  --warning: #d97706;
   --info: #3b82f6;
   --info-muted: rgba(59, 130, 246, 0.08);
 
@@ -59,7 +61,7 @@
   --bottom-nav-height: 56px;
 
   /* Background Gradient */
-  --bg-gradient: radial-gradient(ellipse at top, #fef3c7 0%, #f8fafc 60%);
+  --bg-gradient: radial-gradient(ellipse at top, #e6f4f5 0%, #f8fafc 60%);
 }
 
 [data-theme="dark"] {
@@ -71,8 +73,10 @@
   --border: #252a3a;
   --border-subtle: #1a1f2e;
 
-  --accent-muted: rgba(245, 158, 11, 0.12);
-  --accent-glow: rgba(245, 158, 11, 0.25);
+  --accent-muted: rgba(42, 125, 135, 0.14);
+  --accent-glow: rgba(42, 125, 135, 0.28);
+  --gem: #d4895a;
+  --gem-muted: rgba(212, 137, 90, 0.15);
 
   --success-muted: rgba(16, 185, 129, 0.12);
   --danger-muted: rgba(239, 68, 68, 0.12);
@@ -86,7 +90,7 @@
   --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4);
   --shadow-elevated: 0 8px 40px rgba(0, 0, 0, 0.6);
 
-  --bg-gradient: radial-gradient(ellipse at top, #1a1200 0%, #0a0b0f 60%);
+  --bg-gradient: radial-gradient(ellipse at top, #091518 0%, #0a0b0f 60%);
 }
 
 /* =====================================================

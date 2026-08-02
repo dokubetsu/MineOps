@@ -145,30 +145,16 @@ export default function LoginPage() {
       <div style={{ width: '100%', maxWidth: '380px', position: 'relative' }}>
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-          <div style={{
-            width: '64px',
-            height: '64px',
-            background: 'var(--accent-muted)',
-            border: '2px solid var(--accent)',
-            borderRadius: '16px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 1rem',
-            fontSize: '1.75rem',
-          }}>⛏️</div>
-          <h1 style={{
-            fontFamily: 'var(--font-display)',
-            fontSize: '1.75rem',
-            fontWeight: 800,
-            color: 'var(--accent)',
-            letterSpacing: '-0.03em',
-          }}>Khani</h1>
+          <img
+            src="/logo.png"
+            alt="Khani ERP"
+            style={{ height: '64px', width: 'auto', objectFit: 'contain', margin: '0 auto 0.75rem', display: 'block' }}
+          />
           <p style={{
             fontSize: '0.875rem',
             color: 'var(--text-muted)',
-            marginTop: '0.375rem',
-          }}>Mine Logistics & Workforce Management</p>
+            marginTop: '0.25rem',
+          }}>Mine Logistics &amp; Workforce Management</p>
         </div>
 
         {/* Card */}
