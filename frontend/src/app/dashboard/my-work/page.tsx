@@ -91,6 +91,7 @@ function EmployeePage() {
     customer_id: '',
     drop_location: '',
     distance_km: '',
+    distance_cost: '',
     total_shipment_cost: '',
     notes: '',
     settled: false,
@@ -134,6 +135,7 @@ function EmployeePage() {
     customer_id: '',
     drop_location: '',
     distance_km: '',
+    distance_cost: '',
     total_shipment_cost: '',
     notes: '',
     settled: false,
@@ -510,7 +512,8 @@ function EmployeePage() {
 
     const distKm = parseFloat(tripForm.distance_km) || null
     const distRate = resolveDistanceRate(tripForm.vehicle_type, negotiatedRates)
-    const distCost = computeDistanceCost(distKm, distRate)
+    const distCost =
+      parseFloat(tripForm.distance_cost) || computeDistanceCost(distKm, distRate)
 
     const tripBase = {
       site_id: employee.site_id,
@@ -1290,21 +1293,44 @@ function EmployeePage() {
           <div className="grid-2">
             <div className="form-group">
               <label className="form-label">Distance (KM)</label>
-              <input className="form-input" type="number" placeholder="45"
-                value={tripForm.distance_km} onChange={e => setTripForm(f => ({ ...f, distance_km: e.target.value }))} />
-              {(() => {
-                const dist = parseFloat(tripForm.distance_km)
-                const kmRate = resolveDistanceRate(tripForm.vehicle_type, negotiatedRates)
-                if (dist > 0 && kmRate && kmRate > 0) {
-                  return (
-                    <div style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '0.25rem' }}>
-                      Distance value: ₹{kmRate}/km × {dist} km = <strong>₹{roundMoney(dist * kmRate).toLocaleString('en-IN')}</strong>
-                    </div>
-                  )
-                }
-                return null
-              })()}
+              <input
+                className="form-input"
+                type="number"
+                placeholder="45"
+                value={tripForm.distance_km}
+                onChange={(e) => {
+                  const distVal = e.target.value
+                  setTripForm((f) => {
+                    const dist = parseFloat(distVal)
+                    const kmRate = resolveDistanceRate(f.vehicle_type, negotiatedRates)
+                    let autoCost = f.distance_cost
+                    if (dist > 0 && kmRate && kmRate > 0) {
+                      autoCost = String(roundMoney(dist * kmRate))
+                    }
+                    return { ...f, distance_km: distVal, distance_cost: autoCost }
+                  })
+                }}
+              />
             </div>
+            <div className="form-group">
+              <label className="form-label">Distance Cost (₹)</label>
+              <input
+                className="form-input"
+                type="number"
+                placeholder="Auto: distance × ₹/km rate"
+                value={tripForm.distance_cost}
+                onChange={(e) => setTripForm((f) => ({ ...f, distance_cost: e.target.value }))}
+              />
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                {(() => {
+                  const kmRate = resolveDistanceRate(tripForm.vehicle_type, negotiatedRates)
+                  return kmRate && kmRate > 0
+                    ? `Rate for ${tripForm.vehicle_type}: ₹${kmRate}/km`
+                    : 'Set rate in Settings → Org rates'
+                })()}
+              </span>
+            </div>
+          </div>
             <div className="form-group">
               <label className="form-label">Advance Amount Paid (₹)</label>
               <input className="form-input" type="number" placeholder="1000"

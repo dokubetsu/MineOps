@@ -99,6 +99,7 @@ export default function TripsPage() {
     customer_id: '',
     drop_location: '',
     distance_km: '',
+    distance_cost: '',
     trip_worth: '',
     total_shipment_cost: '',
     payment_status: 'pending',
@@ -340,11 +341,20 @@ export default function TripsPage() {
   }
 
   const handleVehicleTypeChange = (type: '12WH' | '10WH' | '6WH' | 'Other') => {
-    setForm((f) => ({
-      ...f,
-      vehicle_type: type,
-      cubic_capacity: getCapacityForType(type),
-    }))
+    setForm((f) => {
+      const dist = parseFloat(f.distance_km)
+      const kmRate = resolveDistanceRate(type, rates)
+      let autoCost = f.distance_cost
+      if (dist > 0 && kmRate && kmRate > 0) {
+        autoCost = String(roundMoney(dist * kmRate))
+      }
+      return {
+        ...f,
+        vehicle_type: type,
+        cubic_capacity: getCapacityForType(type),
+        distance_cost: autoCost,
+      }
+    })
   }
 
   const handlePhotosSelect = async (
@@ -418,6 +428,7 @@ export default function TripsPage() {
       customer_id: trip.customer_id || '',
       drop_location: trip.drop_location || '',
       distance_km: String(trip.distance_km || ''),
+      distance_cost: String(trip.distance_cost || ''),
       trip_worth: String(trip.trip_worth || ''),
       total_shipment_cost: String(trip.total_shipment_cost || ''),
       payment_status: trip.payment_status || 'pending',
@@ -614,7 +625,8 @@ export default function TripsPage() {
 
       const distKm = parseFloat(form.distance_km) || null
       const distRate = resolveDistanceRate(form.vehicle_type, rates)
-      const distCost = computeDistanceCost(distKm, distRate)
+      const distCost =
+        parseFloat(form.distance_cost) || computeDistanceCost(distKm, distRate)
 
       return {
         site_id: selectedSite,
@@ -652,7 +664,7 @@ export default function TripsPage() {
       setForm({
         vehicle_id: '', plate_number: '', contractor_name: form.contractor_name,
         ownership: form.ownership, vehicle_type: form.vehicle_type, cubic_capacity: '',
-        advance_amount: '0', customer_id: '', drop_location: '', distance_km: '',
+        advance_amount: '0', customer_id: '', drop_location: '', distance_km: '', distance_cost: '',
         trip_worth: '', total_shipment_cost: '', payment_status: 'pending',
         payment_method: 'cash', payment_reference: '', permit_number: '', load_info: '', notes: ''
       })
@@ -1216,22 +1228,46 @@ export default function TripsPage() {
           <div className="grid-2">
             <div className="form-group">
               <label className="form-label">Distance (KM)</label>
-              <input className="form-input" type="number" step="any" value={form.distance_km}
-                onChange={e => setForm(f => ({ ...f, distance_km: e.target.value }))}
-                placeholder="e.g. 45" />
-              {(() => {
-                const dist = parseFloat(form.distance_km)
-                const kmRate = resolveDistanceRate(form.vehicle_type, rates)
-                if (dist > 0 && kmRate && kmRate > 0) {
-                  return (
-                    <div style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '0.25rem' }}>
-                      Distance value: ₹{kmRate}/km × {dist} km = <strong>₹{roundMoney(dist * kmRate).toLocaleString('en-IN')}</strong>
-                    </div>
-                  )
-                }
-                return null
-              })()}
+              <input
+                className="form-input"
+                type="number"
+                step="any"
+                value={form.distance_km}
+                onChange={(e) => {
+                  const distVal = e.target.value
+                  setForm((f) => {
+                    const dist = parseFloat(distVal)
+                    const kmRate = resolveDistanceRate(f.vehicle_type, rates)
+                    let autoCost = f.distance_cost
+                    if (dist > 0 && kmRate && kmRate > 0) {
+                      autoCost = String(roundMoney(dist * kmRate))
+                    }
+                    return { ...f, distance_km: distVal, distance_cost: autoCost }
+                  })
+                }}
+                placeholder="e.g. 45"
+              />
             </div>
+            <div className="form-group">
+              <label className="form-label">Distance Cost (₹)</label>
+              <input
+                className="form-input"
+                type="number"
+                step="any"
+                value={form.distance_cost}
+                onChange={(e) => setForm((f) => ({ ...f, distance_cost: e.target.value }))}
+                placeholder="Auto: distance × ₹/km rate"
+              />
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                {(() => {
+                  const kmRate = resolveDistanceRate(form.vehicle_type, rates)
+                  return kmRate && kmRate > 0
+                    ? `Rate for ${form.vehicle_type}: ₹${kmRate}/km`
+                    : 'Set rate in Settings → Org rates'
+                })()}
+              </span>
+            </div>
+          </div>
             <div className="form-group">
               <label className="form-label">Trip cost (₹)</label>
               <input
