@@ -4,7 +4,7 @@
 
 | Priority | Artifact | Role |
 |----------|----------|------|
-| **1** | `supabase/migrations/*.sql` | **Source of truth** for production schema. Apply with `supabase db push` / CI. Currently through **`066_unload_site_scope_no_restamp.sql`**. |
+| **1** | `supabase/migrations/*.sql` | **Source of truth** for production schema. Apply with `supabase db push` / CI. Currently through **`067_unload_clerk_multi_loading_sites.sql`**. |
 | **2** | Live Supabase project after push | Runtime truth |
 | **3** | `frontend/src/lib/supabase/database.types.ts` | TypeScript client types — **must track migrations** |
 | **4** | `supabase/schema.sql` | **Reference dump only — intentionally lagging.** Do **not** apply as a full replace on prod. Prefer regenerating after a full local `db reset` if you want a snapshot. |

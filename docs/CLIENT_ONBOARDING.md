@@ -20,7 +20,9 @@ Short talking points for the mine admin / ops lead. Full rules: `docs/wage_polic
 
 ## Unload clerk
 
-- New role assigned to a site: open **Unload**, record received qty + notes. Admin can do the same.
+- Assign **one or more loading (origin) sites**. The clerk sees trips loaded from those sites and documents unload at **any destination**.
+- They do **not** settle and do **not** see billing when admin-only is on.
+- Open **Unload**, record received qty + notes. Admin can do the same / correct.
 
 ## Two share models (do not mix)
 

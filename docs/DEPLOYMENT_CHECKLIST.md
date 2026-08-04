@@ -6,7 +6,7 @@ Use this before every production deploy. Order matters.
 
 Remote Supabase must include **all** migrations through the latest file in `supabase/migrations/`.
 
-As of this document that is **`066_unload_site_scope_no_restamp.sql`** (and everything before it).
+As of this document that is **`067_unload_clerk_multi_loading_sites.sql`** (and everything before it).
 **057** lets site employees read their assigned site (fixes “Unassigned” on My Work).
 **061** adds distance rates (`rate_per_km`, `distance_cost`) for reporting.
 **062** forces MDM trip cost = rate × CC, blocks employee rate overrides, and lets service_role purge locked cash books.
@@ -14,6 +14,7 @@ As of this document that is **`066_unload_site_scope_no_restamp.sql`** (and ever
 **064** offline outbox idempotency (`client_id` on trips/cash) + `dashboard_trip_day_rollup` RPC.
 **065** org trip-ops policies (billing/settlement admin-only, quantity unit), `unload_clerk`, unload documentation RPC.
 **066** unload clerk site-scoped + no re-stamp (admin may correct).
+**067** unload clerk may be assigned multiple **loading** sites.
 After schema changes, regenerate or hand-update `frontend/src/lib/supabase/database.types.ts` — see `docs/SCHEMA_SSOT.md` (`npm run gen:types` when CLI is available).
 
 ```bash
@@ -70,7 +71,7 @@ Alternative: Supabase Auth create user + SQL
 
 ## 6. Smoke test after deploy
 
-- [ ] Migrations list complete through **066** (and types/docs per `SCHEMA_SSOT.md`)  
+- [ ] Migrations list complete through **067** (and types/docs per `SCHEMA_SSOT.md`)  
 - [ ] Reports: paper pack CSV + admin period close/purge (confirm DELETE; no purge over finalized payroll)  
 - [ ] Deactivated org: dashboard blocked **and** `/api/admin/*` returns 403  
 - [ ] Trip cost: MDM rate × CC on create **and** edit (My Work)  

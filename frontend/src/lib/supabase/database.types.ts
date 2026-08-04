@@ -1239,6 +1239,7 @@ export type Database = {
           p_employee_phone?: string | null
           p_employee_wage_type?: string | null
           p_employee_wage_rate?: number | null
+          p_site_ids?: string[] | null
         }
         Returns: undefined
       }

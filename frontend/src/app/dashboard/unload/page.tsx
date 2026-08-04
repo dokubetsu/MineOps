@@ -21,7 +21,7 @@ type UnloadTrip = {
 
 export default function UnloadPage() {
   const supabase = createClient()
-  const { userRole, tripOps, siteIds, loading: authLoading } = useAuth()
+  const { userRole, tripOps, siteIds, assignedSites, loading: authLoading } = useAuth()
   const [trips, setTrips] = useState<UnloadTrip[]>([])
   const [loading, setLoading] = useState(true)
   const [active, setActive] = useState<UnloadTrip | null>(null)
@@ -116,7 +116,14 @@ export default function UnloadPage() {
 
   return (
     <div className="page">
-      <PageHeader title="Unload" subtitle="Document destination unloading (no payment)" />
+      <PageHeader
+        title="Unload"
+        subtitle={
+          assignedSites.length
+            ? `Loading sites: ${assignedSites.map((s) => s.name).join(', ')} — document unload at any destination`
+            : 'Document destination unloading (no payment)'
+        }
+      />
 
       {loading ? (
         <p style={{ color: 'var(--text-muted)' }}>Loading trips…</p>

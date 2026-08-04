@@ -9,38 +9,59 @@ import { assertOrganizationActive } from '@/lib/admin-auth'
 const optionalString = z.string().nullish().transform((v) => v ?? undefined)
 const optionalUuid = z.string().uuid('Invalid ID format').nullish().transform((v) => v ?? null)
 
-const createUserSchema = z.object({
-  email: z.string().email('Invalid email address'),
-  password: passwordSchema,
-  role: z.enum(['admin', 'site_manager', 'stakeholder', 'employee', 'site_employee', 'unload_clerk'], {
-    error: 'Invalid role',
-  }),
-  site_id: optionalUuid,
-  share_percent: z
-    .union([z.number(), z.string()])
-    .nullish()
-    .transform((val) => {
-      if (val == null || val === '') return 50
-      const num = parseFloat(String(val))
-      return isNaN(num) ? 50 : num
+const createUserSchema = z
+  .object({
+    email: z.string().email('Invalid email address'),
+    password: passwordSchema,
+    role: z.enum(['admin', 'site_manager', 'stakeholder', 'employee', 'site_employee', 'unload_clerk'], {
+      error: 'Invalid role',
     }),
-  employee_link_mode: z.enum(['link', 'create', 'none']).nullish().transform((v) => v ?? 'none'),
-  employee_id: optionalUuid,
-  employee_name: optionalString,
-  employee_phone: optionalString,
-  employee_wage_type: optionalString,
-  employee_wage_rate: z
-    .union([z.number(), z.string()])
-    .nullish()
-    .transform((val) => {
-      if (val == null || val === '') return 0
-      const num = parseFloat(String(val))
-      return isNaN(num) ? 0 : num
-    }),
-}).refine(
-  (data) => data.role === 'admin' || !!data.site_id,
-  { message: 'A site is required for non-admin roles', path: ['site_id'] }
-)
+    site_id: optionalUuid,
+    /** Loading sites for unload_clerk (one or many). */
+    site_ids: z.array(z.string().uuid('Invalid site ID')).nullish().transform((v) => v ?? undefined),
+    share_percent: z
+      .union([z.number(), z.string()])
+      .nullish()
+      .transform((val) => {
+        if (val == null || val === '') return 50
+        const num = parseFloat(String(val))
+        return isNaN(num) ? 50 : num
+      }),
+    employee_link_mode: z.enum(['link', 'create', 'none']).nullish().transform((v) => v ?? 'none'),
+    employee_id: optionalUuid,
+    employee_name: optionalString,
+    employee_phone: optionalString,
+    employee_wage_type: optionalString,
+    employee_wage_rate: z
+      .union([z.number(), z.string()])
+      .nullish()
+      .transform((val) => {
+        if (val == null || val === '') return 0
+        const num = parseFloat(String(val))
+        return isNaN(num) ? 0 : num
+      }),
+  })
+  .superRefine((data, ctx) => {
+    if (data.role === 'admin') return
+    if (data.role === 'unload_clerk') {
+      const multi = (data.site_ids || []).filter(Boolean)
+      if (multi.length === 0 && !data.site_id) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Select at least one loading site for the unload clerk',
+          path: ['site_ids'],
+        })
+      }
+      return
+    }
+    if (!data.site_id) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'A site is required for non-admin roles',
+        path: ['site_id'],
+      })
+    }
+  })
 
 /** Best-effort cleanup when Auth user was created but DB provisioning failed. */
 async function rollbackAuthUser(supabase: SupabaseClient, userId: string): Promise<void> {
@@ -134,6 +155,7 @@ export async function POST(req: NextRequest) {
     password,
     role,
     site_id,
+    site_ids,
     share_percent,
     employee_link_mode,
     employee_id,
@@ -143,12 +165,19 @@ export async function POST(req: NextRequest) {
     employee_wage_rate
   } = result.data
 
-  // Pre-validate site belongs to caller's org (also re-checked inside RPC)
-  if (site_id) {
+  const resolvedSiteIds =
+    role === 'unload_clerk'
+      ? [...new Set([...(site_ids || []), ...(site_id ? [site_id] : [])].filter(Boolean) as string[])]
+      : site_id
+        ? [site_id]
+        : []
+
+  // Pre-validate sites belong to caller's org
+  for (const sid of resolvedSiteIds) {
     const { data: siteData, error: siteError } = await supabase
       .from('sites')
       .select('organization_id')
-      .eq('id', site_id)
+      .eq('id', sid)
       .single()
 
     if (siteError || !siteData || siteData.organization_id !== callerOrganizationId) {
@@ -176,7 +205,8 @@ export async function POST(req: NextRequest) {
     p_user_id: newUserId,
     p_role: role,
     p_organization_id: callerOrganizationId,
-    p_site_id: site_id || null,
+    p_site_id: resolvedSiteIds[0] || null,
+    p_site_ids: role === 'unload_clerk' ? resolvedSiteIds : null,
     p_share_percent: share_percent ?? 50,
     p_employee_link_mode: employee_link_mode || 'none',
     p_employee_id: employee_id || null,
@@ -201,7 +231,7 @@ export async function POST(req: NextRequest) {
     action: 'create_user',
     target_type: 'user',
     target_id: newUserId,
-    metadata: { email, role, site_id },
+    metadata: { email, role, site_id: resolvedSiteIds[0] || null, site_ids: resolvedSiteIds },
   })
 
   if (auditError) {

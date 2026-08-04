@@ -12,7 +12,7 @@ import { toErrorMessage } from '@/lib/errors'
 const ROLES = [
   { value: 'admin', label: 'Admin', desc: 'Full access to all sites and data', icon: '🛡️' },
   { value: 'site_manager', label: 'Site Manager', desc: 'Manage trips, cash, attendance for assigned site', icon: '👷' },
-  { value: 'unload_clerk', label: 'Unload clerk', desc: 'Document destination unloading only', icon: '📦' },
+  { value: 'unload_clerk', label: 'Unload clerk', desc: 'Document unload for trips from one or more loading sites', icon: '📦' },
   { value: 'stakeholder', label: 'Stakeholder', desc: 'Read-only revenue share dashboard', icon: '📊' },
   { value: 'site_employee', label: 'Site Employee', desc: 'Log trips, expenses, and track attendance', icon: '🚛' },
 ] as const
@@ -48,7 +48,9 @@ export default function UsersPage() {
   const [editingRow, setEditingRow] = useState<ExtendedUserRole | null>(null) // row being edited
   const [form, setForm] = useState({
     email: '', password: '', role: 'site_manager',
-    site_id: '', share_percent: '50',
+    site_id: '',
+    site_ids: [] as string[],
+    share_percent: '50',
     employee_link_mode: 'create', // 'link' | 'create'
     employee_id: '',
     employee_name: '',
@@ -155,7 +157,8 @@ export default function UsersPage() {
           email: form.email,
           password: form.password,
           role: form.role,
-          site_id: form.site_id || null,
+          site_id: form.role === 'unload_clerk' ? (form.site_ids[0] || null) : (form.site_id || null),
+          site_ids: form.role === 'unload_clerk' ? form.site_ids : undefined,
           share_percent: form.share_percent,
           employee_link_mode: (form.role === 'site_employee' || form.role === 'employee') ? form.employee_link_mode : 'none',
           employee_id: form.employee_id || null,
@@ -170,7 +173,7 @@ export default function UsersPage() {
       toast.success('User created successfully')
       setShowForm(false)
       setForm({
-        email: '', password: '', role: 'site_manager', site_id: '', share_percent: '50',
+        email: '', password: '', role: 'site_manager', site_id: '', site_ids: [], share_percent: '50',
         employee_link_mode: 'create', employee_id: '', employee_name: '', employee_phone: '',
         employee_wage_type: 'monthly', employee_wage_rate: '0'
       })
@@ -459,7 +462,49 @@ export default function UsersPage() {
                   ))}
                 </div>
               </div>
-              {form.role !== 'admin' && (
+              {form.role === 'unload_clerk' ? (
+                <div className="form-group">
+                  <label className="form-label">Loading sites this clerk covers *</label>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.5rem' }}>
+                    Select one or more origin sites. The clerk sees trips loaded from these sites and documents unload at any destination.
+                  </p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '12rem', overflowY: 'auto' }}>
+                    {sites.map((s) => {
+                      const checked = form.site_ids.includes(s.id)
+                      return (
+                        <label
+                          key={s.id}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            fontSize: '0.875rem',
+                            cursor: 'pointer',
+                            padding: '0.5rem 0.75rem',
+                            borderRadius: 'var(--radius)',
+                            border: `1px solid ${checked ? 'var(--accent)' : 'var(--border)'}`,
+                            background: checked ? 'var(--accent-muted)' : 'var(--bg-elevated)',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setForm((f) => ({
+                                ...f,
+                                site_ids: checked
+                                  ? f.site_ids.filter((id) => id !== s.id)
+                                  : [...f.site_ids, s.id],
+                              }))
+                            }
+                          />
+                          {s.name}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : form.role !== 'admin' ? (
                 <div className="form-group">
                   <label className="form-label">Assign Site *</label>
                   <select className="form-input form-select" value={form.site_id}
@@ -468,7 +513,7 @@ export default function UsersPage() {
                     {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </div>
-              )}
+              ) : null}
 
               {(form.role === 'site_employee' || form.role === 'employee') && form.site_id && (
                 <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1rem', marginBottom: '1rem' }}>
