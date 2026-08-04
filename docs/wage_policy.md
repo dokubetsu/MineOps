@@ -86,12 +86,17 @@ wage = monthly_rate × max(0, eligible_days − absent − half_day×0.5) / peri
 | **Reporting** | Actual `trip_worth` / `total_shipment_cost` only (no invented defaults). Month-end CSV pack; refuse download if 50,000-row safety cap is hit |
 | **Month-end** | Reports pack → payroll finalize → optional audit “close” → optional soft purge (blocked if finalized payroll) |
 
+### Advance / Other costs (UI label)
+
+Field workers see **Other costs** on trips; cash book still posts **OUT** with marker `[trip_advance:…]` for sync. Docs historically called this “advance” — same ledger behavior.
+
 ### Settlement (Phase 1)
 
 - Client and server normalize via `computeTripWorth` / DB trigger `normalize_trip_worth` (2 decimal places).
 - Preferred create path: `tripsRepository.create` (admin + my-work).
 - **Settled** trips require `settlement_amount > 0` (DB trigger + `tripsRepository.settle`).
 - Settling also posts (or updates) a cash book **IN** line — category **Trip settlement collection**, marker `[trip_settle:<tripId>]` — unless `postCashIn: false`. Locked cash books block that post (same as advances).
+- When `organizations.settlement_admin_only` is true, only **admin** (or service_role) may flip a trip to settled (**068** DB trigger); prefer `tripsRepository.settle` so cash IN is posted.
 
 ## Stakeholder shares
 

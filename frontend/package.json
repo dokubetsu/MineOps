@@ -14,6 +14,7 @@
     "test:e2e:mobile": "playwright test --project=mobile",
     "test:all": "playwright test",
     "audit:prod": "npm audit --omit=dev",
+    "smoke:golive": "node scripts/golive-smoke-check.mjs",
     "gen:types": "supabase gen types typescript --local --schema public > src/lib/supabase/database.types.ts"
   },
   "dependencies": {

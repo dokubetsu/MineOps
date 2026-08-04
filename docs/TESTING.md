@@ -19,6 +19,9 @@
 | `npm run test:e2e` | Playwright **chromium** browser e2e |
 | `npm run test:e2e:mobile` | **Pixel 5** smoke (`phase5-critical` only) |
 | `npm run test:all` | All Playwright projects |
+| `npm run smoke:golive` | Repo pre-flight for handover (migrations 067/068, docs, period-ops) |
+
+Handover DB probes: `tests/unit/handover-068.spec.ts` (service_role leave unapprove + settlement_admin_only). Skip without service role.
 
 ### Unit without Next server
 

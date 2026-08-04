@@ -94,6 +94,11 @@ Attendance INSERT/UPDATE/DELETE blocked when the employee’s site has a **final
 
 `write_audit_event` stamps `organization_id` from the **actor’s org** for tenant callers (foreign `p_organization_id` is ignored and recorded in metadata). Platform owners and `service_role` may pass an explicit org. Direct `EXECUTE` is revoked from `authenticated` so clients cannot insert arbitrary audit rows. `actor_user_id` may be null for pure service events (migration **046**).
 
+### Handover hardening (068)
+
+- **Period purge:** `unapprove_leave_application` accepts `service_role` so `/api/admin/period-ops` purge can restore `leave_balance` before hard-deleting leave rows (fail-closed in the API if restore fails).
+- **Settlement admin-only:** when `organizations.settlement_admin_only` is true, the trip settlement trigger rejects non-admin callers flipping a trip to settled (UI + repository still the preferred path that posts cash IN).
+
 ### Feature write gates (046)
 
 DB triggers enforce features on INSERT/UPDATE/**DELETE** for operational tables **and** `employees`, `sites`, `vehicles`, `drivers`, `contractors`, `customers`, `negotiated_rates`, `user_roles`, `stakeholder_site_access`. Bootstrap uses `claim_first_platform_owner` (advisory lock). Leave unapprove restores prior attendance from `attendance_snapshot`.

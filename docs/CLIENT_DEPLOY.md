@@ -7,7 +7,7 @@ This guide provides the exact step-by-step procedure for deploying a new dedicat
 ## Order Cheat-Sheet
 
 ```
-Supabase project → db push (064) → Upstash → Vercel (frontend + env) → Auth URLs → /platform/setup → remove bootstrap secret → create org/admin → master data → smoke → client brief
+Supabase project → db push (067+) → Upstash → Vercel (frontend + env) → Auth URLs → /platform/setup → remove bootstrap secret → create org/admin → master data → smoke → client brief
 ```
 
 ---
@@ -38,7 +38,7 @@ Supabase project → db push (064) → Upstash → Vercel (frontend + env) → A
 
 ---
 
-## 2. Apply Migrations (Through 064)
+## 2. Apply Migrations (Through 067+)
 
 From the repository root (not `frontend/`):
 
@@ -48,7 +48,7 @@ supabase db push
 supabase migration list
 ```
 
-- Confirm remote includes `064_offline_idempotency_dashboard_rollup.sql`.
+- Confirm remote includes **`067_unload_clerk_multi_loading_sites.sql`** (and everything before it: **065** trip-ops/unload clerk, **066** unload scope, **064** offline `client_id`). After this repo’s handover hardening, also confirm **`068_period_purge_leave_and_settlement_admin.sql`** when present.
 - Buckets (`trip-photos`, `attendance-photos`, `cash-receipts`) are automatically created and configured by SQL migrations.
 
 ---
@@ -57,7 +57,7 @@ supabase migration list
 
 1. Create a Redis database in Upstash → copy **REST URL** + **REST TOKEN**.
 2. Save these for Vercel environment variables (`UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`).
-3. *(Optional Hardening)* Set `RATE_LIMIT_REQUIRE_UPSTASH=1` so production fails closed if Redis is unreachable.
+3. **Strongly recommended for production:** set `RATE_LIMIT_REQUIRE_UPSTASH=1` so API traffic fails closed if Redis is unreachable (multi-instance Vercel).
 
 ---
 
@@ -74,9 +74,9 @@ supabase migration list
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase Anon Key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase Service Role Key (*Server-only*) |
 | `PLATFORM_BOOTSTRAP_SECRET` | Yes | 32+ char secret (*until first owner exists*) |
-| `UPSTASH_REDIS_REST_URL` | Recommended | Upstash REST URL |
-| `UPSTASH_REDIS_REST_TOKEN` | Recommended | Upstash REST Token |
-| `RATE_LIMIT_REQUIRE_UPSTASH` | Optional | Set to `1` to fail closed without Redis |
+| `UPSTASH_REDIS_REST_URL` | **Required for multi-instance** | Upstash REST URL |
+| `UPSTASH_REDIS_REST_TOKEN` | **Required for multi-instance** | Upstash REST Token |
+| `RATE_LIMIT_REQUIRE_UPSTASH` | Recommended | Set to `1` to fail closed without Redis |
 
 5. Deploy. Copy the production URL (e.g. `https://client-khani.vercel.app`).
 
@@ -133,16 +133,26 @@ As Tenant Admin / Site Manager:
 
 ## 8. Smoke Testing Before Handover
 
-Verify minimum go-live criteria:
+**Repo pre-flight** (from `frontend/`):
 
-- [ ] All migrations through `064` applied to remote Supabase.
+```bash
+npm run smoke:golive
+```
+
+This verifies migrations **067/068**, period-ops leave restore fail-closed, and docs alignment. It does **not** replace live checks on the client Supabase/Vercel project.
+
+Verify minimum go-live criteria on the **client** project:
+
+- [ ] All migrations through **`068`** applied to remote Supabase (`supabase migration list`).
 - [ ] Platform owner logs into `/platform`.
 - [ ] Organization + tenant admin created and logs into `/dashboard`.
 - [ ] Log one test trip: Rate × CC auto-calculates; settlement posts cash IN collection.
+- [ ] With **settlement admin-only** on (platform org settings): site manager cannot settle; admin can.
+- [ ] Unload clerk (optional): assigned loading site(s); documents unload; does not settle when admin-only.
 - [ ] Photo upload on *My Work* / cash receipt.
-- [ ] Upstash rate limiting active (or accepted per-isolate memory limits).
+- [ ] Upstash rate limiting configured in production (`UPSTASH_*` set).
 - [ ] `/platform/setup` returns 409 Conflict when attempted again.
-- [ ] Brief client team with `docs/CLIENT_ONBOARDING.md`.
+- [ ] Brief client team with `docs/CLIENT_ONBOARDING.md` (two share models; settle → cash IN).
 
 ---
 

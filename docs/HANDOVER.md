@@ -127,12 +127,13 @@ d:\idea2\
 │   └── next.config.ts
 ├── supabase/
 │   ├── migrations/                        # Numbered SQL migrations (source of truth)
-│   │   ├── 000_initial_schema.sql … 064_offline_idempotency_dashboard_rollup.sql
+│   │   ├── 000_initial_schema.sql … 068_period_purge_leave_and_settlement_admin.sql
 │   ├── schema.sql                         # Reference dump (not applied directly)
 │   ├── seed.sql                           # Local/CI seed data only (NEVER production)
 │   └── config.toml
 └── docs/                                  # Operational documentation
     ├── CLIENT_ONBOARDING.md               # First-client brief (settle → cash IN; share models)
+    ├── CLIENT_DEPLOY.md                   # Client go-live (Supabase + Vercel)
     ├── ENV.md                             # Environment variables reference
     ├── SCHEMA_SSOT.md                     # Schema source-of-truth process
     ├── DEPLOYMENT_CHECKLIST.md            # Step-by-step deploy guide

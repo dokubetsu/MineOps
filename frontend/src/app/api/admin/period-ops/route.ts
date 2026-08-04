@@ -222,15 +222,25 @@ export async function POST(req: NextRequest) {
         .gte('to_date', from_date)
 
       if (approvedErr) {
-        console.warn('[period-ops] approved leave load:', approvedErr.message)
-      } else {
-        for (const app of approvedLeaves || []) {
-          const { error: unapproveErr } = await supabase.rpc('unapprove_leave_application', {
-            p_application_id: app.id,
-          })
-          if (unapproveErr) {
-            console.warn('[period-ops] leave unapprove before purge', app.id, unapproveErr.message)
-          }
+        return NextResponse.json(
+          { error: `Approved leave load: ${approvedErr.message}` },
+          { status: 500 }
+        )
+      }
+
+      // Restore leave_balance via RPC before hard-delete (service_role allowed since 068).
+      // Fail closed — never delete leave rows without a successful unapprove.
+      for (const app of approvedLeaves || []) {
+        const { error: unapproveErr } = await supabase.rpc('unapprove_leave_application', {
+          p_application_id: app.id,
+        })
+        if (unapproveErr) {
+          return NextResponse.json(
+            {
+              error: `Leave balance restore failed before purge (${app.id}): ${unapproveErr.message}. No attendance/leave deleted.`,
+            },
+            { status: 500 }
+          )
         }
       }
 
@@ -255,11 +265,12 @@ export async function POST(req: NextRequest) {
         .gte('to_date', from_date)
         .select('id')
       if (leaveErr) {
-        counts.leave_applications = 0
-        console.warn('[period-ops] leave purge:', leaveErr.message)
-      } else {
-        counts.leave_applications = leaves?.length ?? 0
+        return NextResponse.json(
+          { error: `Leave purge: ${leaveErr.message}` },
+          { status: 500 }
+        )
       }
+      counts.leave_applications = leaves?.length ?? 0
     }
   }
 
