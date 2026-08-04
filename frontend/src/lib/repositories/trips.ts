@@ -245,12 +245,26 @@ export const tripsRepository = {
 
     const { data: trip, error: loadErr } = await supabase
       .from('trips')
-      .select('id, site_id, trip_date, vehicle_id, vehicles(plate_number)')
+      .select('id, site_id, trip_date, organization_id, vehicle_id, vehicles(plate_number)')
       .eq('id', id)
       .maybeSingle()
 
     if (loadErr) throw loadErr
     if (!trip) throw new Error('Trip not found')
+
+    if (trip.organization_id) {
+      const { data: org } = await supabase
+        .from('organizations')
+        .select('settlement_admin_only')
+        .eq('id', trip.organization_id)
+        .maybeSingle()
+      if (org?.settlement_admin_only) {
+        const { data: role } = await supabase.rpc('get_user_role')
+        if (role !== 'admin') {
+          throw new Error('Only admins can settle trips for this organization')
+        }
+      }
+    }
 
     const { error } = await supabase
       .from('trips')

@@ -533,23 +533,35 @@ export type Database = {
       organizations: {
         Row: {
           active: boolean
+          billing_admin_only: boolean
           created_at: string | null
           id: string
           name: string
+          quantity_unit: string
+          settlement_admin_only: boolean
+          units_per_m3: number
           updated_at: string | null
         }
         Insert: {
           active?: boolean
+          billing_admin_only?: boolean
           created_at?: string | null
           id?: string
           name: string
+          quantity_unit?: string
+          settlement_admin_only?: boolean
+          units_per_m3?: number
           updated_at?: string | null
         }
         Update: {
           active?: boolean
+          billing_admin_only?: boolean
           created_at?: string | null
           id?: string
           name?: string
+          quantity_unit?: string
+          settlement_admin_only?: boolean
+          units_per_m3?: number
           updated_at?: string | null
         }
         Relationships: []
@@ -889,6 +901,10 @@ export type Database = {
           total_shipment_cost: number | null
           trip_date: string
           trip_worth: number | null
+          unload_notes: string | null
+          unload_quantity: number | null
+          unloaded_at: string | null
+          unloaded_by: string | null
           updated_at: string | null
           vehicle_id: string | null
         }
@@ -931,6 +947,10 @@ export type Database = {
           total_shipment_cost?: number | null
           trip_date?: string
           trip_worth?: number | null
+          unload_notes?: string | null
+          unload_quantity?: number | null
+          unloaded_at?: string | null
+          unloaded_by?: string | null
           updated_at?: string | null
           vehicle_id?: string | null
         }
@@ -973,6 +993,10 @@ export type Database = {
           total_shipment_cost?: number | null
           trip_date?: string
           trip_worth?: number | null
+          unload_notes?: string | null
+          unload_quantity?: number | null
+          unloaded_at?: string | null
+          unloaded_by?: string | null
           updated_at?: string | null
           vehicle_id?: string | null
         }
@@ -1235,6 +1259,14 @@ export type Database = {
           inward: number
           unsettled: number
         }[]
+      }
+      document_trip_unload: {
+        Args: {
+          p_trip_id: string
+          p_unload_notes?: string | null
+          p_unload_quantity?: number | null
+        }
+        Returns: undefined
       }
     }
     Enums: {

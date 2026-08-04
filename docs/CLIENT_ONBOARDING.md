@@ -4,15 +4,23 @@ Short talking points for the mine admin / ops lead. Full rules: `docs/wage_polic
 
 ## Trip cost
 
-- Trip **billing total** = customer/org rate (₹/m³) × vehicle cubic capacity.
+- Trip **billing total** = rate × quantity (org unit: **m³** or **unit**, configured per org on `/platform`).
 - Distance / drop / permit are ops notes — they are **not** added into that total.
+- Orgs can set **billing admin-only**: site managers / employees log trips **without** seeing ₹ totals or distance cost (admin still sees them).
+
+## Other costs (formerly “advance”)
+
+- Field label **Other costs** posts cash book **OUT** as **Other trip costs** (marker `[trip_advance:…]` unchanged for sync).
 
 ## Settle vs cash book
 
-- Marking a trip **Settled** records collection on the trip **and** posts a cash book **IN** line: category **Trip settlement collection**.
-- Re-settling / sync updates that same linked line (marker `[trip_settle:…]`) — it does not invent a second collection.
-- If the day’s cash book is **locked**, settlement collection cannot post until an admin unlocks (same as advances).
-- Advance on create posts cash **OUT** (**Advance for trip**); that is separate from settlement.
+- When **settlement admin-only** is on, only tenant **admins** settle / collect payment.
+- Settling posts cash book **IN**: **Trip settlement collection**.
+- **Unload clerks** document destination unload only — they do **not** settle and do **not** see billing when admin-only is on.
+
+## Unload clerk
+
+- New role assigned to a site: open **Unload**, record received qty + notes. Admin can do the same.
 
 ## Two share models (do not mix)
 
@@ -21,12 +29,14 @@ Short talking points for the mine admin / ops lead. Full rules: `docs/wage_polic
 | **Stakeholder** portal / site stakeholder rows | **Cash book net** (IN − OUT) for the period |
 | **Reports → Business pack** slider | Manual % of **trip billing value** (Excel-style paper split) |
 
-Registered stakeholder `%` does **not** drive the reports pack slider, and vice versa.
-
 ## Offline / flaky network
 
-- Queued trip and cash creates carry a stable `client_id`. After migration **064**, retries do not create duplicate rows.
+- Queued trip and cash creates carry a stable `client_id`. After migration **064+**, retries do not create duplicate rows.
 
 ## Passwords (prod APIs)
 
 - Platform bootstrap, org admin, and tenant create-user require **12+** characters with a letter, a number, and a special character. Seed/demo passwords are local/CI only.
+
+## Scale
+
+- One app + RLS supports many orgs (e.g. hundreds). Prefer org policies over forked codebases.

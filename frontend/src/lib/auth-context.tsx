@@ -11,10 +11,16 @@ import {
   type FeatureKey,
   type FeatureMap,
 } from '@/lib/features'
+import {
+  DEFAULT_TRIP_OPS_POLICY,
+  tripOpsFromOrgRow,
+  type TripOpsPolicy,
+  type AppRole,
+} from '@/lib/trip-ops-policy'
 
 interface UserRole {
   user_id: string
-  role: 'admin' | 'site_manager' | 'stakeholder' | 'employee' | 'site_employee'
+  role: AppRole
   site_id: string | null
   organization_id: string
 }
@@ -30,16 +36,16 @@ interface AuthContextType {
   isStakeholder: boolean
   isEmployee: boolean
   isSiteEmployee: boolean
+  isUnloadClerk: boolean
   isPlatformOwner: boolean
   siteIds: string[]
-  /** Sites from user_roles (employee/manager assignment) — for display */
   assignedSites: AssignedSite[]
-  /** Primary assigned site name (first site) for header badges */
   assignedSiteName: string | null
   organizationId: string | null
   organizationName: string | null
   features: FeatureMap
   hasFeature: (key: FeatureKey) => boolean
+  tripOps: TripOpsPolicy
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -51,6 +57,7 @@ const AuthContext = createContext<AuthContextType>({
   isStakeholder: false,
   isEmployee: false,
   isSiteEmployee: false,
+  isUnloadClerk: false,
   isPlatformOwner: false,
   siteIds: [],
   assignedSites: [],
@@ -59,7 +66,20 @@ const AuthContext = createContext<AuthContextType>({
   organizationName: null,
   features: defaultFeatureMap(false),
   hasFeature: () => false,
+  tripOps: DEFAULT_TRIP_OPS_POLICY,
 })
+
+function pickPriorityRole(loadedRoles: UserRole[]): UserRole | null {
+  return (
+    loadedRoles.find((r) => r.role === 'admin') ||
+    loadedRoles.find((r) => r.role === 'site_manager') ||
+    loadedRoles.find((r) => r.role === 'unload_clerk') ||
+    loadedRoles.find((r) => r.role === 'stakeholder') ||
+    loadedRoles.find((r) => r.role === 'employee') ||
+    loadedRoles.find((r) => r.role === 'site_employee') ||
+    null
+  )
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -68,6 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [assignedSites, setAssignedSites] = useState<AssignedSite[]>([])
   const [isPlatformOwner, setIsPlatformOwner] = useState(false)
   const [features, setFeatures] = useState<FeatureMap>(() => defaultFeatureMap(false))
+  const [tripOps, setTripOps] = useState<TripOpsPolicy>(DEFAULT_TRIP_OPS_POLICY)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
@@ -78,12 +99,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setAssignedSites([])
       setIsPlatformOwner(false)
       setFeatures(defaultFeatureMap(false))
+      setTripOps(DEFAULT_TRIP_OPS_POLICY)
       clearOfflineCache()
       clearSignedUrlCache()
       return
     }
 
-    // RPC first (SECURITY DEFINER — reliable). Table select is secondary.
     const [rolesRes, ownerRpcRes, platformRes] = await Promise.all([
       supabase.from('user_roles').select('*').eq('user_id', userId),
       supabase.rpc('is_platform_owner'),
@@ -103,20 +124,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const platformOk = !platformRes.error && !!platformRes.data
     setIsPlatformOwner(rpcOk || platformOk)
 
-    const priorityRole =
-      loadedRoles.find((r) => r.role === 'admin') ||
-      loadedRoles.find((r) => r.role === 'site_manager') ||
-      loadedRoles.find((r) => r.role === 'stakeholder') ||
-      loadedRoles.find((r) => r.role === 'employee') ||
-      loadedRoles.find((r) => r.role === 'site_employee') ||
-      null
+    const priorityRole = pickPriorityRole(loadedRoles)
 
-    // Assigned site names (employees should always see their site)
     const roleSiteIds = [
       ...new Set(loadedRoles.map((r) => r.site_id).filter(Boolean) as string[]),
     ]
     if (roleSiteIds.length > 0) {
-      // Prefer SECURITY DEFINER RPC (migration 057); fall back to sites table
       const { data: rpcSites, error: rpcSitesErr } = await supabase.rpc('get_my_assigned_sites')
       if (!rpcSitesErr && Array.isArray(rpcSites) && rpcSites.length > 0) {
         setAssignedSites(
@@ -146,16 +159,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (priorityRole?.organization_id) {
       const { data: org } = await supabase
         .from('organizations')
-        .select('name')
+        .select('name, billing_admin_only, settlement_admin_only, quantity_unit, units_per_m3')
         .eq('id', priorityRole.organization_id)
         .maybeSingle()
       setOrganizationName(org?.name ?? null)
+      setTripOps(tripOpsFromOrgRow(org))
 
       const { data: featRows, error: featErr } = await supabase
         .from('organization_features')
         .select('feature_key, enabled')
         .eq('organization_id', priorityRole.organization_id)
-      // Phase B: fail-closed on load error or empty (no accidental full unlock)
       if (featErr) {
         console.warn('[auth] organization_features load failed:', featErr.message)
         setFeatures(defaultFeatureMap(false))
@@ -164,7 +177,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } else {
       setOrganizationName(null)
-      // Platform owner / no tenant org — no module entitlements to enforce
+      setTripOps(DEFAULT_TRIP_OPS_POLICY)
       setFeatures(defaultFeatureMap(false))
     }
   }
@@ -191,6 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAssignedSites([])
         setIsPlatformOwner(false)
         setFeatures(defaultFeatureMap(false))
+        setTripOps(DEFAULT_TRIP_OPS_POLICY)
         clearOfflineCache()
         clearSignedUrlCache()
       }
@@ -205,17 +219,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isStakeholder = userRoles.some((r) => r.role === 'stakeholder')
   const isEmployee = userRoles.some((r) => r.role === 'employee')
   const isSiteEmployee = userRoles.some((r) => r.role === 'site_employee')
+  const isUnloadClerk = userRoles.some((r) => r.role === 'unload_clerk')
   const siteIds = userRoles.map((r) => r.site_id).filter(Boolean) as string[]
 
-  const priorityRole =
-    userRoles.find((r) => r.role === 'admin') ||
-    userRoles.find((r) => r.role === 'site_manager') ||
-    userRoles.find((r) => r.role === 'stakeholder') ||
-    userRoles.find((r) => r.role === 'employee') ||
-    userRoles.find((r) => r.role === 'site_employee') ||
-    null
-
-  // Phase B: only true when explicitly enabled
+  const priorityRole = pickPriorityRole(userRoles)
   const hasFeature = (key: FeatureKey) => features[key] === true
 
   return (
@@ -229,6 +236,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isStakeholder,
         isEmployee,
         isSiteEmployee,
+        isUnloadClerk,
         isPlatformOwner,
         siteIds,
         assignedSites,
@@ -237,6 +245,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         organizationName,
         features,
         hasFeature,
+        tripOps,
       }}
     >
       {children}

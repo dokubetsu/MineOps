@@ -15,7 +15,7 @@ import { tripAdvanceNoteMarker, tripSettlementNoteMarker, TRIP_ADVANCE_CATEGORY,
 
 test.describe('Business Calculations (shared module)', () => {
   test('trip advance marker is stable for cash-book sync', () => {
-    expect(TRIP_ADVANCE_CATEGORY).toBe('Advance for trip')
+    expect(TRIP_ADVANCE_CATEGORY).toBe('Other trip costs')
     expect(tripAdvanceNoteMarker('abc-123')).toBe('[trip_advance:abc-123]')
   })
 

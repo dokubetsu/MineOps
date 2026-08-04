@@ -156,17 +156,25 @@ export async function proxy(request: NextRequest) {
         ? 'admin'
         : roles.includes('site_manager')
           ? 'site_manager'
-          : roles.includes('stakeholder')
-            ? 'stakeholder'
-            : roles.includes('employee')
-              ? 'employee'
-              : roles.includes('site_employee')
-                ? 'site_employee'
-                : null
+          : roles.includes('unload_clerk')
+            ? 'unload_clerk'
+            : roles.includes('stakeholder')
+              ? 'stakeholder'
+              : roles.includes('employee')
+                ? 'employee'
+                : roles.includes('site_employee')
+                  ? 'site_employee'
+                  : null
 
       if ((role === 'employee' || role === 'site_employee') && path !== '/dashboard/my-work') {
         const redirectUrl = request.nextUrl.clone()
         redirectUrl.pathname = '/dashboard/my-work'
+        return withCsp(NextResponse.redirect(redirectUrl))
+      }
+
+      if (role === 'unload_clerk' && path !== '/dashboard/unload' && path !== '/dashboard/my-work') {
+        const redirectUrl = request.nextUrl.clone()
+        redirectUrl.pathname = '/dashboard/unload'
         return withCsp(NextResponse.redirect(redirectUrl))
       }
 

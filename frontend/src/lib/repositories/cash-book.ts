@@ -3,8 +3,10 @@ import { Database } from '../supabase/database.types'
 import { CashBook, CashEntry } from '../supabase/types'
 import { calculateClosingBalance, roundMoney } from '../calculations'
 
-/** Cash OUT category for trip advances (must match expense picker). */
-export const TRIP_ADVANCE_CATEGORY = 'Advance for trip'
+/** Cash OUT category for trip other costs (legacy: Advance for trip). */
+export const TRIP_ADVANCE_CATEGORY = 'Other trip costs'
+/** Prior category name — still match when syncing older cash lines. */
+export const TRIP_ADVANCE_CATEGORY_LEGACY = 'Advance for trip'
 
 /** Cash IN category when a trip is settled / collected. */
 export const TRIP_SETTLEMENT_CATEGORY = 'Trip settlement collection'
@@ -124,9 +126,9 @@ export const cashBookRepository = {
   },
 
   /**
-   * Keep cash book in sync with trip.advance_amount:
-   * - amount > 0 → cash OUT "Advance for trip" (create or update)
-   * - amount ≤ 0 → soft-delete any linked advance line
+   * Keep cash book in sync with trip.advance_amount (UI: Other costs):
+   * - amount > 0 → cash OUT "Other trip costs" (create or update)
+   * - amount ≤ 0 → soft-delete any linked line
    * Marker in note: [trip_advance:<tripId>]
    */
   async syncTripAdvance(
@@ -147,12 +149,11 @@ export const cashBookRepository = {
     const marker = tripAdvanceNoteMarker(tripId)
     const book = await this.getOrCreate(supabase, siteId, bookDate)
 
-    // Find existing linked entry in this cash book (active or not — we may re-activate)
+    // Match by marker (works for legacy "Advance for trip" and new category)
     const { data: existingRows, error: findError } = await supabase
       .from('cash_entries')
-      .select('id, amount, active, cash_book_id')
+      .select('id, amount, active, cash_book_id, category')
       .eq('cash_book_id', book.id)
-      .eq('category', TRIP_ADVANCE_CATEGORY)
       .ilike('note', `%${marker}%`)
       .limit(5)
 
@@ -173,7 +174,7 @@ export const cashBookRepository = {
     if (book.status === 'locked') {
       if (amount > 0) {
         throw new Error(
-          `Cash book for ${bookDate} is locked. Ask an admin to unlock it before posting a trip advance, or save the trip with zero advance.`
+          `Cash book for ${bookDate} is locked. Ask an admin to unlock it before posting other trip costs, or save the trip with zero other costs.`
         )
       }
       return
@@ -181,8 +182,8 @@ export const cashBookRepository = {
 
     const plate = (args.vehiclePlate || '').trim()
     const note = plate
-      ? `${marker} Advance for ${plate}`
-      : `${marker} Trip advance`
+      ? `${marker} Other costs for ${plate}`
+      : `${marker} Trip other costs`
 
     if (existing) {
       const { error } = await supabase

@@ -21,7 +21,8 @@ export const EXPENSE_CATEGORIES = [
   'Trip Expense (Fastag payment)',
   'Fuel / Diesel expense',
   'Advance salary',
-  'Advance for trip',
+  'Other trip costs',
+  'Advance for trip', // legacy — still selectable for old cash books
 ] as const
 
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number]

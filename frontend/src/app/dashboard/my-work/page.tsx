@@ -6,6 +6,13 @@ import { createClient } from '@/lib/supabase/client'
 import { format, subDays } from 'date-fns'
 import { Plus, Image as ImageIcon, Check, X, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import {
+  canSeeTripBilling,
+  canSettleTrips,
+  quantityUnitLabel,
+  rateUnitLabel,
+  defaultCommercialCapacity,
+} from '@/lib/trip-ops-policy'
 
 import { cashBookRepository } from '@/lib/repositories/cash-book'
 import { tripsRepository } from '@/lib/repositories/trips'
@@ -33,7 +40,7 @@ import {
   resolveDistanceRate,
   vehicleTypeLabel,
 } from '@/lib/trip-constants'
-import { computeDistanceCost, computeTripWorthFromRate, roundMoney } from '@/lib/calculations'
+import { computeDistanceCost, roundMoney } from '@/lib/calculations'
 import { resolveMdmTripCost } from '@/lib/trip-cost'
 
 interface EmployeeData {
@@ -53,6 +60,8 @@ function EmployeePage() {
     hasFeature,
     assignedSiteName,
     assignedSites,
+    userRole,
+    tripOps,
   } = useAuth()
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -61,6 +70,10 @@ function EmployeePage() {
   const canCash = hasFeature('cash_book')
   const canLeave = hasFeature('leave')
   const canAttendance = hasFeature('attendance')
+  const showBilling = canSeeTripBilling(userRole?.role, tripOps)
+  const showSettle = canSettleTrips(userRole?.role, tripOps)
+  const qtyLabel = quantityUnitLabel(tripOps)
+  const rateLabel = rateUnitLabel(tripOps)
   const [loading, setLoading] = useState(true)
   const [employee, setEmployee] = useState<EmployeeData | null>(null)
   
@@ -180,45 +193,46 @@ function EmployeePage() {
   }, [authLoading, loading, searchParams, canTrips, canCash, router])
 
   // When admin/customer has a negotiated rate, fill trip cost from that rate only
-  // (no app hard-coded defaults). Employees log ops details; price comes from MDM.
+  // Auto-fill shipment worth from MDM: rate (per commercial unit) × capacity
   useEffect(() => {
     const cust = customers.find((c) => c.id === tripForm.customer_id)
     const todayStr = format(new Date(), 'yyyy-MM-dd')
-    const { rate } = resolveTripRateForCustomer(
-      tripForm.vehicle_type,
-      cust || null,
-      negotiatedRates,
-      todayStr
-    )
     const cap = parseFloat(tripForm.cubic_capacity) || 0
-    if (rate != null && rate > 0) {
-      // MDM rule: total cost = customer/org rate (₹/m³) × cubic capacity
-      const worth = computeTripWorthFromRate(cap, rate)
+    const { worth } = resolveMdmTripCost({
+      vehicleType: tripForm.vehicle_type,
+      capacity: cap,
+      customer: cust || null,
+      orgRates: negotiatedRates,
+      asOfDate: todayStr,
+      tripOps,
+    })
+    if (worth != null && worth > 0) {
       setTripForm((f) =>
         f.total_shipment_cost === String(worth) ? f : { ...f, total_shipment_cost: String(worth) }
       )
     }
-  }, [tripForm.vehicle_type, tripForm.cubic_capacity, tripForm.customer_id, negotiatedRates, customers])
+  }, [tripForm.vehicle_type, tripForm.cubic_capacity, tripForm.customer_id, negotiatedRates, customers, tripOps])
 
   useEffect(() => {
     const cust = customers.find((c) => c.id === editForm.customer_id)
     const asOf = editingTrip?.trip_date
       ? String(editingTrip.trip_date).slice(0, 10)
       : format(new Date(), 'yyyy-MM-dd')
-    const { rate } = resolveTripRateForCustomer(
-      editForm.vehicle_type,
-      cust || null,
-      negotiatedRates,
-      asOf
-    )
     const cap = parseFloat(editForm.cubic_capacity) || 0
-    if (rate != null && rate > 0) {
-      const worth = computeTripWorthFromRate(cap, rate)
+    const { worth } = resolveMdmTripCost({
+      vehicleType: editForm.vehicle_type,
+      capacity: cap,
+      customer: cust || null,
+      orgRates: negotiatedRates,
+      asOfDate: asOf,
+      tripOps,
+    })
+    if (worth != null && worth > 0) {
       setEditForm((f) =>
         f.total_shipment_cost === String(worth) ? f : { ...f, total_shipment_cost: String(worth) }
       )
     }
-  }, [editForm.vehicle_type, editForm.cubic_capacity, editForm.customer_id, negotiatedRates, customers, editingTrip?.trip_date])
+  }, [editForm.vehicle_type, editForm.cubic_capacity, editForm.customer_id, negotiatedRates, customers, editingTrip?.trip_date, tripOps])
 
   const loadInitialData = async () => {
     if (!user) {
@@ -485,6 +499,7 @@ function EmployeePage() {
       orgRates: negotiatedRates,
       asOfDate: todayIso,
       manualEntered: Number.isFinite(entered) && entered > 0 ? entered : null,
+      tripOps,
     })
     const worth = resolved.worth
     const rate = resolved.rate
@@ -497,7 +512,7 @@ function EmployeePage() {
       return
     }
 
-    if (tripForm.settled && !(worth != null && worth > 0)) {
+    if (tripForm.settled && showSettle && !(worth != null && worth > 0)) {
       toast.error('Settled trips require a trip cost greater than zero')
       setSubmittingTrip(false)
       return
@@ -553,11 +568,11 @@ function EmployeePage() {
       notes: tripForm.notes || null,
       created_by: user.id,
       ownership_snapshot: ownership,
-      settled: tripForm.settled,
-      payment_status: tripForm.settled ? 'settled' : 'pending',
-      payment_method: tripForm.settled ? tripForm.settlement_method : null,
-      payment_reference: tripForm.settled ? tripForm.settlement_ref : null,
-      settlement_amount: tripForm.settled && worth != null ? worth : undefined,
+      settled: showSettle ? tripForm.settled : false,
+      payment_status: showSettle && tripForm.settled ? 'settled' : 'pending',
+      payment_method: showSettle && tripForm.settled ? tripForm.settlement_method : null,
+      payment_reference: showSettle && tripForm.settled ? tripForm.settlement_ref : null,
+      settlement_amount: showSettle && tripForm.settled && worth != null ? worth : undefined,
       _vehicle_plate: upperPlate || null,
     }
 
@@ -789,6 +804,7 @@ function EmployeePage() {
       orgRates: negotiatedRates,
       asOfDate: asOf,
       manualEntered: Number.isFinite(entered) && entered > 0 ? entered : null,
+      tripOps,
     })
     const worth =
       resolved.worth != null
@@ -944,6 +960,10 @@ function EmployeePage() {
   }
 
   const openSettleSheet = (trip: any, method: 'upi' | 'cash' = 'upi') => {
+    if (!showSettle) {
+      toast.error('Settlement is restricted to admins for this organization')
+      return
+    }
     setSettleTrip(trip)
     setSettleMethod(method)
     setSettleRef(trip.settlement_ref || '')
@@ -1098,12 +1118,21 @@ function EmployeePage() {
           <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Trips Logged Today</div>
           <div style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '0.25rem' }}>{todayTrips.length}</div>
         </div>
-        <div className="card" style={{ padding: '0.875rem' }}>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Today&apos;s Shipment Value</div>
-          <div style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '0.25rem', color: 'var(--accent)' }}>
-            ₹{todayTrips.reduce((sum, t) => sum + (t.total_shipment_cost || 0), 0).toLocaleString('en-IN')}
+        {showBilling ? (
+          <div className="card" style={{ padding: '0.875rem' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Today&apos;s Shipment Value</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '0.25rem', color: 'var(--accent)' }}>
+              ₹{todayTrips.reduce((sum, t) => sum + (t.total_shipment_cost || 0), 0).toLocaleString('en-IN')}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="card" style={{ padding: '0.875rem' }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>Qty today ({qtyLabel})</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, marginTop: '0.25rem' }}>
+              {todayTrips.reduce((sum, t) => sum + (Number(t.cubic_capacity) || 0), 0).toLocaleString('en-IN')}
+            </div>
+          </div>
+        )}
       </div>
       )}
 
@@ -1124,14 +1153,16 @@ function EmployeePage() {
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
                     Cust: {trip.customers?.name || 'Generic'} · Location: {trip.drop_location || 'N/A'}
                   </div>
+                  {showBilling && (
                   <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--accent)', marginTop: '0.25rem' }}>
                     Worth: ₹{(trip.total_shipment_cost || 0).toLocaleString('en-IN')}
                   </div>
-                  {trip.settled ? (
+                  )}
+                  {showSettle && trip.settled ? (
                     <span className="badge badge-success" style={{ marginTop: '0.375rem', display: 'inline-block' }}>
                       Settled ({trip.settlement_method} · {trip.settlement_ref})
                     </span>
-                  ) : (
+                  ) : showSettle ? (
                     <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
                       <button
                         type="button"
@@ -1150,7 +1181,7 @@ function EmployeePage() {
                         Settle Cash
                       </button>
                     </div>
-                  )}
+                  ) : null}
                 </div>
                 <button className="btn btn-ghost btn-sm" onClick={() => startEdit(trip)}>Edit</button>
               </div>
@@ -1272,7 +1303,7 @@ function EmployeePage() {
                   setTripForm(f => ({
                     ...f,
                     vehicle_type: type,
-                    cubic_capacity: getCapacityForType(type)
+                    cubic_capacity: defaultCommercialCapacity(type, tripOps, getCapacityForType)
                   }))
                 }}>
                 {VEHICLE_TYPES.map((t) => (
@@ -1281,9 +1312,14 @@ function EmployeePage() {
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Cubic Capacity (CUM) *</label>
+              <label className="form-label">Quantity ({qtyLabel}) *</label>
               <input className="form-input" type="number" placeholder="20"
                 value={tripForm.cubic_capacity} onChange={e => setTripForm(f => ({ ...f, cubic_capacity: e.target.value }))} required />
+              {tripOps.quantityUnit === 'unit' && (
+                <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
+                  {tripOps.unitsPerM3} unit(s) = 1 m³ · rates in {rateLabel}
+                </span>
+              )}
             </div>
           </div>
 
@@ -1351,6 +1387,7 @@ function EmployeePage() {
                 }}
               />
             </div>
+            {showBilling && (
             <div className="form-group">
               <label className="form-label">Distance Cost (₹)</label>
               <input
@@ -1369,14 +1406,15 @@ function EmployeePage() {
                 })()}
               </span>
             </div>
+            )}
           </div>
 
           <div className="form-group">
-            <label className="form-label">Advance Amount Paid (₹)</label>
+            <label className="form-label">Other costs (₹)</label>
             <input className="form-input" type="number" placeholder="1000"
               value={tripForm.advance_amount} onChange={e => setTripForm(f => ({ ...f, advance_amount: e.target.value }))} />
             <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-              Posted as cash out · Advance for trip
+              Posted as cash out · Other trip costs
             </span>
           </div>
 
@@ -1416,6 +1454,7 @@ function EmployeePage() {
             </div>
           </div>
 
+          {showSettle && (
           <div className="card mb-3" style={{ padding: '0.875rem' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
               <input type="checkbox" checked={tripForm.settled} onChange={e => setTripForm(f => ({ ...f, settled: e.target.checked }))} />
@@ -1440,6 +1479,7 @@ function EmployeePage() {
               </div>
             )}
           </div>
+          )}
 
           <div className="form-group">
             <label className="form-label">Notes</label>
@@ -1474,7 +1514,7 @@ function EmployeePage() {
                   setEditForm(f => ({
                     ...f,
                     vehicle_type: type,
-                    cubic_capacity: getCapacityForType(type)
+                    cubic_capacity: defaultCommercialCapacity(type, tripOps, getCapacityForType)
                   }))
                 }}>
                 {VEHICLE_TYPES.map((t) => (
@@ -1483,7 +1523,7 @@ function EmployeePage() {
               </select>
             </div>
             <div className="form-group">
-              <label className="form-label">Cubic Capacity (CUM) *</label>
+              <label className="form-label">Quantity ({qtyLabel}) *</label>
               <input className="form-input" type="number" placeholder="20"
                 value={editForm.cubic_capacity} onChange={e => setEditForm(f => ({ ...f, cubic_capacity: e.target.value }))} required />
             </div>
@@ -1530,11 +1570,11 @@ function EmployeePage() {
                 value={editForm.distance_km} onChange={e => setEditForm(f => ({ ...f, distance_km: e.target.value }))} />
             </div>
             <div className="form-group">
-              <label className="form-label">Advance Amount Paid (₹)</label>
+              <label className="form-label">Other costs (₹)</label>
               <input className="form-input" type="number" placeholder="1000"
                 value={editForm.advance_amount} onChange={e => setEditForm(f => ({ ...f, advance_amount: e.target.value }))} />
               <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                Updates cash out · Advance for trip
+                Updates cash out · Other trip costs
               </span>
             </div>
           </div>
@@ -1610,6 +1650,7 @@ function EmployeePage() {
               }} />
           </div>
 
+          {showSettle && (
           <div className="card mb-3" style={{ padding: '0.875rem' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 600 }}>
               <input type="checkbox" checked={editForm.settled} onChange={e => setEditForm(f => ({ ...f, settled: e.target.checked }))} />
@@ -1634,6 +1675,7 @@ function EmployeePage() {
               </div>
             )}
           </div>
+          )}
 
           <div className="form-group">
             <label className="form-label">Notes</label>

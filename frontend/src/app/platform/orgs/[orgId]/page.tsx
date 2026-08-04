@@ -14,12 +14,27 @@ export default function PlatformOrgDetailPage() {
   const supabase = createClient()
 
   const [loading, setLoading] = useState(true)
-  const [org, setOrg] = useState<{ id: string; name: string; active: boolean } | null>(null)
+  const [org, setOrg] = useState<{
+    id: string
+    name: string
+    active: boolean
+    billing_admin_only?: boolean
+    settlement_admin_only?: boolean
+    quantity_unit?: string
+    units_per_m3?: number
+  } | null>(null)
   const [features, setFeatures] = useState<Record<FeatureKey, boolean>>(
     () => Object.fromEntries(FEATURE_KEYS.map((k) => [k, true])) as Record<FeatureKey, boolean>
   )
   const [admins, setAdmins] = useState<Array<{ user_id: string; email: string; created_at: string | null }>>([])
   const [savingFeatures, setSavingFeatures] = useState(false)
+  const [savingTripOps, setSavingTripOps] = useState(false)
+  const [tripOpsForm, setTripOpsForm] = useState({
+    billing_admin_only: false,
+    settlement_admin_only: false,
+    quantity_unit: 'm3' as 'm3' | 'unit',
+    units_per_m3: '1',
+  })
   const [showAddAdmin, setShowAddAdmin] = useState(false)
   const [adminForm, setAdminForm] = useState({ email: '', password: '' })
   const [addingAdmin, setAddingAdmin] = useState(false)
@@ -42,6 +57,13 @@ export default function PlatformOrgDetailPage() {
       setOrg(json.organization)
       setFeatures(json.features)
       setAdmins(json.admins || [])
+      const o = json.organization || {}
+      setTripOpsForm({
+        billing_admin_only: o.billing_admin_only === true,
+        settlement_admin_only: o.settlement_admin_only === true,
+        quantity_unit: o.quantity_unit === 'unit' ? 'unit' : 'm3',
+        units_per_m3: String(o.units_per_m3 ?? 1),
+      })
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Load failed')
     } finally {
@@ -97,6 +119,37 @@ export default function PlatformOrgDetailPage() {
       toast.success(json.organization.active ? 'Organization activated' : 'Organization deactivated')
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Update failed')
+    }
+  }
+
+  const saveTripOps = async () => {
+    setSavingTripOps(true)
+    try {
+      const token = await getToken()
+      if (!token) throw new Error('Not signed in')
+      const units = Number(tripOpsForm.units_per_m3)
+      if (!Number.isFinite(units) || units <= 0) throw new Error('units_per_m3 must be > 0')
+      const res = await fetch(`/api/platform/orgs/${orgId}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          billing_admin_only: tripOpsForm.billing_admin_only,
+          settlement_admin_only: tripOpsForm.settlement_admin_only,
+          quantity_unit: tripOpsForm.quantity_unit,
+          units_per_m3: units,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Save failed')
+      setOrg(json.organization)
+      toast.success('Trip ops policies updated')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSavingTripOps(false)
     }
   }
 
@@ -223,6 +276,79 @@ export default function PlatformOrgDetailPage() {
             ))}
           </ul>
         )}
+      </div>
+
+      {/* Trip ops policies */}
+      <div className="card mb-4" style={{ padding: '1.25rem' }}>
+        <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>Trip ops policies</h2>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+          Per-tenant visibility and units. For clients who hide billing from site managers, enable both admin-only toggles.
+        </p>
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
+          <span>
+            <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>Billing admin-only</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Hide trip cost / distance cost from non-admins
+            </div>
+          </span>
+          <input
+            type="checkbox"
+            checked={tripOpsForm.billing_admin_only}
+            onChange={(e) => setTripOpsForm((f) => ({ ...f, billing_admin_only: e.target.checked }))}
+          />
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', padding: '0.75rem 0' }}>
+          <span>
+            <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>Settlement admin-only</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              Only admins can settle / collect payment
+            </div>
+          </span>
+          <input
+            type="checkbox"
+            checked={tripOpsForm.settlement_admin_only}
+            onChange={(e) => setTripOpsForm((f) => ({ ...f, settlement_admin_only: e.target.checked }))}
+          />
+        </label>
+        <div className="form-group" style={{ marginTop: '0.75rem' }}>
+          <label className="form-label">Quantity unit</label>
+          <select
+            className="form-input form-select"
+            value={tripOpsForm.quantity_unit}
+            onChange={(e) =>
+              setTripOpsForm((f) => ({
+                ...f,
+                quantity_unit: e.target.value === 'unit' ? 'unit' : 'm3',
+              }))
+            }
+          >
+            <option value="m3">m³ (cubic metres)</option>
+            <option value="unit">Unit (custom)</option>
+          </select>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Units per m³</label>
+          <input
+            className="form-input"
+            type="number"
+            min="0.0001"
+            step="any"
+            value={tripOpsForm.units_per_m3}
+            onChange={(e) => setTripOpsForm((f) => ({ ...f, units_per_m3: e.target.value }))}
+          />
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+            How many commercial units equal 1 m³ (e.g. 1.2 units = 1 m³)
+          </span>
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ marginTop: '0.75rem' }}
+          onClick={() => void saveTripOps()}
+          disabled={savingTripOps}
+        >
+          {savingTripOps ? 'Saving…' : 'Save trip ops'}
+        </button>
       </div>
 
       {/* Features */}

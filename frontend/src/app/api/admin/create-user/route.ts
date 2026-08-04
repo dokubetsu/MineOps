@@ -12,7 +12,7 @@ const optionalUuid = z.string().uuid('Invalid ID format').nullish().transform((v
 const createUserSchema = z.object({
   email: z.string().email('Invalid email address'),
   password: passwordSchema,
-  role: z.enum(['admin', 'site_manager', 'stakeholder', 'employee', 'site_employee'], {
+  role: z.enum(['admin', 'site_manager', 'stakeholder', 'employee', 'site_employee', 'unload_clerk'], {
     error: 'Invalid role',
   }),
   site_id: optionalUuid,

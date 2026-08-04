@@ -22,7 +22,7 @@ function NavContent() {
   const router = useRouter()
   const {
     user, isAdmin, isSiteManager, isStakeholder, isSiteEmployee, isEmployee,
-    isPlatformOwner, organizationName, hasFeature, loading: authLoading, userRole,
+    isUnloadClerk, isPlatformOwner, organizationName, hasFeature, loading: authLoading, userRole,
     assignedSiteName, assignedSites,
   } = useAuth()
   const { theme, toggleTheme } = useTheme()
@@ -67,6 +67,7 @@ function NavContent() {
   const operationsNav: NavItem[] = [
     { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['admin', 'site_manager'] },
     { href: '/dashboard/my-work', icon: LayoutDashboard, label: 'Home', roles: ['employee', 'site_employee'] },
+    { href: '/dashboard/unload', icon: Truck, label: 'Unload', roles: ['unload_clerk', 'admin'], feature: 'trips' },
     { href: '/dashboard/trips', icon: Truck, label: 'Trips', roles: ['admin', 'site_manager'], feature: 'trips' },
     { href: '/dashboard/cash-book', icon: BookOpen, label: 'Cash Book', roles: ['admin', 'site_manager'], feature: 'cash_book' },
     { href: '/dashboard/attendance', icon: Calendar, label: 'Attendance', roles: ['admin', 'site_manager'], feature: 'attendance' },
@@ -85,6 +86,7 @@ function NavContent() {
   const roleAllows = (item: NavItem) =>
     (isAdmin && item.roles.includes('admin')) ||
     (isSiteManager && item.roles.includes('site_manager')) ||
+    (isUnloadClerk && item.roles.includes('unload_clerk')) ||
     (isStakeholder && item.roles.includes('stakeholder')) ||
     ((isEmployee || isSiteEmployee) && item.roles.some((r) => r === 'employee' || r === 'site_employee'))
 

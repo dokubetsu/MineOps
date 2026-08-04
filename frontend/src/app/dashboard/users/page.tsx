@@ -12,6 +12,7 @@ import { toErrorMessage } from '@/lib/errors'
 const ROLES = [
   { value: 'admin', label: 'Admin', desc: 'Full access to all sites and data', icon: '🛡️' },
   { value: 'site_manager', label: 'Site Manager', desc: 'Manage trips, cash, attendance for assigned site', icon: '👷' },
+  { value: 'unload_clerk', label: 'Unload clerk', desc: 'Document destination unloading only', icon: '📦' },
   { value: 'stakeholder', label: 'Stakeholder', desc: 'Read-only revenue share dashboard', icon: '📊' },
   { value: 'site_employee', label: 'Site Employee', desc: 'Log trips, expenses, and track attendance', icon: '🚛' },
 ] as const

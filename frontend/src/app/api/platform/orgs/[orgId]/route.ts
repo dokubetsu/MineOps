@@ -6,6 +6,10 @@ import { FEATURE_KEYS } from '@/lib/features'
 const patchOrgSchema = z.object({
   name: z.string().min(2).optional(),
   active: z.boolean().optional(),
+  billing_admin_only: z.boolean().optional(),
+  settlement_admin_only: z.boolean().optional(),
+  quantity_unit: z.enum(['m3', 'unit']).optional(),
+  units_per_m3: z.number().positive().optional(),
 })
 
 type Ctx = { params: Promise<{ orgId: string }> }
@@ -19,7 +23,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
 
   const { data: org, error } = await supabase
     .from('organizations')
-    .select('id, name, active, created_at, updated_at')
+    .select(
+      'id, name, active, created_at, updated_at, billing_admin_only, settlement_admin_only, quantity_unit, units_per_m3'
+    )
     .eq('id', orgId)
     .maybeSingle()
 
@@ -84,6 +90,14 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (parsed.data.name !== undefined) updates.name = parsed.data.name.trim()
   if (parsed.data.active !== undefined) updates.active = parsed.data.active
+  if (parsed.data.billing_admin_only !== undefined) {
+    updates.billing_admin_only = parsed.data.billing_admin_only
+  }
+  if (parsed.data.settlement_admin_only !== undefined) {
+    updates.settlement_admin_only = parsed.data.settlement_admin_only
+  }
+  if (parsed.data.quantity_unit !== undefined) updates.quantity_unit = parsed.data.quantity_unit
+  if (parsed.data.units_per_m3 !== undefined) updates.units_per_m3 = parsed.data.units_per_m3
 
   const { data, error } = await supabase
     .from('organizations')
