@@ -4,6 +4,14 @@
 -- Assign one or more *loading* (origin) sites to an unload clerk so they
 -- see outbound trips from those sites to document unload at any destination.
 
+-- Drop prior overloads (adding p_site_ids creates a new signature; COMMENT needs one)
+DROP FUNCTION IF EXISTS public.provision_user_access(
+  uuid, text, uuid, uuid, numeric, text, uuid, text, text, text, numeric
+);
+DROP FUNCTION IF EXISTS public.provision_user_access(
+  uuid, text, uuid, uuid, numeric, text, uuid, text, text, text, numeric, uuid[]
+);
+
 CREATE OR REPLACE FUNCTION public.provision_user_access(
   p_user_id uuid,
   p_role text,
@@ -155,5 +163,20 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.provision_user_access IS
+COMMENT ON FUNCTION public.provision_user_access(
+  uuid, text, uuid, uuid, numeric, text, uuid, text, text, text, numeric, uuid[]
+) IS
   'Provision tenant role; unload_clerk may receive multiple loading sites via p_site_ids.';
+
+REVOKE ALL ON FUNCTION public.provision_user_access(
+  uuid, text, uuid, uuid, numeric, text, uuid, text, text, text, numeric, uuid[]
+) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.provision_user_access(
+  uuid, text, uuid, uuid, numeric, text, uuid, text, text, text, numeric, uuid[]
+) FROM anon;
+REVOKE ALL ON FUNCTION public.provision_user_access(
+  uuid, text, uuid, uuid, numeric, text, uuid, text, text, text, numeric, uuid[]
+) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.provision_user_access(
+  uuid, text, uuid, uuid, numeric, text, uuid, text, text, text, numeric, uuid[]
+) TO service_role;
