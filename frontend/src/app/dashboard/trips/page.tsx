@@ -5,6 +5,12 @@ import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import { Plus, Truck, X, Camera, Image as ImageIcon, Pencil, Trash2 } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import {
+  canSeeTripBilling,
+  canSettleTrips,
+  quantityUnitLabel,
+  rateUnitLabel,
+} from '@/lib/trip-ops-policy'
 import { useRouter } from 'next/navigation'
 import { Site, Vehicle, TransportContractor, Trip, Customer } from '@/lib/supabase/types'
 import { tripsRepository } from '@/lib/repositories/trips'
@@ -68,10 +74,15 @@ interface ExtendedTrip extends Trip {
 }
 
 export default function TripsPage() {
-  const { user, isAdmin, isSiteManager, organizationId, loading: authLoading } = useAuth()
+  const { user, isAdmin, isSiteManager, organizationId, loading: authLoading, userRole, tripOps } =
+    useAuth()
   const router = useRouter()
   const supabase = createClient()
   const PAGE_LIMIT = 20
+  const showBilling = canSeeTripBilling(userRole?.role, tripOps)
+  const showSettle = canSettleTrips(userRole?.role, tripOps)
+  const qtyLabel = quantityUnitLabel(tripOps)
+  const rateLabel = rateUnitLabel(tripOps)
 
   const [trips, setTrips] = useState<ExtendedTrip[]>([])
   const [sites, setSites] = useState<Site[]>([])
@@ -663,12 +674,12 @@ export default function TripsPage() {
         distance_km: distKm,
         trip_worth: enteredWorth ?? shipmentCost,
         total_shipment_cost: shipmentCost ?? enteredWorth,
-        payment_status: form.payment_status,
-        payment_method: form.payment_status === 'settled' ? form.payment_method : null,
-        payment_reference: form.payment_status === 'settled' ? form.payment_reference : null,
-        settled: form.payment_status === 'settled',
-        settlement_amount: form.payment_status === 'settled' ? (tripCost || 0) : 0,
-        settlement_account: form.payment_status === 'settled' ? (form.payment_reference || 'UPI/Cash') : null,
+        payment_status: showSettle ? form.payment_status : 'pending',
+        payment_method: showSettle && form.payment_status === 'settled' ? form.payment_method : null,
+        payment_reference: showSettle && form.payment_status === 'settled' ? form.payment_reference : null,
+        settled: showSettle && form.payment_status === 'settled',
+        settlement_amount: showSettle && form.payment_status === 'settled' ? (tripCost || 0) : 0,
+        settlement_account: showSettle && form.payment_status === 'settled' ? (form.payment_reference || 'UPI/Cash') : null,
       }
     }
 
@@ -1046,16 +1057,16 @@ export default function TripsPage() {
                   
                   {/* Detailed specs banner */}
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.25rem', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                    {trip.cubic_capacity && <span>Capacity: {trip.cubic_capacity} m³</span>}
+                    {trip.cubic_capacity && <span>Capacity: {trip.cubic_capacity} {qtyLabel}</span>}
                     {trip.permit_number && <span>Permit: {trip.permit_number}</span>}
                     {trip.drop_location && <span>Drop: {trip.drop_location}</span>}
                     {trip.distance_km && (
                       <span>
                         Dist: {trip.distance_km} km
-                        {trip.distance_cost ? ` (₹${trip.distance_cost.toLocaleString('en-IN')})` : ''}
+                        {showBilling && trip.distance_cost ? ` (₹${trip.distance_cost.toLocaleString('en-IN')})` : ''}
                       </span>
                     )}
-                    {trip.advance_amount ? <span>Advance: ₹{trip.advance_amount}</span> : null}
+                    {trip.advance_amount ? <span>Other costs: ₹{trip.advance_amount}</span> : null}
                   </div>
 
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.125rem' }}>
@@ -1064,11 +1075,11 @@ export default function TripsPage() {
                   </div>
 
                   <div style={{ marginTop: '0.375rem', display: 'flex', alignItems: 'center', gap: '0.375rem', flexWrap: 'wrap' }}>
-                    {trip.settled || trip.payment_status === 'settled' ? (
+                    {showSettle && (trip.settled || trip.payment_status === 'settled') ? (
                       <span style={{ fontSize: '0.7rem', padding: '0.15rem 0.35rem', borderRadius: '5px', background: 'rgba(16,185,129,0.12)', color: 'var(--success)', fontWeight: 600 }}>
                         Collected: ₹{Number(trip.trip_worth || trip.settlement_amount).toLocaleString('en-IN')} via {trip.payment_method?.toUpperCase() || 'UPI/Cash'}
                       </span>
-                    ) : (
+                    ) : showSettle ? (
                       <button
                         className="btn btn-success btn-xs"
                         style={{ fontSize: '0.65rem', padding: '0.15rem 0.4rem' }}
@@ -1080,8 +1091,8 @@ export default function TripsPage() {
                       >
                         Settle Collection
                       </button>
-                    )}
-                    {trip.trip_worth && (
+                    ) : null}
+                    {showBilling && trip.trip_worth && (
                       <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--accent)' }}>
                         Worth: ₹{trip.trip_worth.toLocaleString('en-IN')}
                       </span>
@@ -1262,6 +1273,7 @@ export default function TripsPage() {
                 placeholder="e.g. 45"
               />
             </div>
+            {showBilling && (
             <div className="form-group">
               <label className="form-label">Distance Cost (₹)</label>
               <input
@@ -1281,9 +1293,11 @@ export default function TripsPage() {
                 })()}
               </span>
             </div>
+            )}
           </div>
 
           <div className="grid-2">
+            {showBilling && (
             <div className="form-group">
               <label className="form-label">Trip cost (₹)</label>
               <input
@@ -1294,7 +1308,6 @@ export default function TripsPage() {
                 onChange={(e) =>
                   setForm((f) => {
                     const next = e.target.value
-                    // Keep shipment in sync if it still matched previous trip cost
                     const ship =
                       !f.total_shipment_cost || f.total_shipment_cost === f.trip_worth
                         ? next
@@ -1326,8 +1339,8 @@ export default function TripsPage() {
                   const totalWorth = computeTripWorthFromRate(cap, rate)
                   const hintText =
                     cap > 0
-                      ? `Hint ₹${rate}/m³ × ${cap}m³ = ₹${totalWorth} (${srcLabel})`
-                      : `Hint ₹${rate}/m³ × CC (enter capacity)`
+                      ? `Hint ${rateLabel} ₹${rate} × ${cap}${qtyLabel} = ₹${totalWorth} (${srcLabel})`
+                      : `Hint ${rateLabel} ₹${rate} × qty (enter capacity)`
                   return (
                     <>
                       {hintText} ·{' '}
@@ -1354,17 +1367,19 @@ export default function TripsPage() {
                 })()}
               </span>
             </div>
+            )}
             <div className="form-group">
-              <label className="form-label">Advance Amount (₹)</label>
+              <label className="form-label">Other costs (₹)</label>
               <input className="form-input" type="number" step="any" value={form.advance_amount}
                 onChange={e => setForm(f => ({ ...f, advance_amount: e.target.value }))} />
               <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>
-                Posted as cash out · Advance for trip
+                Posted as cash out · Other trip costs
               </span>
             </div>
           </div>
 
           {/* Payment Status & Settlement */}
+          {showSettle && (
           <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1rem' }}>
             <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.75rem', fontFamily: 'var(--font-display)', color: 'var(--accent)' }}>Payment Settlement</div>
             
@@ -1396,6 +1411,7 @@ export default function TripsPage() {
               </div>
             )}
           </div>
+          )}
 
           <div className="form-group">
             <label className="form-label">Load Info</label>
@@ -1485,7 +1501,7 @@ export default function TripsPage() {
       />
 
       {/* Settle Trip Modal */}
-      {settleTripId && (
+      {showSettle && settleTripId && (
         <>
           <div className="sheet-overlay" onClick={() => setSettleTripId(null)} />
           <div className="sheet">
