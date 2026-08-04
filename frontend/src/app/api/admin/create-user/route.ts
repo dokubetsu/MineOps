@@ -5,24 +5,38 @@ import { passwordSchema } from '@/lib/password-policy'
 import { assertOrganizationActive } from '@/lib/admin-auth'
 
 // Zod schema for validating the incoming request body
+/** UI often sends null for unused optional fields; treat null like omitted. */
+const optionalString = z.string().nullish().transform((v) => v ?? undefined)
+const optionalUuid = z.string().uuid('Invalid ID format').nullish().transform((v) => v ?? null)
+
 const createUserSchema = z.object({
   email: z.string().email('Invalid email address'),
   password: passwordSchema,
-  role: z.enum(['admin', 'site_manager', 'stakeholder', 'employee', 'site_employee']),
-  site_id: z.string().uuid('Invalid site ID format').nullable().optional(),
-  share_percent: z.union([z.number(), z.string()]).transform((val) => {
-    const num = parseFloat(String(val))
-    return isNaN(num) ? 50 : num
-  }).optional(),
-  employee_link_mode: z.enum(['link', 'create', 'none']).optional(),
-  employee_id: z.string().uuid('Invalid employee ID').nullable().optional(),
-  employee_name: z.string().optional(),
-  employee_phone: z.string().optional(),
-  employee_wage_type: z.string().optional(),
-  employee_wage_rate: z.union([z.number(), z.string()]).transform((val) => {
-    const num = parseFloat(String(val))
-    return isNaN(num) ? 0 : num
-  }).optional(),
+  role: z.enum(['admin', 'site_manager', 'stakeholder', 'employee', 'site_employee'], {
+    error: 'Invalid role',
+  }),
+  site_id: optionalUuid,
+  share_percent: z
+    .union([z.number(), z.string()])
+    .nullish()
+    .transform((val) => {
+      if (val == null || val === '') return 50
+      const num = parseFloat(String(val))
+      return isNaN(num) ? 50 : num
+    }),
+  employee_link_mode: z.enum(['link', 'create', 'none']).nullish().transform((v) => v ?? 'none'),
+  employee_id: optionalUuid,
+  employee_name: optionalString,
+  employee_phone: optionalString,
+  employee_wage_type: optionalString,
+  employee_wage_rate: z
+    .union([z.number(), z.string()])
+    .nullish()
+    .transform((val) => {
+      if (val == null || val === '') return 0
+      const num = parseFloat(String(val))
+      return isNaN(num) ? 0 : num
+    }),
 }).refine(
   (data) => data.role === 'admin' || !!data.site_id,
   { message: 'A site is required for non-admin roles', path: ['site_id'] }
@@ -106,7 +120,11 @@ export async function POST(req: NextRequest) {
   const result = createUserSchema.safeParse(body)
   if (!result.success) {
     return NextResponse.json(
-      { error: result.error.issues.map(err => err.message).join(', ') },
+      {
+        error: result.error.issues
+          .map((err) => (err.path.length ? `${err.path.join('.')}: ${err.message}` : err.message))
+          .join('; '),
+      },
       { status: 400 }
     )
   }

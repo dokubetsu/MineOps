@@ -431,9 +431,9 @@ export default function UsersPage() {
               </div>
               <div className="form-group">
                 <label className="form-label">Password *</label>
-                <input className="form-input" type="password" placeholder="Min 10 chars, letter + number"
+                <input className="form-input" type="password" placeholder="Min 12 chars, letter + number + special"
                   value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                  required minLength={10} />
+                  required minLength={12} />
               </div>
               <div className="form-group">
                 <label className="form-label">Role *</label>
