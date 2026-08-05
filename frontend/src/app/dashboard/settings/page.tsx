@@ -395,14 +395,14 @@ export default function SettingsPage() {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1.25rem', background: 'var(--bg-card)', borderRadius: 'var(--radius)', padding: '0.25rem', border: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', gap: '0.375rem', marginBottom: '1.25rem', background: 'var(--bg-card)', borderRadius: 'var(--radius)', padding: '0.25rem', border: '1px solid var(--border)', overflowX: 'auto', flexWrap: 'nowrap', scrollbarWidth: 'none' }}>
         {tabs.map(tab => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key as any)}
             style={{
-              flex: 1,
-              padding: '0.5rem',
+              flexShrink: 0,
+              padding: '0.5rem 0.875rem',
               border: 'none',
               borderRadius: '7px',
               cursor: 'pointer',
@@ -412,10 +412,11 @@ export default function SettingsPage() {
               background: activeTab === tab.key ? 'var(--accent)' : 'transparent',
               color: activeTab === tab.key ? '#0a0b0f' : 'var(--text-muted)',
               transition: 'all 0.15s',
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: '0.375rem',
+              whiteSpace: 'nowrap',
             }}
           >
             {tab.label}

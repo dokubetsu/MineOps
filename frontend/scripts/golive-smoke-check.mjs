@@ -24,15 +24,18 @@ function fail(msg) {
 
 console.log('Khani go-live smoke (repo invariants)\n')
 
-// Migrations through 068
+// Migrations through 069
 const migDir = join(root, 'supabase', 'migrations')
 const migs = readdirSync(migDir).filter((f) => f.endsWith('.sql')).sort()
 const has067 = migs.some((f) => f.startsWith('067_'))
 const has068 = migs.some((f) => f.startsWith('068_'))
+const has069 = migs.some((f) => f.startsWith('069_'))
 if (has067) ok(`migration 067 present (${migs.filter((f) => f.startsWith('067_'))[0]})`)
 else fail('migration 067 missing')
 if (has068) ok(`migration 068 present (${migs.filter((f) => f.startsWith('068_'))[0]})`)
 else fail('migration 068 missing')
+if (has069) ok(`migration 069 present (${migs.filter((f) => f.startsWith('069_'))[0]})`)
+else fail('migration 069 missing')
 
 const mig068 = readFileSync(join(migDir, '068_period_purge_leave_and_settlement_admin.sql'), 'utf8')
 if (/v_is_service|service_role/.test(mig068) && /unapprove_leave_application/.test(mig068)) {
@@ -41,6 +44,11 @@ if (/v_is_service|service_role/.test(mig068) && /unapprove_leave_application/.te
 if (/settlement_admin_only/.test(mig068) && /Only admins can settle/.test(mig068)) {
   ok('068 enforces settlement_admin_only at DB')
 } else fail('068 missing settlement_admin_only DB gate')
+
+const mig069 = readFileSync(join(migDir, '069_delete_organization_helper.sql'), 'utf8')
+if (/delete_organization_cascade/.test(mig069) && /service_role/.test(mig069)) {
+  ok('069 delete cascade helper allows service_role')
+} else fail('069 missing service_role bypass or delete cascade function')
 
 // Period-ops fail-closed
 const periodOps = readFileSync(
@@ -57,14 +65,14 @@ if (
 // Docs aligned
 const docs = [
   ['docs/CLIENT_DEPLOY.md', /067/],
-  ['docs/DEPLOYMENT_CHECKLIST.md', /068/],
-  ['README.md', /068_period_purge_leave_and_settlement_admin/],
-  ['docs/SCHEMA_SSOT.md', /068_period_purge_leave_and_settlement_admin/],
+  ['docs/DEPLOYMENT_CHECKLIST.md', /069/],
+  ['README.md', /069_delete_organization_helper/],
+  ['docs/SCHEMA_SSOT.md', /069_delete_organization_helper/],
 ]
 for (const [rel, re] of docs) {
   const text = readFileSync(join(root, rel), 'utf8')
   if (re.test(text)) ok(`${rel} mentions latest migrations`)
-  else fail(`${rel} not updated for 067/068`)
+  else fail(`${rel} not updated for 067/068/069`)
 }
 
 // CLIENT_DEPLOY must not claim "through 064" as the terminal target

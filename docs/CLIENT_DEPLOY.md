@@ -48,7 +48,7 @@ supabase db push
 supabase migration list
 ```
 
-- Confirm remote includes **`067_unload_clerk_multi_loading_sites.sql`** (and everything before it: **065** trip-ops/unload clerk, **066** unload scope, **064** offline `client_id`). After this repo’s handover hardening, also confirm **`068_period_purge_leave_and_settlement_admin.sql`** when present.
+- Confirm remote includes **`067_unload_clerk_multi_loading_sites.sql`** (and everything before it: **065** trip-ops/unload clerk, **066** unload scope, **064** offline `client_id`). After this repo’s handover hardening, also confirm **`069_delete_organization_helper.sql`** when present.
 - Buckets (`trip-photos`, `attendance-photos`, `cash-receipts`) are automatically created and configured by SQL migrations.
 
 ---
@@ -139,11 +139,11 @@ As Tenant Admin / Site Manager:
 npm run smoke:golive
 ```
 
-This verifies migrations **067/068**, period-ops leave restore fail-closed, and docs alignment. It does **not** replace live checks on the client Supabase/Vercel project.
+This verifies migrations **067/068/069**, period-ops leave restore fail-closed, and docs alignment. It does **not** replace live checks on the client Supabase/Vercel project.
 
 Verify minimum go-live criteria on the **client** project:
 
-- [ ] All migrations through **`068`** applied to remote Supabase (`supabase migration list`).
+- [ ] All migrations through **`069`** applied to remote Supabase (`supabase migration list`).
 - [ ] Platform owner logs into `/platform`.
 - [ ] Organization + tenant admin created and logs into `/dashboard`.
 - [ ] Log one test trip: Rate × CC auto-calculates; settlement posts cash IN collection.

@@ -34,7 +34,7 @@ Khani uses a streamlined architecture (Option A: client-to-database backend-less
 │   └── package.json
 │
 ├── supabase/
-│   ├── migrations/        # Ordered SQL migrations (000–068+)
+│   ├── migrations/        # Ordered SQL migrations (000–069+)
 │   ├── seed.sql           # Local demo org, sites, employees, admin user
 │   └── config.toml
 │
@@ -72,7 +72,7 @@ For security, production credentials are not stored in source control. Access is
 
 ### 1. Database Setup
 
-Apply all Supabase migrations (currently through **`068_period_purge_leave_and_settlement_admin.sql`**, including unload clerk **065–067**).  
+Apply all Supabase migrations (currently through **`069_delete_organization_helper.sql`**, including unload clerk **065–067**).  
 Wage & trip pricing: [`docs/wage_policy.md`](docs/wage_policy.md) (trip cost = ₹/m³ × cubic capacity; month-end pack + optional admin purge). Platform bootstrap: [`docs/platform_owner_bootstrap.md`](docs/platform_owner_bootstrap.md). Env: [`docs/ENV.md`](docs/ENV.md). Schema types policy: [`docs/SCHEMA_SSOT.md`](docs/SCHEMA_SSOT.md).
 
 **Source of truth for the database is `supabase/migrations/`** — do not apply `schema.sql` alone (it is a reference snapshot).

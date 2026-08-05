@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { FEATURE_CATALOG, FEATURE_KEYS, type FeatureKey } from '@/lib/features'
 import { ArrowLeft, UserPlus } from 'lucide-react'
@@ -10,6 +10,7 @@ import toast from 'react-hot-toast'
 
 export default function PlatformOrgDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const orgId = params.orgId as string
   const supabase = createClient()
 
@@ -38,6 +39,10 @@ export default function PlatformOrgDetailPage() {
   const [showAddAdmin, setShowAddAdmin] = useState(false)
   const [adminForm, setAdminForm] = useState({ email: '', password: '' })
   const [addingAdmin, setAddingAdmin] = useState(false)
+
+  // Rename and delete state
+  const [renameName, setRenameName] = useState('')
+  const [renaming, setRenaming] = useState(false)
 
   const getToken = async () => {
     const { data } = await supabase.auth.getSession()
@@ -75,6 +80,60 @@ export default function PlatformOrgDetailPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (org?.name) {
+      setRenameName(org.name)
+    }
+  }, [org])
+
+  const handleRename = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!renameName.trim()) return
+    setRenaming(true)
+    try {
+      const token = await getToken()
+      if (!token) throw new Error('Not signed in')
+      const res = await fetch(`/api/platform/orgs/${orgId}`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: renameName.trim() }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Rename failed')
+      setOrg(json.organization)
+      toast.success('Organization renamed successfully')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Rename failed')
+    } finally {
+      setRenaming(false)
+    }
+  }
+
+  const deleteOrg = async () => {
+    if (!org) return
+    if (!window.confirm(`Are you absolutely sure you want to delete ${org.name}? This will permanently delete all its sites, trips, payrolls, employees, cash records, and auth users! This cannot be undone.`)) {
+      return
+    }
+    try {
+      const token = await getToken()
+      if (!token) throw new Error('Not signed in')
+      const res = await fetch(`/api/platform/orgs/${orgId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Deletion failed')
+      toast.success('Organization deleted successfully')
+      router.push('/platform')
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Deletion failed')
+    }
+  }
+
 
   const saveFeatures = async () => {
     setSavingFeatures(true)
@@ -213,6 +272,25 @@ export default function PlatformOrgDetailPage() {
         <button type="button" className={`btn ${org.active ? 'btn-danger' : 'btn-primary'}`} onClick={toggleActive}>
           {org.active ? 'Deactivate org' : 'Activate org'}
         </button>
+      </div>
+
+      {/* Organization details */}
+      <div className="card mb-4" style={{ padding: '1.25rem' }}>
+        <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>Organization details</h2>
+        <form onSubmit={handleRename} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: '200px' }}>
+            <label className="form-label">Rename Company / Mining Name</label>
+            <input
+              className="form-input"
+              required
+              value={renameName}
+              onChange={(e) => setRenameName(e.target.value)}
+            />
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={renaming}>
+            {renaming ? 'Renaming…' : 'Rename'}
+          </button>
+        </form>
       </div>
 
       {/* Admins */}
@@ -395,6 +473,18 @@ export default function PlatformOrgDetailPage() {
           {savingFeatures ? 'Saving…' : 'Save feature flags'}
         </button>
       </div>
+
+      {/* Danger Zone */}
+      <div className="card mb-4" style={{ padding: '1.25rem', marginTop: '1.5rem', border: '1px solid #ef4444', background: 'rgba(239, 68, 68, 0.05)' }}>
+        <h2 style={{ fontSize: '1rem', fontWeight: 600, color: '#ef4444', marginBottom: '0.5rem' }}>Danger Zone</h2>
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+          Deleting this organization is permanent and deletes all associated sites, trips, payrolls, employees, cash records, and user login credentials.
+        </p>
+        <button type="button" className="btn btn-danger" onClick={deleteOrg}>
+          Delete organization
+        </button>
+      </div>
     </div>
   )
 }
+

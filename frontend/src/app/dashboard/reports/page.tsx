@@ -725,7 +725,7 @@ export default function ReportsPage() {
             <input
               type="date"
               className="form-input"
-              style={{ flex: 1, minWidth: '140px' }}
+              style={{ flex: 1, minWidth: '165px' }}
               value={dayDate}
               onChange={(e) => setDayDate(e.target.value)}
             />
@@ -734,7 +734,7 @@ export default function ReportsPage() {
             <input
               type="date"
               className="form-input"
-              style={{ flex: 1, minWidth: '140px' }}
+              style={{ flex: 1, minWidth: '165px' }}
               value={weekDate}
               onChange={(e) => setWeekDate(e.target.value)}
               title="Any day in the week (Mon–Sun)"
@@ -744,7 +744,7 @@ export default function ReportsPage() {
             <input
               type="month"
               className="form-input"
-              style={{ flex: 1, minWidth: '140px' }}
+              style={{ flex: 1, minWidth: '165px' }}
               value={period}
               onChange={(e) => setPeriod(e.target.value)}
             />
@@ -832,7 +832,7 @@ export default function ReportsPage() {
           <span style={{ fontWeight: 600, fontSize: '0.875rem' }}>Cash Flow Export by Date Range</span>
         </div>
         <div style={{ display: 'flex', gap: '0.625rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: 1, minWidth: '130px' }}>
+          <div style={{ flex: 1, minWidth: '165px' }}>
             <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
               From
             </label>
@@ -843,7 +843,7 @@ export default function ReportsPage() {
               onChange={e => setExportFrom(e.target.value)}
             />
           </div>
-          <div style={{ flex: 1, minWidth: '130px' }}>
+          <div style={{ flex: 1, minWidth: '165px' }}>
             <label style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
               To
             </label>

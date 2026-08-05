@@ -120,3 +120,54 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
   return NextResponse.json({ organization: data })
 }
+
+/** DELETE organization and all its data cascade */
+export async function DELETE(req: NextRequest, ctx: Ctx) {
+  const gate = await requirePlatformOwner(req)
+  if (!gate.ok) return gate.response
+  const { supabase } = gate
+  const { orgId } = await ctx.params
+
+  // 1. Get all members/users of the organization from user_roles
+  const { data: members, error: membersError } = await supabase
+    .from('user_roles')
+    .select('user_id')
+    .eq('organization_id', orgId)
+
+  if (membersError) {
+    return NextResponse.json({ error: `Failed to fetch organization users: ${membersError.message}` }, { status: 500 })
+  }
+
+  // 2. Call the cascade delete RPC
+  const { error: deleteError } = await supabase.rpc('delete_organization_cascade', {
+    p_organization_id: orgId,
+  })
+
+  if (deleteError) {
+    return NextResponse.json({ error: `Database deletion failed: ${deleteError.message}` }, { status: 500 })
+  }
+
+  // 3. Delete auth users from Supabase Auth
+  const deletedUsers: string[] = []
+  const failedUsers: Array<{ id: string; error: string }> = []
+
+  for (const m of members || []) {
+    try {
+      const { error: authError } = await supabase.auth.admin.deleteUser(m.user_id)
+      if (authError) {
+        failedUsers.push({ id: m.user_id, error: authError.message })
+      } else {
+        deletedUsers.push(m.user_id)
+      }
+    } catch (err: any) {
+      failedUsers.push({ id: m.user_id, error: err.message || 'Unknown error' })
+    }
+  }
+
+  return NextResponse.json({
+    success: true,
+    deleted_users_count: deletedUsers.length,
+    failed_users: failedUsers,
+  })
+}
+

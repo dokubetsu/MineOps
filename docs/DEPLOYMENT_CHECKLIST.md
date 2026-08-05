@@ -6,7 +6,7 @@ Use this before every production deploy. Order matters.
 
 Remote Supabase must include **all** migrations through the latest file in `supabase/migrations/`.
 
-As of this document that is **`068_period_purge_leave_and_settlement_admin.sql`** (and everything before it).
+As of this document that is **`069_delete_organization_helper.sql`** (and everything before it).
 **057** lets site employees read their assigned site (fixes “Unassigned” on My Work).
 **061** adds distance rates (`rate_per_km`, `distance_cost`) for reporting.
 **062** forces MDM trip cost = rate × CC, blocks employee rate overrides, and lets service_role purge locked cash books.
@@ -16,6 +16,7 @@ As of this document that is **`068_period_purge_leave_and_settlement_admin.sql`*
 **066** unload clerk site-scoped + no re-stamp (admin may correct).
 **067** unload clerk may be assigned multiple **loading** sites.
 **068** period-ops leave unapprove works under `service_role`; DB enforces `settlement_admin_only`.
+**069** platform owner can cascade delete an organization and all its data.
 After schema changes, regenerate or hand-update `frontend/src/lib/supabase/database.types.ts` — see `docs/SCHEMA_SSOT.md` (`npm run gen:types` when CLI is available).
 
 ```bash
@@ -72,13 +73,14 @@ Alternative: Supabase Auth create user + SQL
 
 ## 6. Smoke test after deploy
 
-- [ ] Migrations list complete through **068** (and types/docs per `SCHEMA_SSOT.md`)  
+- [ ] Migrations list complete through **069** (and types/docs per `SCHEMA_SSOT.md`)  
 - [ ] Reports: paper pack CSV + admin period close/purge (confirm DELETE; no purge over finalized payroll; leave balances restored before leave delete)  
 - [ ] Deactivated org: dashboard blocked **and** `/api/admin/*` returns 403  
 - [ ] Trip cost: MDM rate × CC on create **and** edit (My Work)  
 - [ ] Settle trip → cash book **IN** “Trip settlement collection” (idempotent on re-settle sync)  
 - [ ] **Settlement admin-only**: with org flag on, site manager UPDATE to settled is rejected at DB; admin settle still works (**068**)  
 - [ ] Unload clerk: multi loading sites; documents unload; no settle when settlement admin-only (**065–067**)  
+- [ ] Platform owner organization delete: cascading DB cleanup and Auth user deletion works (**069**)  
 - [ ] Offline retry: same `client_id` does not duplicate trip/cash (**064**)  
 - [ ] Last admin per org: cannot delete/demote sole admin of org A while org B still has admins (**047**)  
 - [ ] Attendance frozen after payroll finalize for that month; empty finalize blocked; leave net-charge; settled amount &gt; 0 (**048**)  

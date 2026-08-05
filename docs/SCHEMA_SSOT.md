@@ -4,7 +4,7 @@
 
 | Priority | Artifact | Role |
 |----------|----------|------|
-| **1** | `supabase/migrations/*.sql` | **Source of truth** for production schema. Apply with `supabase db push` / CI. Currently through **`068_period_purge_leave_and_settlement_admin.sql`**. |
+| **1** | `supabase/migrations/*.sql` | **Source of truth** for production schema. Apply with `supabase db push` / CI. Currently through **`069_delete_organization_helper.sql`**. |
 | **2** | Live Supabase project after push | Runtime truth |
 | **3** | `frontend/src/lib/supabase/database.types.ts` | TypeScript client types — **must track migrations** |
 | **4** | `supabase/schema.sql` | **Reference dump only — intentionally lagging.** Do **not** apply as a full replace on prod. Prefer regenerating after a full local `db reset` if you want a snapshot. |

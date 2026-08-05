@@ -103,6 +103,31 @@ function PlatformShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
+      {/* Mobile Header for Platform Owner */}
+      <header className="mobile-header">
+        <div className="mobile-header-brand">
+          <img
+            src="/logo-icon.png"
+            alt="Khani"
+            style={{ height: '32px', width: '32px', borderRadius: '6px', objectFit: 'cover' }}
+          />
+          <span className="mobile-header-title" style={{ fontSize: '0.9rem' }}>
+            Khani Console
+          </span>
+        </div>
+        <div className="mobile-header-actions" style={{ gap: '0.5rem' }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '120px' }}>
+            {user.email}
+          </span>
+          <button type="button" onClick={toggleTheme} className="btn-ghost btn btn-icon" style={{ padding: '0.25rem' }} title="Toggle theme">
+            {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+          </button>
+          <button type="button" onClick={handleLogout} className="btn-ghost btn btn-icon" style={{ padding: '0.25rem' }} title="Sign out">
+            <LogOut size={16} />
+          </button>
+        </div>
+      </header>
+
       <nav className="sidebar">
         <div className="sidebar-logo">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

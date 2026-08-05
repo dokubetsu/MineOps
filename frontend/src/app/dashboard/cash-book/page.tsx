@@ -513,7 +513,7 @@ export default function CashBookPage() {
           <input
             type="date"
             className="form-input"
-            style={{ flex: 1, minWidth: '140px' }}
+            style={{ flex: 1, minWidth: '165px' }}
             value={selectedDate}
             onChange={e => setSelectedDate(e.target.value)}
           />

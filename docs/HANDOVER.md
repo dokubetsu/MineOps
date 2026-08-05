@@ -127,7 +127,7 @@ d:\idea2\
 │   └── next.config.ts
 ├── supabase/
 │   ├── migrations/                        # Numbered SQL migrations (source of truth)
-│   │   ├── 000_initial_schema.sql … 068_period_purge_leave_and_settlement_admin.sql
+│   │   ├── 000_initial_schema.sql … 069_delete_organization_helper.sql
 │   ├── schema.sql                         # Reference dump (not applied directly)
 │   ├── seed.sql                           # Local/CI seed data only (NEVER production)
 │   └── config.toml
