@@ -40,7 +40,7 @@ function PlatformShell({ children }: { children: React.ReactNode }) {
     clearOfflineCache()
     clearSignedUrlCache()
     await supabase.auth.signOut()
-    router.push('/')
+    window.location.href = '/'
   }
 
   // Setup page: no shell chrome required

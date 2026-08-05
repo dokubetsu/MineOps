@@ -51,7 +51,7 @@ function NavContent() {
     clearOfflineCache()
     clearSignedUrlCache()
     await supabase.auth.signOut()
-    router.push('/')
+    window.location.href = '/'
   }
 
   type NavItem = {
