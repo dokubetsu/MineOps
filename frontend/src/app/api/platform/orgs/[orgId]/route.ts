@@ -43,16 +43,17 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     .eq('organization_id', orgId)
     .eq('role', 'admin')
 
-  const admins = []
-  for (const row of adminRoles || []) {
-    const { data: u } = await supabase.auth.admin.getUserById(row.user_id)
-    admins.push({
-      user_id: row.user_id,
-      email: u.user?.email ?? '',
-      created_at: row.created_at,
-      role: row.role,
+  const admins = await Promise.all(
+    (adminRoles || []).map(async (row) => {
+      const { data: u } = await supabase.auth.admin.getUserById(row.user_id)
+      return {
+        user_id: row.user_id,
+        email: u.user?.email ?? '',
+        created_at: row.created_at,
+        role: row.role,
+      }
     })
-  }
+  )
 
   const features = Object.fromEntries(
     FEATURE_KEYS.map((k) => {
@@ -147,20 +148,40 @@ export async function DELETE(req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: `Database deletion failed: ${deleteError.message}` }, { status: 500 })
   }
 
-  // 3. Delete auth users from Supabase Auth
+  // 3. Delete auth users from Supabase Auth ONLY if they have no other organization roles and are not platform owners
   const deletedUsers: string[] = []
   const failedUsers: Array<{ id: string; error: string }> = []
+  const uniqueUserIds = [...new Set((members || []).map((m) => m.user_id).filter(Boolean))]
 
-  for (const m of members || []) {
+  for (const userId of uniqueUserIds) {
     try {
-      const { error: authError } = await supabase.auth.admin.deleteUser(m.user_id)
-      if (authError) {
-        failedUsers.push({ id: m.user_id, error: authError.message })
-      } else {
-        deletedUsers.push(m.user_id)
+      const [{ data: otherRoles }, { data: platformRole }] = await Promise.all([
+        supabase
+          .from('user_roles')
+          .select('id')
+          .eq('user_id', userId)
+          .limit(1),
+        supabase
+          .from('platform_roles')
+          .select('user_id')
+          .eq('user_id', userId)
+          .maybeSingle(),
+      ])
+
+      // If user has other roles in other orgs or is a platform operator, keep their auth user
+      if ((otherRoles && otherRoles.length > 0) || platformRole) {
+        continue
       }
-    } catch (err: any) {
-      failedUsers.push({ id: m.user_id, error: err.message || 'Unknown error' })
+
+      const { error: authError } = await supabase.auth.admin.deleteUser(userId)
+      if (authError) {
+        failedUsers.push({ id: userId, error: authError.message })
+      } else {
+        deletedUsers.push(userId)
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      failedUsers.push({ id: userId, error: message })
     }
   }
 

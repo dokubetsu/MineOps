@@ -6,10 +6,10 @@ import { defineConfig, devices } from '@playwright/test'
  * - tests/e2e/** — browser flows against local Next + Supabase
  *
  * Projects: unit | chromium | mobile (Pixel 5 critical smoke)
- *
  * Set PW_SKIP_WEBSERVER=1 when running unit tests without a Next build.
  */
-const skipWebServer = process.env.PW_SKIP_WEBSERVER === '1'
+const isUnitProject = process.argv.some((arg) => arg.includes('unit'))
+const skipWebServer = process.env.PW_SKIP_WEBSERVER === '1' || isUnitProject
 
 export default defineConfig({
   testDir: './tests',

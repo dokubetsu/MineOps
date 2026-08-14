@@ -5,12 +5,23 @@ import { checkRateLimit, pruneRateLimitStore } from './lib/rate-limit'
 import { featureForPath } from './lib/features'
 import { buildContentSecurityPolicy } from './lib/csp'
 
-function clientIp(request: NextRequest): string {
-  return (
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('x-real-ip') ||
-    '127.0.0.1'
-  )
+export function clientIp(request: NextRequest): string {
+  const vercelIp = request.headers.get('x-vercel-forwarded-for')
+  if (vercelIp) return vercelIp.split(',')[0].trim()
+
+  const cfIp = request.headers.get('cf-connecting-ip')
+  if (cfIp) return cfIp.trim()
+
+  const realIp = request.headers.get('x-real-ip')
+  if (realIp) return realIp.trim()
+
+  const xff = request.headers.get('x-forwarded-for')
+  if (xff) {
+    const parts = xff.split(',').map((p) => p.trim()).filter(Boolean)
+    if (parts.length > 0) return parts[parts.length - 1]
+  }
+
+  return '127.0.0.1'
 }
 
 /** Ensure CSP is set at request time (CI production + local Supabase). */

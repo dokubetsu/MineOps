@@ -24,10 +24,11 @@ async function cleanupTenantUser(
     .eq('stakeholder_user_id', userId)
     .eq('organization_id', organizationId)
 
-  // Some DBs may lack organization_id filter path — also delete by user for safety within org roles
-  await supabase.from('stakeholder_site_access').delete().eq('stakeholder_user_id', userId)
-
-  await supabase.from('employees').update({ user_id: null }).eq('user_id', userId)
+  await supabase
+    .from('employees')
+    .update({ user_id: null })
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
 
   const { error: rolesError } = await supabase
     .from('user_roles')
@@ -149,6 +150,42 @@ export async function POST(req: NextRequest) {
       )
     }
     return NextResponse.json({ error: message }, { status: 500 })
+  }
+
+  // Check if target user has roles in any other organization or platform_roles
+  const [{ data: remainingRoles }, { data: platformOwnerRole }] = await Promise.all([
+    supabase
+      .from('user_roles')
+      .select('id')
+      .eq('user_id', targetUserId)
+      .limit(1),
+    supabase
+      .from('platform_roles')
+      .select('user_id')
+      .eq('user_id', targetUserId)
+      .maybeSingle(),
+  ])
+
+  const shouldDeleteAuth = (!remainingRoles || remainingRoles.length === 0) && !platformOwnerRole
+
+  if (!shouldDeleteAuth) {
+    await supabase.from('audit_logs').insert({
+      organization_id: callerOrganizationId,
+      actor_user_id: callerData.user.id,
+      action: 'delete_user',
+      target_type: 'user',
+      target_id: targetUserId,
+      metadata: { roles_revoked: true, auth_retained_multi_org: true },
+    })
+
+    return NextResponse.json(
+      {
+        success: true,
+        user_id: targetUserId,
+        message: 'User removed from organization. Auth account preserved for other organizations.',
+      },
+      { status: 200 }
+    )
   }
 
   // Best-effort Auth delete (roles already gone — orphan cleanup)
