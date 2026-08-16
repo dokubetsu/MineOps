@@ -5,11 +5,11 @@ import React from 'react'
 export default function AmbientBlobs() {
   return (
     <div className="fixed inset-0 pointer-events-none overflow-hidden z-0" aria-hidden="true">
-      {/* Layer 1: Deep Space Base Radial Gradient */}
+      {/* Layer 1: Deep Obsidian Base Radial Gradient */}
       <div
         className="absolute inset-0"
         style={{
-          background: 'radial-gradient(ellipse at top, #0a0a0f 0%, #050506 50%, #020203 100%)',
+          background: 'radial-gradient(ellipse at top, #1e1308 0%, #08090c 50%, #040507 100%)',
         }}
       />
 
@@ -45,35 +45,35 @@ export default function AmbientBlobs() {
       />
 
       {/* Layer 4: Cinematic Animated Floating Gradient Blobs */}
-      {/* Primary Blob: Top-Center Accent Glow */}
+      {/* Primary Blob: Top-Center Molten Copper Glow */}
       <div
         className="absolute -top-[15%] left-1/2 -translate-x-1/2 w-[900px] h-[550px] md:w-[1200px] md:h-[700px] rounded-full blur-[140px] opacity-25 animate-float-slow"
         style={{
-          background: 'radial-gradient(circle, #5E6AD2 0%, #3B82F6 40%, transparent 70%)',
+          background: 'radial-gradient(circle, #D97706 0%, #B45309 40%, transparent 70%)',
         }}
       />
 
-      {/* Secondary Blob: Left Purple Ambient Glow */}
+      {/* Secondary Blob: Left Burnished Bronze Ambient Glow */}
       <div
-        className="absolute top-[25%] -left-[10%] w-[500px] h-[650px] md:w-[750px] md:h-[900px] rounded-full blur-[130px] opacity-15 animate-float-delayed"
+        className="absolute top-[25%] -left-[10%] w-[500px] h-[650px] md:w-[750px] md:h-[900px] rounded-full blur-[130px] opacity-18 animate-float-delayed"
         style={{
-          background: 'radial-gradient(circle, #8B5CF6 0%, #6366F1 50%, transparent 75%)',
+          background: 'radial-gradient(circle, #B45309 0%, #D97706 50%, transparent 75%)',
         }}
       />
 
-      {/* Tertiary Blob: Right Cyan/Indigo Accent Glow */}
+      {/* Tertiary Blob: Right Telematics Machinery Cyan Glow */}
       <div
-        className="absolute top-[45%] -right-[10%] w-[500px] h-[650px] md:w-[700px] md:h-[850px] rounded-full blur-[120px] opacity-12 animate-float-reverse"
+        className="absolute top-[45%] -right-[10%] w-[500px] h-[650px] md:w-[700px] md:h-[850px] rounded-full blur-[120px] opacity-14 animate-float-reverse"
         style={{
-          background: 'radial-gradient(circle, #38BDF8 0%, #5E6AD2 50%, transparent 70%)',
+          background: 'radial-gradient(circle, #0284C7 0%, #D97706 50%, transparent 70%)',
         }}
       />
 
-      {/* Bottom Subtle Center Pulse Glow */}
+      {/* Bottom Subtle Amber Pulse Glow */}
       <div
-        className="absolute bottom-[5%] left-1/2 -translate-x-1/2 w-[700px] h-[350px] md:w-[1000px] md:h-[450px] rounded-full blur-[150px] opacity-15 animate-pulse-glow"
+        className="absolute bottom-[5%] left-1/2 -translate-x-1/2 w-[700px] h-[350px] md:w-[1000px] md:h-[450px] rounded-full blur-[150px] opacity-18 animate-pulse-glow"
         style={{
-          background: 'radial-gradient(circle, #5E6AD2 0%, #4338CA 50%, transparent 75%)',
+          background: 'radial-gradient(circle, #F59E0B 0%, #B45309 50%, transparent 75%)',
         }}
       />
     </div>

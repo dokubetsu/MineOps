@@ -10,9 +10,9 @@ const config: Config = {
     extend: {
       colors: {
         background: {
-          deep: '#020203',
-          base: '#050506',
-          elevated: '#0a0a0c',
+          deep: '#040507',
+          base: '#08090C',
+          elevated: '#12151C',
         },
         surface: {
           DEFAULT: 'rgba(255, 255, 255, 0.05)',
@@ -24,14 +24,20 @@ const config: Config = {
           subtle: 'rgba(255, 255, 255, 0.60)',
         },
         accent: {
-          DEFAULT: '#5E6AD2',
-          bright: '#6872D9',
-          glow: 'rgba(94, 106, 210, 0.3)',
+          DEFAULT: '#D97706',
+          bright: '#F59E0B',
+          dark: '#B45309',
+          glow: 'rgba(217, 119, 6, 0.35)',
+        },
+        telematics: {
+          DEFAULT: '#0EA5E9',
+          bright: '#38BDF8',
+          glow: 'rgba(14, 165, 233, 0.30)',
         },
         border: {
           default: 'rgba(255, 255, 255, 0.06)',
           hover: 'rgba(255, 255, 255, 0.10)',
-          accent: 'rgba(94, 106, 210, 0.30)',
+          accent: 'rgba(217, 119, 6, 0.35)',
         },
       },
       fontFamily: {
@@ -39,12 +45,12 @@ const config: Config = {
         display: ['var(--font-space-grotesk)', 'Space Grotesk', 'sans-serif'],
       },
       boxShadow: {
-        'card-ambient': '0 0 0 1px rgba(255, 255, 255, 0.06), 0 2px 20px rgba(0, 0, 0, 0.4), 0 0 40px rgba(0, 0, 0, 0.2)',
-        'card-hover': '0 0 0 1px rgba(255, 255, 255, 0.1), 0 8px 40px rgba(0, 0, 0, 0.5), 0 0 80px rgba(94, 106, 210, 0.1)',
-        'accent-cta': '0 0 0 1px rgba(94, 106, 210, 0.5), 0 4px 12px rgba(94, 106, 210, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)',
+        'card-ambient': '0 0 0 1px rgba(255, 255, 255, 0.06), 0 2px 20px rgba(0, 0, 0, 0.5), 0 0 40px rgba(0, 0, 0, 0.3)',
+        'card-hover': '0 0 0 1px rgba(217, 119, 6, 0.25), 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 80px rgba(217, 119, 6, 0.12)',
+        'accent-cta': '0 0 0 1px rgba(217, 119, 6, 0.5), 0 4px 14px rgba(217, 119, 6, 0.35), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)',
         'inner-highlight': 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1)',
-        'glow-sm': '0 0 20px rgba(94, 106, 210, 0.2)',
-        'glow-lg': '0 0 50px rgba(94, 106, 210, 0.25)',
+        'glow-sm': '0 0 20px rgba(217, 119, 6, 0.25)',
+        'glow-lg': '0 0 50px rgba(217, 119, 6, 0.35)',
       },
       transitionTimingFunction: {
         'expo-out': 'cubic-bezier(0.16, 1, 0.3, 1)',

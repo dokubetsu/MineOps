@@ -7,36 +7,37 @@
 
 /* =====================================================
    KHANI ERP DESIGN SYSTEM
-   Dark teal + copper gem palette (matches Khani logo)
+   Theme 1: Deep Obsidian & Molten Copper
    ===================================================== */
 
 :root {
-  /* Core Colors - Light Slate */
+  /* Core Colors - Light Slate with Copper Accents */
   --bg-primary: #f8fafc;
   --bg-secondary: #f1f5f9;
   --bg-card: #ffffff;
-  --bg-card-hover: #f1f5f9;
+  --bg-card-hover: #f8fafc;
   --bg-elevated: #e2e8f0;
   --border: #cbd5e1;
-  --border-subtle: #cbd5e1;
+  --border-subtle: #e2e8f0;
 
-  /* Accent - Teal (Khani K letterform) + Copper gem */
-  --accent: #2a7d87;
-  --accent-bright: #35969f;
-  --accent-dim: #1f5f68;
-  --accent-muted: rgba(42, 125, 135, 0.09);
-  --accent-glow: rgba(42, 125, 135, 0.18);
-  --gem: #c87941;
-  --gem-muted: rgba(200, 121, 65, 0.12);
+  /* Accent - Molten Copper & Amber Ore */
+  --accent: #d97706;
+  --accent-bright: #f59e0b;
+  --accent-dim: #92400e;
+  --accent-muted: rgba(217, 119, 6, 0.10);
+  --accent-glow: rgba(217, 119, 6, 0.25);
+  --gem: #f59e0b;
+  --gem-muted: rgba(245, 158, 11, 0.15);
+  --telematics: #0ea5e9;
 
   /* Status Colors */
   --success: #10b981;
   --success-muted: rgba(16, 185, 129, 0.08);
   --danger: #ef4444;
   --danger-muted: rgba(239, 68, 68, 0.08);
-  --warning: #d97706;
-  --info: #3b82f6;
-  --info-muted: rgba(59, 130, 246, 0.08);
+  --warning: #f59e0b;
+  --info: #0ea5e9;
+  --info-muted: rgba(14, 165, 233, 0.08);
 
   /* Text */
   --text-primary: #0f172a;
@@ -65,36 +66,40 @@
   --bottom-nav-height: 56px;
 
   /* Background Gradient */
-  --bg-gradient: radial-gradient(ellipse at top, #e6f4f5 0%, #f8fafc 60%);
+  --bg-gradient: radial-gradient(ellipse at top, #fdf4e8 0%, #f8fafc 60%);
 }
 
 [data-theme="dark"] {
-  --bg-primary: #0a0b0f;
-  --bg-secondary: #111318;
-  --bg-card: #161922;
-  --bg-card-hover: #1c2030;
-  --bg-elevated: #1e2235;
-  --border: #252a3a;
-  --border-subtle: #1a1f2e;
+  --bg-primary: #08090c;
+  --bg-secondary: #0e1117;
+  --bg-card: #12151c;
+  --bg-card-hover: #181c26;
+  --bg-elevated: #1e2230;
+  --border: #242a38;
+  --border-subtle: #1a1e28;
 
-  --accent-muted: rgba(42, 125, 135, 0.14);
-  --accent-glow: rgba(42, 125, 135, 0.28);
-  --gem: #d4895a;
-  --gem-muted: rgba(212, 137, 90, 0.15);
+  --accent: #d97706;
+  --accent-bright: #f59e0b;
+  --accent-dim: #92400e;
+  --accent-muted: rgba(217, 119, 6, 0.16);
+  --accent-glow: rgba(217, 119, 6, 0.35);
+  --gem: #f59e0b;
+  --gem-muted: rgba(245, 158, 11, 0.18);
+  --telematics: #0ea5e9;
 
   --success-muted: rgba(16, 185, 129, 0.12);
   --danger-muted: rgba(239, 68, 68, 0.12);
-  --info-muted: rgba(59, 130, 246, 0.12);
+  --info-muted: rgba(14, 165, 233, 0.12);
 
   --text-primary: #f1f5f9;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
   --text-disabled: #374151;
 
-  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.4);
-  --shadow-elevated: 0 8px 40px rgba(0, 0, 0, 0.6);
+  --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.5);
+  --shadow-elevated: 0 8px 40px rgba(0, 0, 0, 0.7);
 
-  --bg-gradient: radial-gradient(ellipse at top, #091518 0%, #0a0b0f 60%);
+  --bg-gradient: radial-gradient(ellipse at top, #241406 0%, #08090c 60%);
 }
 
 /* =====================================================

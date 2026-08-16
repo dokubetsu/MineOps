@@ -90,14 +90,14 @@ export default function SignInModal({ isOpen, onClose }: SignInModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
       {/* Dark backdrop blur */}
       <div
-        className="fixed inset-0 bg-[#020203]/80 backdrop-blur-md transition-opacity animate-in fade-in"
+        className="fixed inset-0 bg-[#040507]/85 backdrop-blur-md transition-opacity animate-in fade-in"
         onClick={onClose}
       />
 
       {/* Modal Dialog Container */}
-      <div className="relative w-full max-w-md overflow-hidden rounded-2xl bg-[#0a0a0c] border border-white/[0.12] shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_20px_50px_rgba(0,0,0,0.8),0_0_80px_rgba(94,106,210,0.15)] p-6 sm:p-8 z-10 transition-all">
+      <div className="relative w-full max-w-md overflow-hidden rounded-2xl bg-[#10131A] border border-white/[0.12] shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_20px_50px_rgba(0,0,0,0.8),0_0_80px_rgba(217,119,6,0.18)] p-6 sm:p-8 z-10 transition-all">
         {/* Top ambient highlight */}
-        <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-accent/50 to-transparent" />
+        <div className="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-accent/60 to-transparent" />
 
         {/* Close Button */}
         <button
@@ -111,7 +111,7 @@ export default function SignInModal({ isOpen, onClose }: SignInModalProps) {
 
         {/* Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-white/10 to-white/[0.02] border border-white/15 p-2 mb-3 shadow-[0_0_20px_rgba(94,106,210,0.2)]">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-white/10 to-white/[0.02] border border-white/15 p-2 mb-3 shadow-[0_0_20px_rgba(217,119,6,0.25)]">
             <Image src="/logo.png" alt="Khani" width={48} height={48} className="w-full h-full object-contain" />
           </div>
           <h2 className="text-xl font-display font-semibold text-white tracking-tight">
