@@ -78,17 +78,17 @@ export default function BentoGrid() {
             </div>
           </SpotlightCard>
 
-          {/* Card 2: Biometric & Shift Rosters (2 Columns on Desktop) */}
+          {/* Card 2: Photo-Verified Shift Rosters (2 Columns on Desktop) */}
           <SpotlightCard className="md:col-span-2 p-6 sm:p-8 flex flex-col justify-between group">
             <div>
               <div className="w-12 h-12 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400 mb-6">
                 <ScanFace size={24} />
               </div>
               <h3 className="text-xl sm:text-2xl font-display font-semibold text-white tracking-tight">
-                Workforce &amp; Daily Attendance
+                Workforce &amp; Photo-Verified Roll Call
               </h3>
               <p className="mt-3 text-sm text-foreground-muted leading-relaxed">
-                Roster miners, machine operators, and security crews across shift gates. Auto-syncs daily presence directly to payroll wage brackets.
+                Roster miners, machine operators, and security crews with photo-verified gate roll calls. Auto-syncs daily shift presence directly to payroll wage brackets.
               </p>
             </div>
 

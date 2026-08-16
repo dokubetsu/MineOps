@@ -177,7 +177,7 @@ export default function LandingPage() {
 
             {/* Lead Paragraph */}
             <p className="mt-6 text-base sm:text-xl text-foreground-muted max-w-2xl leading-relaxed">
-              Real-time haul truck telemetry, automated weighbridge slip audit, biometric shift rosters, and single-entry cash books built for remote, zero-connectivity pits.
+              Real-time haul truck telemetry, automated weighbridge slip audit, photo-verified shift rosters, and single-entry cash books built for remote, zero-connectivity pits.
             </p>
 
             {/* Action Buttons */}
@@ -332,7 +332,7 @@ export default function LandingPage() {
                     <span className="w-2 h-2 rounded-full bg-emerald-400" />
                     <span>Signed Evidence Buckets</span>
                   </div>
-                  <span className="text-foreground-muted">Trip Slips, Receipts, Biometrics</span>
+                  <span className="text-foreground-muted">Trip Slips, Receipts, Roll Call Evidence</span>
                 </div>
               </div>
             </SpotlightCard>
@@ -364,7 +364,7 @@ export default function LandingPage() {
 
             <div>
               <div className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold text-emerald-400 tracking-tight">
-                $0.00
+                ₹0.00
               </div>
               <div className="text-xs sm:text-sm font-mono text-foreground-muted mt-2 uppercase tracking-wider">
                 Cash Book Math Drift

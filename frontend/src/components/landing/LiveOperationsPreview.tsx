@@ -135,7 +135,7 @@ export default function LiveOperationsPreview() {
                 }`}
               >
                 <Users size={14} />
-                Biometric Roster
+                Photo-Verified Roll Call
               </button>
               <button
                 type="button"
@@ -267,17 +267,17 @@ export default function LiveOperationsPreview() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="p-4 rounded-xl bg-emerald-500/[0.05] border border-emerald-500/20">
                   <div className="text-xs font-mono uppercase text-emerald-300">Opening Balance</div>
-                  <div className="text-2xl font-bold font-display text-white mt-1">$45,200.00</div>
+                  <div className="text-2xl font-bold font-display text-white mt-1">₹45,200.00</div>
                   <div className="text-xs text-foreground-muted mt-1">Verified with vault float</div>
                 </div>
                 <div className="p-4 rounded-xl bg-rose-500/[0.05] border border-rose-500/20">
                   <div className="text-xs font-mono uppercase text-rose-300">Disbursements (Fuel/Parts)</div>
-                  <div className="text-2xl font-bold font-display text-white mt-1">$8,450.00</div>
+                  <div className="text-2xl font-bold font-display text-white mt-1">₹8,450.00</div>
                   <div className="text-xs text-foreground-muted mt-1">All attached with slip receipts</div>
                 </div>
                 <div className="p-4 rounded-xl bg-indigo-500/[0.05] border border-indigo-500/20">
                   <div className="text-xs font-mono uppercase text-indigo-300">Current Petty Vault</div>
-                  <div className="text-2xl font-bold font-display text-white mt-1">$36,750.00</div>
+                  <div className="text-2xl font-bold font-display text-white mt-1">₹36,750.00</div>
                   <div className="text-xs text-emerald-400 mt-1">100% matched with cash count</div>
                 </div>
               </div>
@@ -305,7 +305,7 @@ export default function LiveOperationsPreview() {
                 </div>
                 <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
                   <div className="text-xs font-mono uppercase text-foreground-muted">Automated Payroll Accrual</div>
-                  <div className="text-2xl font-bold font-display text-white mt-1">$18,940</div>
+                  <div className="text-2xl font-bold font-display text-white mt-1">₹18,940</div>
                   <div className="text-xs text-foreground-muted mt-1">Calculated per shift wage matrix</div>
                 </div>
               </div>
@@ -318,17 +318,17 @@ export default function LiveOperationsPreview() {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
                   <div className="text-xs font-mono uppercase text-foreground-muted">Monthly Gross Pit Output</div>
-                  <div className="text-2xl font-bold font-display text-white mt-1">$682,400</div>
+                  <div className="text-2xl font-bold font-display text-white mt-1">₹6,82,400</div>
                   <div className="text-xs text-emerald-400 mt-1">54,200 Tons extracted</div>
                 </div>
                 <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
                   <div className="text-xs font-mono uppercase text-foreground-muted">Operating Expenses (OPEX)</div>
-                  <div className="text-2xl font-bold font-display text-white mt-1">$214,100</div>
+                  <div className="text-2xl font-bold font-display text-white mt-1">₹2,14,100</div>
                   <div className="text-xs text-foreground-muted mt-1">Fuel, maintenance, wages</div>
                 </div>
                 <div className="p-4 rounded-xl bg-accent/[0.1] border border-accent/30">
                   <div className="text-xs font-mono uppercase text-indigo-300">Distributable Net Revenue</div>
-                  <div className="text-2xl font-bold font-display text-white mt-1">$468,300</div>
+                  <div className="text-2xl font-bold font-display text-white mt-1">₹4,68,300</div>
                   <div className="text-xs text-emerald-400 mt-1">Calculated across 4 stakeholder tiers</div>
                 </div>
               </div>
