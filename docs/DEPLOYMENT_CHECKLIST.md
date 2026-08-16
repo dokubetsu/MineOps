@@ -6,7 +6,7 @@ Use this before every production deploy. Order matters.
 
 Remote Supabase must include **all** migrations through the latest file in `supabase/migrations/`.
 
-As of this document that is **`069_delete_organization_helper.sql`** (and everything before it).
+As of this document that is **`070_consolidate_session_context.sql`** (and everything before it).
 **057** lets site employees read their assigned site (fixes “Unassigned” on My Work).
 **061** adds distance rates (`rate_per_km`, `distance_cost`) for reporting.
 **062** forces MDM trip cost = rate × CC, blocks employee rate overrides, and lets service_role purge locked cash books.
@@ -17,6 +17,7 @@ As of this document that is **`069_delete_organization_helper.sql`** (and everyt
 **067** unload clerk may be assigned multiple **loading** sites.
 **068** period-ops leave unapprove works under `service_role`; DB enforces `settlement_admin_only`.
 **069** platform owner can cascade delete an organization and all its data.
+**070** `get_session_context()` single-RPC session bootstrap consolidating roles, org, sites, and feature flags.
 After schema changes, regenerate or hand-update `frontend/src/lib/supabase/database.types.ts` — see `docs/SCHEMA_SSOT.md` (`npm run gen:types` when CLI is available).
 
 ```bash

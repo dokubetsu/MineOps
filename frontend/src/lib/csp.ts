@@ -104,3 +104,19 @@ export function buildContentSecurityPolicy(opts: CspBuildOptions = {}): string {
 export function productionScriptSrcAllowsUnsafeInline(csp: string = buildContentSecurityPolicy()): boolean {
   return /script-src[^;]*'unsafe-inline'/.test(csp)
 }
+
+/**
+ * Generates a cryptographically random Base64 nonce for CSP script/style tags.
+ */
+export function generateCspNonce(): string {
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const bytes = new Uint8Array(16)
+    crypto.getRandomValues(bytes)
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(bytes).toString('base64')
+    }
+    return btoa(String.fromCharCode(...bytes))
+  }
+  throw new Error('Web Crypto API (crypto.getRandomValues) is required for CSP nonce generation')
+}
+

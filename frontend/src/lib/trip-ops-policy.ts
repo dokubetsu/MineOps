@@ -27,6 +27,26 @@ export type AppRole =
   | 'site_employee'
   | 'unload_clerk'
 
+export const ROLE_PRIORITY: readonly AppRole[] = [
+  'admin',
+  'site_manager',
+  'unload_clerk',
+  'stakeholder',
+  'employee',
+  'site_employee',
+] as const
+
+export function pickPrimaryRole(
+  roles: (string | { role: string })[] | null | undefined
+): AppRole | null {
+  if (!roles || roles.length === 0) return null
+  const roleStrings = roles.map((r) => (typeof r === 'string' ? r : r.role))
+  for (const prio of ROLE_PRIORITY) {
+    if (roleStrings.includes(prio)) return prio
+  }
+  return null
+}
+
 export function tripOpsFromOrgRow(row: {
   billing_admin_only?: boolean | null
   settlement_admin_only?: boolean | null

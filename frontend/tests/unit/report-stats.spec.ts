@@ -74,7 +74,7 @@ test.describe('report-stats (paper Excel replacement)', () => {
         vehicles: { vehicle_type: '12WH' },
       },
     ]
-    const rows = businessPackByType(zeroWorth as any, { '12WH': 1000 })
+    const rows = businessPackByType(zeroWorth as unknown as Parameters<typeof businessPackByType>[0], { '12WH': 1000 })
     const twelve = rows.find((r) => r.vehicleType === '12WH')!
     expect(twelve.count).toBe(1)
     expect(twelve.ratePerTrip).toBe(0)

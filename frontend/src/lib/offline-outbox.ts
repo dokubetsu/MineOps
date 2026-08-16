@@ -136,8 +136,17 @@ function storageSet(key: string, value: string): void {
     try {
       localStorage.setItem(key, value)
       return
-    } catch {
-      // fall through
+    } catch (e) {
+      if (
+        (typeof DOMException !== 'undefined' && e instanceof DOMException && e.name === 'QuotaExceededError') ||
+        (e instanceof Error && (e.name === 'QuotaExceededError' || e.message.includes('quota')))
+      ) {
+        console.error('[outbox] localStorage quota exceeded — falling back to memory store')
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('khani:outbox-quota-exceeded'))
+        }
+      }
+      // fall through to memory store
     }
   }
   memoryStore.set(key, value)
@@ -343,7 +352,12 @@ export async function enqueueCashEntryWithReceipt(
   return item
 }
 
-export function removeOutboxItem(userId: string, orgId: string, id: string): void {
+export function removeOutboxItem(
+  userId: string | null | undefined,
+  orgId: string | null | undefined,
+  id: string
+): void {
+  if (!userId || !orgId) return
   const next = readAll(userId, orgId).filter((i) => i.id !== id)
   writeAll(userId, orgId, next)
   void deleteOfflinePhotosByOutbox(id)
@@ -452,6 +466,24 @@ async function uploadOfflineBlobs(
   return paths
 }
 
+async function validateSiteBelongsToOrg(
+  supabase: SupabaseClient<Database>,
+  orgId: string,
+  siteId: string | null | undefined
+): Promise<void> {
+  if (!siteId || siteId === 'unknown') return
+  const { data: site, error } = await supabase
+    .from('sites')
+    .select('id, organization_id')
+    .eq('id', siteId)
+    .maybeSingle()
+
+  if (error) throw error
+  if (site && site.organization_id && site.organization_id !== orgId) {
+    throw new Error(`Site ${siteId} does not belong to organization ${orgId}`)
+  }
+}
+
 async function processItem(
   supabase: SupabaseClient<Database>,
   orgId: string,
@@ -460,6 +492,9 @@ async function processItem(
   const p = item.payload
 
   if (p.kind === 'trip_create') {
+    if (p.trip.site_id) {
+      await validateSiteBelongsToOrg(supabase, orgId, p.trip.site_id)
+    }
     const vehicleId = await resolveVehicleId(
       supabase,
       orgId,
@@ -506,6 +541,9 @@ async function processItem(
   }
 
   if (p.kind === 'trip_update') {
+    if (p.patch.site_id) {
+      await validateSiteBelongsToOrg(supabase, orgId, p.patch.site_id as string)
+    }
     let patch = { ...p.patch }
     if (p.vehicle_plate && !patch.vehicle_id) {
       const vid = await resolveVehicleId(
@@ -552,11 +590,17 @@ async function processItem(
   }
 
   if (p.kind === 'attendance_save') {
+    if (p.site_id) {
+      await validateSiteBelongsToOrg(supabase, orgId, p.site_id)
+    }
     await attendanceRepository.saveRoster(supabase, p.records, p.site_id)
     return
   }
 
   if (p.kind === 'cash_entry_create') {
+    if (p.site_id) {
+      await validateSiteBelongsToOrg(supabase, orgId, p.site_id)
+    }
     let bookId = p.cash_book_id
     if (!bookId) {
       const book = await cashBookRepository.getOrCreate(supabase, p.site_id, p.book_date)
@@ -618,19 +662,25 @@ export async function flushOutbox(
       succeeded++
     } catch (err) {
       failed++
-      const message = err instanceof Error ? err.message : String(err)
+      const message =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'object' && err && 'message' in err
+            ? String((err as any).message)
+            : String(err)
+      const isNetwork = isLikelyNetworkError(err) || !isBrowserOnline()
       errors.push(`${item.payload.kind}: ${message}`)
       remaining = remaining.map((i) =>
         i.id === item.id
           ? {
               ...i,
-              attempts: i.attempts + 1,
+              attempts: isNetwork ? i.attempts : i.attempts + 1,
               lastError: message,
             }
           : i
       )
       writeAll(userId, orgId, remaining)
-      if (isLikelyNetworkError(err) || !isBrowserOnline()) break
+      if (isNetwork) break
     }
   }
 
@@ -658,3 +708,29 @@ export function outboxKindLabel(kind: OutboxKind): string {
       return kind
   }
 }
+
+
+/** Reset retry attempts and lastError for an item to retry syncing. */
+export function resetOutboxItemAttempts(
+  userId: string | null | undefined,
+  orgId: string | null | undefined,
+  itemId: string
+): boolean {
+  if (!userId || !orgId) return false
+  const items = readAll(userId, orgId)
+  let found = false
+  const updated = items.map((i) => {
+    if (i.id === itemId) {
+      found = true
+      return { ...i, attempts: 0, lastError: undefined }
+    }
+    return i
+  })
+  if (found) {
+    writeAll(userId, orgId, updated)
+    notifyOutboxChanged()
+    return true
+  }
+  return false
+}
+

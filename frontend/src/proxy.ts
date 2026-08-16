@@ -4,6 +4,8 @@ import { Database } from './lib/supabase/database.types'
 import { checkRateLimit, pruneRateLimitStore } from './lib/rate-limit'
 import { featureForPath } from './lib/features'
 import { buildContentSecurityPolicy } from './lib/csp'
+import { fetchSessionContext } from './lib/session-context'
+import { pickPrimaryRole } from './lib/trip-ops-policy'
 
 export function clientIp(request: NextRequest): string {
   const vercelIp = request.headers.get('x-vercel-forwarded-for')
@@ -30,6 +32,9 @@ function withCsp(response: NextResponse): NextResponse {
   return response
 }
 
+let requestsSincePrune = 0
+const PRUNE_INTERVAL = 100
+
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
@@ -47,8 +52,11 @@ export async function proxy(request: NextRequest) {
     path === '/api/auth/register-tenant'
   ) {
     // Phase E5: Upstash when configured; else in-memory (see lib/rate-limit.ts).
-    // Still not a substitute for edge/WAF rate limits.
-    if (Math.random() < 0.01) pruneRateLimitStore()
+    // Prune expired entries deterministically every PRUNE_INTERVAL requests
+    if (++requestsSincePrune >= PRUNE_INTERVAL) {
+      requestsSincePrune = 0
+      pruneRateLimitStore()
+    }
     const ip = clientIp(request)
     // Bootstrap is tighter (credential stuffing / secret brute-force)
     const isBootstrap = path === '/api/platform/bootstrap'
@@ -57,15 +65,20 @@ export async function proxy(request: NextRequest) {
     const rlKey = isBootstrap ? `bootstrap:${ip}` : `api:${ip}`
     const rl = await checkRateLimit(rlKey, limit, windowMs)
     if (rl.limited) {
+      const isProd =
+        process.env.NODE_ENV === 'production' || process.env.VERCEL_ENV === 'production'
+      const headers: Record<string, string> = {
+        'Retry-After': String(Math.max(1, Math.ceil((rl.resetAt - Date.now()) / 1000))),
+      }
+      if (!isProd) {
+        headers['X-RateLimit-Backend'] = rl.backend
+      }
       return withCsp(
         NextResponse.json(
           { error: 'Too many requests. Please try again later.' },
           {
             status: 429,
-            headers: {
-              'Retry-After': String(Math.max(1, Math.ceil((rl.resetAt - Date.now()) / 1000))),
-              'X-RateLimit-Backend': rl.backend,
-            },
+            headers,
           }
         )
       )
@@ -110,20 +123,8 @@ export async function proxy(request: NextRequest) {
 
   // ── Authenticated: resolve platform vs tenant ──────────────────────────
   if (user) {
-    let isPlatformOwner = false
-    // Prefer SECURITY DEFINER RPC (bypasses RLS quirks)
-    const { data: ownerFlag, error: ownerErr } = await supabase.rpc('is_platform_owner')
-    if (!ownerErr && ownerFlag === true) {
-      isPlatformOwner = true
-    } else {
-      const { data: pr, error: prError } = await supabase
-        .from('platform_roles')
-        .select('role')
-        .eq('user_id', user.id)
-        .eq('role', 'platform_owner')
-        .maybeSingle()
-      if (!prError) isPlatformOwner = !!pr
-    }
+    const sessionCtx = await fetchSessionContext(supabase, user.id)
+    const isPlatformOwner = sessionCtx?.is_platform_owner ?? false
 
     // Login page → platform console or tenant dashboard
     if (path === '/') {
@@ -145,8 +146,7 @@ export async function proxy(request: NextRequest) {
     // Tenant role guards
     if (path.startsWith('/dashboard') && !isPlatformOwner) {
       // Deactivated organizations cannot use the tenant app
-      const { data: orgActive, error: orgActiveErr } = await supabase.rpc('is_user_org_active')
-      if (!orgActiveErr && orgActive === false) {
+      if (sessionCtx?.org_active === false) {
         const redirectUrl = request.nextUrl.clone()
         redirectUrl.pathname = '/'
         redirectUrl.searchParams.set('error', 'org_inactive')
@@ -155,27 +155,9 @@ export async function proxy(request: NextRequest) {
         return withCsp(NextResponse.redirect(redirectUrl))
       }
 
-      // Phase 2: always resolve role from user_roles (DB), never trust JWT app_metadata alone.
+      // Always resolve role from user_roles (DB), never trust JWT app_metadata alone.
       // Stale JWT after demotion/promotion must not control route access.
-      const { data: roleRows } = await supabase
-        .from('user_roles')
-        .select('role')
-        .eq('user_id', user.id)
-
-      const roles = roleRows?.map((r) => r.role) || []
-      const role = roles.includes('admin')
-        ? 'admin'
-        : roles.includes('site_manager')
-          ? 'site_manager'
-          : roles.includes('unload_clerk')
-            ? 'unload_clerk'
-            : roles.includes('stakeholder')
-              ? 'stakeholder'
-              : roles.includes('employee')
-                ? 'employee'
-                : roles.includes('site_employee')
-                  ? 'site_employee'
-                  : null
+      const role = pickPrimaryRole(sessionCtx?.user_roles)
 
       if ((role === 'employee' || role === 'site_employee') && path !== '/dashboard/my-work') {
         const redirectUrl = request.nextUrl.clone()
@@ -195,22 +177,17 @@ export async function proxy(request: NextRequest) {
         return withCsp(NextResponse.redirect(redirectUrl))
       }
 
-      // Phase B: block module routes when org feature is disabled (server-side)
+      // Block module routes when org feature is disabled (server-side)
       const requiredFeature = featureForPath(path)
       if (requiredFeature) {
-        const { data: featOk, error: featErr } = await supabase.rpc(
-          'org_has_feature_for_caller',
-          { p_feature_key: requiredFeature }
-        )
-        // Phase F: always fail-closed — missing RPC / error / explicit false all block the route
-        if (featErr || featOk === false) {
+        const feat = sessionCtx?.features.find((f) => f.feature_key === requiredFeature)
+        const featOk = feat ? feat.enabled === true : false
+        // Fail-closed: missing feature flag or explicit false blocks the route
+        if (!featOk) {
           const redirectUrl = request.nextUrl.clone()
           redirectUrl.pathname = '/dashboard'
-          redirectUrl.searchParams.set(
-            'error',
-            featErr ? 'feature_check_failed' : 'feature_disabled'
-          )
-          if (!featErr) redirectUrl.searchParams.set('feature', requiredFeature)
+          redirectUrl.searchParams.set('error', 'feature_disabled')
+          redirectUrl.searchParams.set('feature', requiredFeature)
           return withCsp(NextResponse.redirect(redirectUrl))
         }
       }

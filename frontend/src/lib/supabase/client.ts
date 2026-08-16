@@ -13,7 +13,7 @@ export function createClient() {
   }
 
   return createBrowserClient<Database>(
-    url || 'https://placeholder.supabase.co',
+    url || 'http://127.0.0.1:0',
     key || 'placeholder-key'
   )
 }

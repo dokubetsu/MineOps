@@ -1,3 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 /* Fonts: self-hosted via next/font in layout.tsx (no Google Fonts @import —
    that broke offline PWA / Workbox under CSP connect-src). */
 

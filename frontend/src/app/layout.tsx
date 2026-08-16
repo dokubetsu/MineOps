@@ -3,6 +3,7 @@ import { Inter, Space_Grotesk } from 'next/font/google'
 import './globals.css'
 import { Toaster } from 'react-hot-toast'
 import { ThemeProvider } from '@/lib/theme-context'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
 
 /** Self-hosted at build time — avoids Workbox/CSP fetch of fonts.googleapis.com */
 const inter = Inter({
@@ -50,7 +51,9 @@ export default function RootLayout({
       </head>
       <body className={inter.className}>
         <ThemeProvider>
-          {children}
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
           <Toaster
             position="top-right"
             toastOptions={{

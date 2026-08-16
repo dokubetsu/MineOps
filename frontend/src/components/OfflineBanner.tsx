@@ -9,19 +9,23 @@ import {
   listOutbox,
   outboxKindLabel,
   subscribeOutbox,
+  removeOutboxItem,
+  resetOutboxItemAttempts,
 } from '@/lib/offline-outbox'
 import { isBrowserOnline } from '@/lib/offline-network'
-import { CloudOff, RefreshCw, Wifi } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronUp, CloudOff, RefreshCw, Trash2, Wifi } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 /**
  * Shows offline status + pending outbox count; flushes queue when back online.
+ * Displays failed mutations with explicit errors to avoid silent data loss.
  */
 export default function OfflineBanner() {
   const { user, organizationId, loading } = useAuth()
   const [online, setOnline] = useState(true)
   const [pending, setPending] = useState(0)
   const [syncing, setSyncing] = useState(false)
+  const [showErrorDetails, setShowErrorDetails] = useState(false)
   const supabase = createClient()
 
   const refreshCount = useCallback(() => {
@@ -47,7 +51,7 @@ export default function OfflineBanner() {
         }
         if (result.failed > 0 && result.remaining > 0 && !quiet) {
           toast.error(
-            `${result.remaining} change(s) still pending — will retry when online`
+            `${result.remaining} change(s) failed or pending — check sync details`
           )
         }
         // Notify pages to reload data
@@ -104,6 +108,7 @@ export default function OfflineBanner() {
   if (online && pending === 0) return null
 
   const items = user?.id && organizationId ? listOutbox(user.id, organizationId) : []
+  const failedItems = items.filter((i) => (i.attempts && i.attempts > 0) || i.lastError)
   const summary = items
     .slice(0, 3)
     .map((i) => outboxKindLabel(i.payload.kind))
@@ -119,48 +124,147 @@ export default function OfflineBanner() {
         top: 0,
         zIndex: 250,
         padding: '0.5rem 0.875rem',
-        background: online ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.15)',
-        borderBottom: `1px solid ${online ? 'var(--success)' : 'var(--accent)'}`,
+        background: failedItems.length > 0
+          ? 'rgba(239,68,68,0.12)'
+          : online
+            ? 'rgba(16,185,129,0.12)'
+            : 'rgba(245,158,11,0.15)',
+        borderBottom: `1px solid ${
+          failedItems.length > 0
+            ? 'var(--border-danger, #ef4444)'
+            : online
+              ? 'var(--success)'
+              : 'var(--accent)'
+        }`,
         display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem',
-        flexWrap: 'wrap',
+        flexDirection: 'column',
+        gap: '0.5rem',
         fontSize: '0.8rem',
       }}
     >
-      {online ? (
-        <Wifi size={16} style={{ color: 'var(--success)', flexShrink: 0 }} />
-      ) : (
-        <CloudOff size={16} style={{ color: 'var(--accent)', flexShrink: 0 }} />
-      )}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {!online && (
-          <strong style={{ display: 'block' }}>You&apos;re offline</strong>
-        )}
-        {pending > 0 ? (
-          <span style={{ color: 'var(--text-secondary)' }}>
-            {pending} change{pending === 1 ? '' : 's'} waiting to sync
-            {summary ? ` (${summary}${pending > 3 ? '…' : ''})` : ''}
-            {!online ? ' — will push when the network returns' : ''}
-          </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+        {failedItems.length > 0 ? (
+          <AlertCircle size={16} style={{ color: 'var(--danger, #ef4444)', flexShrink: 0 }} />
+        ) : online ? (
+          <Wifi size={16} style={{ color: 'var(--success)', flexShrink: 0 }} />
         ) : (
-          <span style={{ color: 'var(--text-secondary)' }}>
-            Working offline — reads use last cached data; new saves are queued.
-          </span>
+          <CloudOff size={16} style={{ color: 'var(--accent)', flexShrink: 0 }} />
         )}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {!online && (
+            <strong style={{ display: 'block' }}>You&apos;re offline</strong>
+          )}
+          {pending > 0 ? (
+            <span style={{ color: 'var(--text-secondary)' }}>
+              {pending} change{pending === 1 ? '' : 's'} waiting to sync
+              {summary ? ` (${summary}${pending > 3 ? '…' : ''})` : ''}
+              {failedItems.length > 0
+                ? ` — ${failedItems.length} item(s) encountered sync errors`
+                : !online
+                  ? ' — will push when the network returns'
+                  : ''}
+            </span>
+          ) : (
+            <span style={{ color: 'var(--text-secondary)' }}>
+              Working offline — reads use last cached data; new saves are queued.
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          {failedItems.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowErrorDetails((v) => !v)}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem' }}
+            >
+              {showErrorDetails ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {showErrorDetails ? 'Hide errors' : 'View errors'}
+            </button>
+          )}
+          {online && pending > 0 && (
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={syncing}
+              onClick={() => void runFlush(false)}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+            >
+              <RefreshCw size={14} className={syncing ? 'spinner' : undefined} />
+              {syncing ? 'Syncing…' : 'Sync now'}
+            </button>
+          )}
+        </div>
       </div>
-      {online && pending > 0 && (
-        <button
-          type="button"
-          className="btn btn-secondary btn-sm"
-          disabled={syncing}
-          onClick={() => void runFlush(false)}
-          style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}
+
+      {showErrorDetails && failedItems.length > 0 && (
+        <div
+          style={{
+            background: 'var(--bg-card, #12131a)',
+            border: '1px solid var(--border)',
+            borderRadius: '6px',
+            padding: '0.5rem 0.75rem',
+            marginTop: '0.25rem',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.5rem',
+          }}
         >
-          <RefreshCw size={14} className={syncing ? 'spinner' : undefined} />
-          {syncing ? 'Syncing…' : 'Sync now'}
-        </button>
+          <strong style={{ fontSize: '0.75rem', color: 'var(--danger, #ef4444)' }}>
+            Failed Offline Items ({failedItems.length}):
+          </strong>
+          {failedItems.map((item) => (
+            <div
+              key={item.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                fontSize: '0.75rem',
+                borderBottom: '1px solid var(--border)',
+                paddingBottom: '0.35rem',
+                gap: '0.5rem',
+              }}
+            >
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ fontWeight: 600 }}>{outboxKindLabel(item.payload.kind)}</span>: {item.lastError || 'Sync failed'}
+                <span style={{ color: 'var(--text-secondary)', marginLeft: '0.35rem' }}>
+                  (Attempts: {item.attempts})
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: '0.35rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  title="Retry sync"
+                  onClick={() => {
+                    resetOutboxItemAttempts(user?.id, organizationId, item.id)
+                    refreshCount()
+                    void runFlush(false)
+                  }}
+                  style={{ padding: '0.2rem 0.4rem', fontSize: '0.7rem' }}
+                >
+                  Retry
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  title="Dismiss item"
+                  onClick={() => {
+                    removeOutboxItem(user?.id, organizationId, item.id)
+                    refreshCount()
+                    toast.success('Item dismissed from sync queue')
+                  }}
+                  style={{ padding: '0.2rem 0.4rem', color: 'var(--danger, #ef4444)' }}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
 }
+

@@ -14,9 +14,11 @@ import {
 import {
   DEFAULT_TRIP_OPS_POLICY,
   tripOpsFromOrgRow,
+  pickPrimaryRole,
   type TripOpsPolicy,
   type AppRole,
 } from '@/lib/trip-ops-policy'
+import { fetchSessionContext } from '@/lib/session-context'
 
 interface UserRole {
   user_id: string
@@ -70,15 +72,8 @@ const AuthContext = createContext<AuthContextType>({
 })
 
 function pickPriorityRole(loadedRoles: UserRole[]): UserRole | null {
-  return (
-    loadedRoles.find((r) => r.role === 'admin') ||
-    loadedRoles.find((r) => r.role === 'site_manager') ||
-    loadedRoles.find((r) => r.role === 'unload_clerk') ||
-    loadedRoles.find((r) => r.role === 'stakeholder') ||
-    loadedRoles.find((r) => r.role === 'employee') ||
-    loadedRoles.find((r) => r.role === 'site_employee') ||
-    null
-  )
+  const primaryRole = pickPrimaryRole(loadedRoles)
+  return loadedRoles.find((r) => r.role === primaryRole) || null
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -90,10 +85,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [features, setFeatures] = useState<FeatureMap>(() => defaultFeatureMap(false))
   const [tripOps, setTripOps] = useState<TripOpsPolicy>(DEFAULT_TRIP_OPS_POLICY)
   const [loading, setLoading] = useState(true)
-  const supabase = createClient()
+  const [supabase] = useState(() => createClient())
 
-  const loadRoles = async (userId: string | undefined) => {
+  const loadRoles = async (userId: string | undefined, isCurrent?: () => boolean) => {
     if (!userId) {
+      if (isCurrent && !isCurrent()) return
       setUserRoles([])
       setOrganizationName(null)
       setAssignedSites([])
@@ -105,100 +101,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return
     }
 
-    const [rolesRes, ownerRpcRes, platformRes] = await Promise.all([
-      supabase.from('user_roles').select('*').eq('user_id', userId),
-      supabase.rpc('is_platform_owner'),
-      supabase.from('platform_roles').select('role').eq('user_id', userId).maybeSingle(),
-    ])
+    const sessionCtx = await fetchSessionContext(supabase, userId)
+    if (isCurrent && !isCurrent()) return
 
-    if (ownerRpcRes.error) {
-      console.warn('[auth] is_platform_owner failed — is migration 036 applied?', ownerRpcRes.error.message)
-    }
-    if (platformRes.error) {
-      console.warn('[auth] platform_roles select failed:', platformRes.error.message)
-    }
-
-    const loadedRoles = (rolesRes.data as UserRole[] | null) || []
-    setUserRoles(loadedRoles)
-    const rpcOk = !ownerRpcRes.error && ownerRpcRes.data === true
-    const platformOk = !platformRes.error && !!platformRes.data
-    setIsPlatformOwner(rpcOk || platformOk)
-
-    const priorityRole = pickPriorityRole(loadedRoles)
-
-    const roleSiteIds = [
-      ...new Set(loadedRoles.map((r) => r.site_id).filter(Boolean) as string[]),
-    ]
-    if (roleSiteIds.length > 0) {
-      const { data: rpcSites, error: rpcSitesErr } = await supabase.rpc('get_my_assigned_sites')
-      if (!rpcSitesErr && Array.isArray(rpcSites) && rpcSites.length > 0) {
-        setAssignedSites(
-          rpcSites.map((s) => ({
-            id: s.id,
-            name: s.name,
-            location: s.location ?? null,
-          }))
-        )
-      } else {
-        const { data: siteRows } = await supabase
-          .from('sites')
-          .select('id, name, location')
-          .in('id', roleSiteIds)
-        setAssignedSites(
-          (siteRows || []).map((s) => ({
-            id: s.id,
-            name: s.name,
-            location: s.location ?? null,
-          }))
-        )
-      }
-    } else {
-      setAssignedSites([])
-    }
-
-    if (priorityRole?.organization_id) {
-      const { data: org } = await supabase
-        .from('organizations')
-        .select('name, billing_admin_only, settlement_admin_only, quantity_unit, units_per_m3')
-        .eq('id', priorityRole.organization_id)
-        .maybeSingle()
-      setOrganizationName(org?.name ?? null)
-      setTripOps(tripOpsFromOrgRow(org))
-
-      const { data: featRows, error: featErr } = await supabase
-        .from('organization_features')
-        .select('feature_key, enabled')
-        .eq('organization_id', priorityRole.organization_id)
-      if (featErr) {
-        console.warn('[auth] organization_features load failed:', featErr.message)
-        setFeatures(defaultFeatureMap(false))
-      } else {
-        setFeatures(featuresFromRows(featRows))
-      }
-    } else {
+    if (!sessionCtx) {
+      setUserRoles([])
       setOrganizationName(null)
-      setTripOps(DEFAULT_TRIP_OPS_POLICY)
+      setAssignedSites([])
+      setIsPlatformOwner(false)
       setFeatures(defaultFeatureMap(false))
+      setTripOps(DEFAULT_TRIP_OPS_POLICY)
+      return
     }
+
+    setUserRoles(sessionCtx.user_roles)
+    setIsPlatformOwner(sessionCtx.is_platform_owner)
+    setAssignedSites(sessionCtx.assigned_sites)
+    setOrganizationName(sessionCtx.organization?.name ?? null)
+    setTripOps(tripOpsFromOrgRow(sessionCtx.organization))
+    setFeatures(featuresFromRows(sessionCtx.features))
   }
 
   useEffect(() => {
+    let activeSeq = 0
+
     const init = async () => {
+      const seq = ++activeSeq
+      const isCurrent = () => seq === activeSeq
       const { data: { user: currentUser } } = await supabase.auth.getUser()
+      if (!isCurrent()) return
       setUser(currentUser)
       if (currentUser) {
-        await loadRoles(currentUser.id)
+        await loadRoles(currentUser.id, isCurrent)
       }
-      setLoading(false)
+      if (isCurrent()) {
+        setLoading(false)
+      }
     }
     void init()
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const seq = ++activeSeq
+      const isCurrent = () => seq === activeSeq
       const currentUser = session?.user ?? null
       setUser(currentUser)
       if (currentUser) {
-        await loadRoles(currentUser.id)
+        await loadRoles(currentUser.id, isCurrent)
       } else {
+        if (!isCurrent()) return
         setUserRoles([])
         setOrganizationName(null)
         setAssignedSites([])
@@ -208,10 +158,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         clearOfflineCache()
         clearSignedUrlCache()
       }
-      setLoading(false)
+      if (isCurrent()) {
+        setLoading(false)
+      }
     })
-    return () => subscription.unsubscribe()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    return () => {
+      activeSeq++
+      subscription.unsubscribe()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- supabase client is stable (instantiated via useState initializer) and init runs once on mount
   }, [])
 
   const isAdmin = userRoles.some((r) => r.role === 'admin')

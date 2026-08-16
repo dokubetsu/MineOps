@@ -74,27 +74,57 @@ export function computePayrollWage(
 }
 
 /**
+ * Strictly parses and validates a calendar date in YYYY-MM-DD format.
+ * Throws TypeError / RangeError on invalid syntax or non-existent calendar dates.
+ */
+export function parseIsoDateOnly(isoDate: string, paramName = 'date'): Date {
+  if (typeof isoDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) {
+    throw new TypeError(`Invalid ${paramName}: "${isoDate}" (expected YYYY-MM-DD)`)
+  }
+  const [ys, ms, ds] = isoDate.split('-')
+  const y = parseInt(ys, 10)
+  const m = parseInt(ms, 10)
+  const d = parseInt(ds, 10)
+  if (m < 1 || m > 12 || d < 1 || d > 31) {
+    throw new TypeError(`Invalid ${paramName}: "${isoDate}" (calendar out of bounds)`)
+  }
+  const dateObj = new Date(y, m - 1, d)
+  if (
+    dateObj.getFullYear() !== y ||
+    dateObj.getMonth() !== m - 1 ||
+    dateObj.getDate() !== d
+  ) {
+    throw new TypeError(`Invalid ${paramName}: "${isoDate}" (invalid calendar day)`)
+  }
+  return dateObj
+}
+
+/**
  * Calendar days in [periodStart, periodEnd] that the employee is eligible
  * (on or after join_date). Null/empty join_date ⇒ full period.
  * Join after period end ⇒ 0.
+ *
+ * Throws TypeError/RangeError on malformed ISO dates to prevent silent payroll errors.
  */
 export function eligiblePayrollDays(
   joinDate: string | null | undefined,
   periodStartIso: string,
   periodEndIso: string
 ): number {
-  const start = new Date(periodStartIso + 'T00:00:00')
-  const end = new Date(periodEndIso + 'T00:00:00')
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
-    return 0
+  const start = parseIsoDateOnly(periodStartIso, 'periodStartIso')
+  const end = parseIsoDateOnly(periodEndIso, 'periodEndIso')
+  if (start > end) {
+    throw new RangeError(
+      `periodStartIso (${periodStartIso}) cannot be after periodEndIso (${periodEndIso})`
+    )
   }
+
   let from = start
-  if (joinDate) {
-    const join = new Date(joinDate.slice(0, 10) + 'T00:00:00')
-    if (!Number.isNaN(join.getTime())) {
-      if (join > end) return 0
-      if (join > start) from = join
-    }
+  if (joinDate && typeof joinDate === 'string' && joinDate.trim() !== '') {
+    const cleanJoin = joinDate.slice(0, 10)
+    const join = parseIsoDateOnly(cleanJoin, 'joinDate')
+    if (join > end) return 0
+    if (join > start) from = join
   }
   return calendarDaysInRange(from, end)
 }
@@ -182,12 +212,16 @@ export function payrollPeriodBounds(periodMonth: string): {
 
 /** Inclusive leave duration in calendar days from ISO date strings (yyyy-MM-dd). */
 export function leaveDaysBetween(fromDate: string, toDate: string): number {
-  const from = new Date(fromDate + 'T00:00:00')
-  const to = new Date(toDate + 'T00:00:00')
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) {
+  try {
+    const from = parseIsoDateOnly(fromDate.slice(0, 10), 'fromDate')
+    const to = parseIsoDateOnly(toDate.slice(0, 10), 'toDate')
+    if (from > to) {
+      return 0
+    }
+    return calendarDaysInRange(from, to)
+  } catch {
     return 0
   }
-  return calendarDaysInRange(from, to)
 }
 
 /**

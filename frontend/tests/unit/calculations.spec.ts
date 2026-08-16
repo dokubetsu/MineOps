@@ -72,6 +72,17 @@ test.describe('Business Calculations (shared module)', () => {
     expect(eligiblePayrollDays('2026-08-01', '2026-07-01', '2026-07-31')).toBe(0)
   })
 
+  test('eligiblePayrollDays throws on malformed or inverted dates', () => {
+    // Malformed month/day
+    expect(() => eligiblePayrollDays(null, '2025-13-45', '2025-07-31')).toThrow(TypeError)
+    expect(() => eligiblePayrollDays(null, '2026-02-30', '2026-02-28')).toThrow(TypeError)
+    expect(() => eligiblePayrollDays(null, 'invalid-date', '2026-07-31')).toThrow(TypeError)
+    expect(() => eligiblePayrollDays('invalid-join', '2026-07-01', '2026-07-31')).toThrow(TypeError)
+
+    // Inverted range
+    expect(() => eligiblePayrollDays(null, '2026-07-31', '2026-07-01')).toThrow(RangeError)
+  })
+
   test('should use calendar days in period for monthly proration', () => {
     const periodStart = new Date(2026, 1, 1) // Feb 2026 (non-leap)
     const periodEnd = new Date(2026, 1, 28)
@@ -131,6 +142,31 @@ test.describe('Business Calculations (shared module)', () => {
     const b = payrollPeriodBounds('2026-07-01')
     expect(b.periodDays).toBe(31)
     expect(b.endIso).toBe('2026-07-31')
+  })
+
+  test('eligiblePayrollDays handles leap years and timestamp suffixes', () => {
+    // Leap year Feb 29 (2024 is leap year)
+    expect(eligiblePayrollDays(null, '2024-02-01', '2024-02-29')).toBe(29)
+
+    // Non-leap year Feb 29 throws TypeError
+    expect(() => eligiblePayrollDays(null, '2025-02-01', '2025-02-29')).toThrow(TypeError)
+
+    // Join date with timestamp suffix
+    expect(eligiblePayrollDays('2026-07-15T10:30:00Z', '2026-07-01', '2026-07-31')).toBe(17)
+    expect(eligiblePayrollDays('2026-07-15 08:00:00', '2026-07-01', '2026-07-31')).toBe(17)
+  })
+
+  test('computePayrollWage handles zero eligibleDays for monthly wage without NaN/Infinity', () => {
+    const emp = { wage_type: 'monthly' as const, wage_rate: 30000 }
+    const att = { present: 0, halfDay: 0, leave: 0, absent: 0 }
+    expect(computePayrollWage(emp, att, 30, 0)).toBe(0)
+    expect(computePayrollWage(emp, att, 0, 0)).toBe(0)
+  })
+
+  test('leaveDaysBetween handles malformed dates gracefully', () => {
+    expect(leaveDaysBetween('invalid-start', '2026-07-10')).toBe(0)
+    expect(leaveDaysBetween('2026-07-01', 'invalid-end')).toBe(0)
+    expect(leaveDaysBetween('2026-02-29', '2026-03-01')).toBe(0) // 2026 is non-leap
   })
 
   test('should compute distance cost as ratePerKm × distanceKm', async () => {

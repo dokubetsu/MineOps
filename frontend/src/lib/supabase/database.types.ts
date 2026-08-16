@@ -1190,6 +1190,7 @@ export type Database = {
       get_user_organization_id: { Args: never; Returns: string }
       get_user_role: { Args: never; Returns: string }
       get_user_site_ids: { Args: never; Returns: string[] }
+      get_session_context: { Args: never; Returns: Json }
       is_platform_owner: { Args: never; Returns: boolean }
       is_user_org_active: { Args: never; Returns: boolean }
       org_has_feature: {

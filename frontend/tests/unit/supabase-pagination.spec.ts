@@ -6,7 +6,7 @@ test.describe('supabase-pagination', () => {
     const pages = [[1, 2], [3, 4], [5]]
     let call = 0
     const { rows, truncated } = await fetchAllPages<number>(
-      async (from, to) => {
+      async (_from, _to) => {
         const page = pages[call++] ?? []
         return { data: page, error: null }
       },
