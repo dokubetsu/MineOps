@@ -187,7 +187,7 @@ export default function LiveOperationsPreview() {
                   <div className="text-lg sm:text-xl font-bold font-display text-white mt-1">
                     18 / 20 <span className="text-xs font-normal text-foreground-muted">online</span>
                   </div>
-                  <div className="text-[11px] text-amber-300 mt-1">90% fleet utilization</div>
+                  <div className="text-[11px] text-teal-300 mt-1">90% fleet utilization</div>
                 </div>
 
                 <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
@@ -228,7 +228,7 @@ export default function LiveOperationsPreview() {
                   <tbody className="divide-y divide-white/[0.04]">
                     {simulatedTrips.map((trip) => (
                       <tr key={trip.id} className="hover:bg-white/[0.03] transition-colors">
-                        <td className="py-2.5 px-3.5 font-mono font-medium text-amber-400">
+                        <td className="py-2.5 px-3.5 font-mono font-medium text-teal-300">
                           {trip.id}
                         </td>
                         <td className="py-2.5 px-3.5 text-white font-medium">
@@ -275,8 +275,8 @@ export default function LiveOperationsPreview() {
                   <div className="text-2xl font-bold font-display text-white mt-1">₹8,450.00</div>
                   <div className="text-xs text-foreground-muted mt-1">All attached with slip receipts</div>
                 </div>
-                <div className="p-4 rounded-xl bg-amber-500/[0.05] border border-amber-500/20">
-                  <div className="text-xs font-mono uppercase text-amber-300">Current Petty Vault</div>
+                <div className="p-4 rounded-xl bg-teal-500/[0.05] border border-teal-500/20">
+                  <div className="text-xs font-mono uppercase text-teal-300">Current Petty Vault</div>
                   <div className="text-2xl font-bold font-display text-white mt-1">₹36,750.00</div>
                   <div className="text-xs text-emerald-400 mt-1">100% matched with cash count</div>
                 </div>
@@ -284,7 +284,7 @@ export default function LiveOperationsPreview() {
 
               <div className="p-3.5 rounded-xl border border-white/[0.07] bg-white/[0.02] text-xs font-mono text-foreground-muted flex items-center justify-between">
                 <span>Rule Engine: Single-entry voucher validation with mandatory photo upload</span>
-                <span className="text-amber-400">Zero manual math drift</span>
+                <span className="text-teal-300">Zero manual math drift</span>
               </div>
             </div>
           )}
@@ -301,7 +301,7 @@ export default function LiveOperationsPreview() {
                 <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
                   <div className="text-xs font-mono uppercase text-foreground-muted">Excavator Operators</div>
                   <div className="text-2xl font-bold font-display text-white mt-1">12 / 12</div>
-                  <div className="text-xs text-amber-300 mt-1">Full operational capacity</div>
+                  <div className="text-xs text-teal-300 mt-1">Full operational capacity</div>
                 </div>
                 <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
                   <div className="text-xs font-mono uppercase text-foreground-muted">Automated Payroll Accrual</div>
@@ -327,7 +327,7 @@ export default function LiveOperationsPreview() {
                   <div className="text-xs text-foreground-muted mt-1">Fuel, maintenance, wages</div>
                 </div>
                 <div className="p-4 rounded-xl bg-accent/[0.1] border border-accent/30">
-                  <div className="text-xs font-mono uppercase text-amber-300">Distributable Net Revenue</div>
+                  <div className="text-xs font-mono uppercase text-teal-300">Distributable Net Revenue</div>
                   <div className="text-2xl font-bold font-display text-white mt-1">₹4,68,300</div>
                   <div className="text-xs text-emerald-400 mt-1">Calculated across 4 stakeholder tiers</div>
                 </div>

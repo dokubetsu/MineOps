@@ -132,7 +132,7 @@ export default function LandingPage() {
 
   if (checkingSession) {
     return (
-      <div className="min-h-screen bg-[#08090C] flex items-center justify-center relative">
+      <div className="min-h-screen bg-[#060F12] flex items-center justify-center relative">
         <AmbientBlobs />
         <div className="relative z-10 flex flex-col items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-accent/20 border border-accent/40 flex items-center justify-center animate-pulse">
@@ -147,7 +147,7 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#08090C] text-foreground font-sans selection:bg-accent/30 selection:text-white relative overflow-x-hidden">
+    <div className="min-h-screen bg-[#060F12] text-foreground font-sans selection:bg-accent/30 selection:text-white relative overflow-x-hidden">
       {/* 4-Layer Ambient Lighting Background */}
       <AmbientBlobs />
 
@@ -159,18 +159,18 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col items-center text-center max-w-4xl mx-auto">
             {/* Eyebrow Badge */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/10 shadow-[0_0_20px_rgba(217,119,6,0.15)] text-xs font-mono text-amber-300 mb-8 backdrop-blur-md hover:border-accent/40 transition-colors">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-white/[0.04] border border-white/10 shadow-[0_0_20px_rgba(20,184,166,0.2)] text-xs font-mono text-teal-300 mb-8 backdrop-blur-md hover:border-accent/40 transition-colors">
               <span className="w-2 h-2 rounded-full bg-accent animate-pulse" />
               <span className="font-semibold tracking-wide">KHANI V2.4</span>
               <span className="text-foreground-muted">•</span>
               <span className="text-foreground-muted">Industrial Mine Operations Platform</span>
-              <ChevronRight size={13} className="text-amber-400" />
+              <ChevronRight size={13} className="text-teal-400" />
             </div>
 
             {/* Display Headline */}
             <h1 className="text-4xl sm:text-6xl lg:text-7xl font-display font-semibold tracking-[-0.03em] leading-[1.08] text-white">
               The operating system for{' '}
-              <span className="block bg-gradient-to-r from-white via-amber-100 to-[#D97706] bg-clip-text text-transparent">
+              <span className="block bg-gradient-to-r from-white via-teal-100 to-[#14B8A6] bg-clip-text text-transparent">
                 mine logistics &amp; workforce.
               </span>
             </h1>
@@ -185,7 +185,7 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={() => setIsAuthModalOpen(true)}
-                className="w-full sm:w-auto relative group overflow-hidden inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl text-sm font-semibold text-white bg-accent hover:bg-accent-bright shadow-accent-cta transition-all duration-300 ease-expo-out hover:shadow-[0_0_30px_rgba(217,119,6,0.6)] active:scale-[0.98]"
+                className="w-full sm:w-auto relative group overflow-hidden inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl text-sm font-semibold text-white bg-accent hover:bg-accent-bright shadow-accent-cta transition-all duration-300 ease-expo-out hover:shadow-[0_0_30px_rgba(20,184,166,0.6)] active:scale-[0.98]"
               >
                 <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/25 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-in-out" />
                 <Sparkles size={16} />
@@ -209,11 +209,11 @@ export default function LandingPage() {
                 <span>100% Offline-First IndexedDB</span>
               </div>
               <div className="flex items-center gap-2">
-                <ShieldCheck size={15} className="text-amber-400" />
+                <ShieldCheck size={15} className="text-teal-400" />
                 <span>PostgreSQL Row-Level Security</span>
               </div>
               <div className="flex items-center gap-2">
-                <Zap size={15} className="text-amber-400" />
+                <Zap size={15} className="text-teal-400" />
                 <span>Sub-Second Slip OCR Reconciliation</span>
               </div>
             </div>
@@ -354,7 +354,7 @@ export default function LandingPage() {
             </div>
 
             <div>
-              <div className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold text-amber-300 tracking-tight">
+              <div className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold text-teal-300 tracking-tight">
                 99.98%
               </div>
               <div className="text-xs sm:text-sm font-mono text-foreground-muted mt-2 uppercase tracking-wider">
@@ -389,7 +389,7 @@ export default function LandingPage() {
           <div className="max-w-md mx-auto">
             <SpotlightCard className="p-8 sm:p-10">
               <div className="text-center mb-8">
-                <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-white/10 to-white/[0.02] border border-white/15 p-2 mb-3 shadow-[0_0_20px_rgba(217,119,6,0.25)]">
+                <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-white/10 to-white/[0.02] border border-white/15 p-2 mb-3 shadow-[0_0_20px_rgba(20,184,166,0.3)]">
                   <Image src="/logo.png" alt="Khani" width={48} height={48} className="w-full h-full object-contain" />
                 </div>
                 <h2 className="text-2xl font-display font-semibold text-white tracking-tight">
@@ -417,7 +417,7 @@ export default function LandingPage() {
                       placeholder="admin@khani.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full pl-9 pr-3.5 py-2.5 bg-[#08090C] border border-white/10 rounded-lg text-sm text-foreground placeholder:text-foreground-subtle/50 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 transition-all duration-200"
+                      className="w-full pl-9 pr-3.5 py-2.5 bg-[#060F12] border border-white/10 rounded-lg text-sm text-foreground placeholder:text-foreground-subtle/50 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 transition-all duration-200"
                     />
                   </div>
                 </div>
@@ -439,7 +439,7 @@ export default function LandingPage() {
                       placeholder="••••••••"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full pl-9 pr-3.5 py-2.5 bg-[#08090C] border border-white/10 rounded-lg text-sm text-foreground placeholder:text-foreground-subtle/50 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 transition-all duration-200"
+                      className="w-full pl-9 pr-3.5 py-2.5 bg-[#060F12] border border-white/10 rounded-lg text-sm text-foreground placeholder:text-foreground-subtle/50 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 transition-all duration-200"
                     />
                   </div>
                 </div>
@@ -476,7 +476,7 @@ export default function LandingPage() {
                 <p>
                   <a
                     href="/platform/setup"
-                    className="text-amber-400 hover:text-amber-300 underline underline-offset-2 transition-colors"
+                    className="text-teal-400 hover:text-teal-300 underline underline-offset-2 transition-colors"
                   >
                     First-time platform owner setup
                   </a>
@@ -488,7 +488,7 @@ export default function LandingPage() {
       </section>
 
       {/* Deep Space Footer */}
-      <footer className="py-12 border-t border-white/[0.06] bg-[#040507] relative z-10 text-xs text-foreground-muted">
+      <footer className="py-12 border-t border-white/[0.06] bg-[#03080A] relative z-10 text-xs text-foreground-muted">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <Image src="/logo.png" alt="Khani" width={20} height={20} className="w-5 h-5 object-contain" />

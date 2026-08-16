@@ -21,13 +21,13 @@ export default function BentoGrid() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-16 sm:mb-20">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/30 text-amber-300 text-xs font-mono tracking-widest uppercase mb-4">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/30 text-teal-300 text-xs font-mono tracking-widest uppercase mb-4">
             <Layers size={13} />
             Modular Mining Architecture
           </div>
           <h2 className="text-3xl sm:text-5xl font-display font-semibold text-white tracking-tight leading-tight">
             Built for harsh mine sites.{' '}
-            <span className="bg-gradient-to-r from-[#D97706] via-amber-300 to-[#D97706] bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-[#0D9488] via-teal-300 to-[#14B8A6] bg-clip-text text-transparent">
               Engineered with mathematical rigor.
             </span>
           </h2>
@@ -81,7 +81,7 @@ export default function BentoGrid() {
           {/* Card 2: Photo-Verified Shift Rosters (2 Columns on Desktop) */}
           <SpotlightCard className="md:col-span-2 p-6 sm:p-8 flex flex-col justify-between group">
             <div>
-              <div className="w-12 h-12 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-6">
+              <div className="w-12 h-12 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-400 mb-6">
                 <ScanFace size={24} />
               </div>
               <h3 className="text-xl sm:text-2xl font-display font-semibold text-white tracking-tight">
@@ -92,7 +92,7 @@ export default function BentoGrid() {
               </p>
             </div>
 
-            <div className="mt-6 pt-5 border-t border-white/[0.06] flex items-center justify-between text-xs font-mono text-amber-300">
+            <div className="mt-6 pt-5 border-t border-white/[0.06] flex items-center justify-between text-xs font-mono text-teal-300">
               <span>Shift Wage Policy Engine</span>
               <CheckCircle2 size={14} className="text-emerald-400" />
             </div>
@@ -121,7 +121,7 @@ export default function BentoGrid() {
           {/* Card 4: Dynamic Stakeholder Distributions (2 Columns on Desktop) */}
           <SpotlightCard className="md:col-span-2 p-6 sm:p-8 flex flex-col justify-between group">
             <div>
-              <div className="w-12 h-12 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400 mb-6">
+              <div className="w-12 h-12 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-400 mb-6">
                 <PieChart size={24} />
               </div>
               <h3 className="text-xl sm:text-2xl font-display font-semibold text-white tracking-tight">
@@ -132,7 +132,7 @@ export default function BentoGrid() {
               </p>
             </div>
 
-            <div className="mt-6 pt-5 border-t border-white/[0.06] flex items-center justify-between text-xs font-mono text-amber-300">
+            <div className="mt-6 pt-5 border-t border-white/[0.06] flex items-center justify-between text-xs font-mono text-teal-300">
               <span>Multi-Tier Equity Splits</span>
               <ShieldCheck size={14} className="text-emerald-400" />
             </div>

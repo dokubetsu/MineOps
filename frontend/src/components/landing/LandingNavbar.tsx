@@ -26,7 +26,7 @@ export default function LandingNavbar({ onOpenSignIn }: LandingNavbarProps) {
       className={`
         fixed top-0 inset-x-0 z-50 transition-all duration-300 ease-expo-out
         ${isScrolled
-          ? 'bg-[#08090C]/85 backdrop-blur-xl border-b border-white/[0.07] py-3.5 shadow-[0_4px_30px_rgba(0,0,0,0.6)]'
+          ? 'bg-[#060F12]/85 backdrop-blur-xl border-b border-white/[0.07] py-3.5 shadow-[0_4px_30px_rgba(0,0,0,0.6)]'
           : 'bg-transparent py-5'
         }
       `}
@@ -34,7 +34,7 @@ export default function LandingNavbar({ onOpenSignIn }: LandingNavbarProps) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
         {/* Brand Mark */}
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-white/10 to-white/[0.03] border border-white/15 p-1.5 shadow-[0_0_20px_rgba(217,119,6,0.3)] group-hover:border-accent/50 transition-colors duration-200">
+          <div className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-gradient-to-br from-white/10 to-white/[0.03] border border-white/15 p-1.5 shadow-[0_0_20px_rgba(20,184,166,0.35)] group-hover:border-accent/50 transition-colors duration-200">
             <Image
               src="/logo.png"
               alt="Khani ERP"
@@ -44,10 +44,10 @@ export default function LandingNavbar({ onOpenSignIn }: LandingNavbarProps) {
             />
           </div>
           <div className="flex items-center gap-2">
-            <span className="font-display font-bold text-lg tracking-tight text-white group-hover:text-amber-200 transition-colors">
+            <span className="font-display font-bold text-lg tracking-tight text-white group-hover:text-teal-200 transition-colors">
               Khani
             </span>
-            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium tracking-wide uppercase bg-accent/15 border border-accent/30 text-amber-300">
+            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium tracking-wide uppercase bg-accent/15 border border-accent/30 text-teal-300">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               MineOps Core
             </span>
@@ -79,7 +79,7 @@ export default function LandingNavbar({ onOpenSignIn }: LandingNavbarProps) {
             href="#security"
             className="hover:text-white transition-colors duration-200 flex items-center gap-1.5"
           >
-            <ShieldCheck size={14} className="text-amber-400" />
+            <ShieldCheck size={14} className="text-teal-400" />
             Security &amp; Offline
           </a>
         </nav>
@@ -97,7 +97,7 @@ export default function LandingNavbar({ onOpenSignIn }: LandingNavbarProps) {
           <button
             type="button"
             onClick={onOpenSignIn}
-            className="relative group overflow-hidden inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-accent hover:bg-accent-bright shadow-accent-cta transition-all duration-200 ease-expo-out hover:shadow-[0_0_24px_rgba(217,119,6,0.5)] active:scale-[0.98]"
+            className="relative group overflow-hidden inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-accent hover:bg-accent-bright shadow-accent-cta transition-all duration-200 ease-expo-out hover:shadow-[0_0_24px_rgba(20,184,166,0.5)] active:scale-[0.98]"
           >
             {/* Hover shine effect sweep */}
             <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700 ease-in-out" />
@@ -121,7 +121,7 @@ export default function LandingNavbar({ onOpenSignIn }: LandingNavbarProps) {
 
       {/* Mobile Slide-down Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden mt-3 px-4 pt-2 pb-6 bg-[#08090C]/95 backdrop-blur-2xl border-b border-white/[0.08] shadow-2xl transition-all duration-200 animate-in fade-in slide-in-from-top-2">
+        <div className="md:hidden mt-3 px-4 pt-2 pb-6 bg-[#060F12]/95 backdrop-blur-2xl border-b border-white/[0.08] shadow-2xl transition-all duration-200 animate-in fade-in slide-in-from-top-2">
           <nav className="flex flex-col gap-3 text-sm font-medium text-foreground-muted mb-5">
             <a
               href="#features"

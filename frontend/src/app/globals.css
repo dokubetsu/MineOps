@@ -7,11 +7,11 @@
 
 /* =====================================================
    KHANI ERP DESIGN SYSTEM
-   Theme 1: Deep Obsidian & Molten Copper
+   Theme 3: Dark Teal & Topaz / Copper
    ===================================================== */
 
 :root {
-  /* Core Colors - Light Slate with Copper Accents */
+  /* Core Colors - Light Slate with Khani Teal Accents */
   --bg-primary: #f8fafc;
   --bg-secondary: #f1f5f9;
   --bg-card: #ffffff;
@@ -20,14 +20,14 @@
   --border: #cbd5e1;
   --border-subtle: #e2e8f0;
 
-  /* Accent - Molten Copper & Amber Ore */
-  --accent: #d97706;
-  --accent-bright: #f59e0b;
-  --accent-dim: #92400e;
-  --accent-muted: rgba(217, 119, 6, 0.10);
-  --accent-glow: rgba(217, 119, 6, 0.25);
-  --gem: #f59e0b;
-  --gem-muted: rgba(245, 158, 11, 0.15);
+  /* Accent - Luminescent Teal & Topaz Gem */
+  --accent: #0d9488;
+  --accent-bright: #14b8a6;
+  --accent-dim: #0f766e;
+  --accent-muted: rgba(13, 148, 136, 0.10);
+  --accent-glow: rgba(13, 148, 136, 0.25);
+  --gem: #d97706;
+  --gem-muted: rgba(217, 119, 6, 0.15);
   --telematics: #0ea5e9;
 
   /* Status Colors */
@@ -66,23 +66,23 @@
   --bottom-nav-height: 56px;
 
   /* Background Gradient */
-  --bg-gradient: radial-gradient(ellipse at top, #fdf4e8 0%, #f8fafc 60%);
+  --bg-gradient: radial-gradient(ellipse at top, #e6f7f6 0%, #f8fafc 60%);
 }
 
 [data-theme="dark"] {
-  --bg-primary: #08090c;
-  --bg-secondary: #0e1117;
-  --bg-card: #12151c;
-  --bg-card-hover: #181c26;
-  --bg-elevated: #1e2230;
-  --border: #242a38;
-  --border-subtle: #1a1e28;
+  --bg-primary: #060f12;
+  --bg-secondary: #0b171a;
+  --bg-card: #0e1b1e;
+  --bg-card-hover: #14272c;
+  --bg-elevated: #192f35;
+  --border: #1d3a40;
+  --border-subtle: #13262a;
 
-  --accent: #d97706;
-  --accent-bright: #f59e0b;
-  --accent-dim: #92400e;
-  --accent-muted: rgba(217, 119, 6, 0.16);
-  --accent-glow: rgba(217, 119, 6, 0.35);
+  --accent: #14b8a6;
+  --accent-bright: #2dd4bf;
+  --accent-dim: #0d9488;
+  --accent-muted: rgba(20, 184, 166, 0.16);
+  --accent-glow: rgba(20, 184, 166, 0.35);
   --gem: #f59e0b;
   --gem-muted: rgba(245, 158, 11, 0.18);
   --telematics: #0ea5e9;
@@ -92,14 +92,14 @@
   --info-muted: rgba(14, 165, 233, 0.12);
 
   --text-primary: #f1f5f9;
-  --text-secondary: #94a3b8;
-  --text-muted: #64748b;
-  --text-disabled: #374151;
+  --text-secondary: #8a999e;
+  --text-muted: #62767c;
+  --text-disabled: #2c3e44;
 
   --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.5);
   --shadow-elevated: 0 8px 40px rgba(0, 0, 0, 0.7);
 
-  --bg-gradient: radial-gradient(ellipse at top, #241406 0%, #08090c 60%);
+  --bg-gradient: radial-gradient(ellipse at top, #09282d 0%, #060f12 60%);
 }
 
 /* =====================================================

@@ -10,9 +10,9 @@ const config: Config = {
     extend: {
       colors: {
         background: {
-          deep: '#040507',
-          base: '#08090C',
-          elevated: '#12151C',
+          deep: '#03080A',
+          base: '#060F12',
+          elevated: '#0E1B1E',
         },
         surface: {
           DEFAULT: 'rgba(255, 255, 255, 0.05)',
@@ -20,13 +20,18 @@ const config: Config = {
         },
         foreground: {
           DEFAULT: '#EDEDEF',
-          muted: '#8A8F98',
+          muted: '#8A999E',
           subtle: 'rgba(255, 255, 255, 0.60)',
         },
         accent: {
+          DEFAULT: '#0D9488',
+          bright: '#14B8A6',
+          dark: '#0F766E',
+          glow: 'rgba(20, 184, 166, 0.35)',
+        },
+        gem: {
           DEFAULT: '#D97706',
           bright: '#F59E0B',
-          dark: '#B45309',
           glow: 'rgba(217, 119, 6, 0.35)',
         },
         telematics: {
@@ -36,8 +41,9 @@ const config: Config = {
         },
         border: {
           default: 'rgba(255, 255, 255, 0.06)',
-          hover: 'rgba(255, 255, 255, 0.10)',
-          accent: 'rgba(217, 119, 6, 0.35)',
+          hover: 'rgba(255, 255, 255, 0.12)',
+          accent: 'rgba(20, 184, 166, 0.35)',
+          gem: 'rgba(217, 119, 6, 0.35)',
         },
       },
       fontFamily: {
@@ -46,11 +52,11 @@ const config: Config = {
       },
       boxShadow: {
         'card-ambient': '0 0 0 1px rgba(255, 255, 255, 0.06), 0 2px 20px rgba(0, 0, 0, 0.5), 0 0 40px rgba(0, 0, 0, 0.3)',
-        'card-hover': '0 0 0 1px rgba(217, 119, 6, 0.25), 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 80px rgba(217, 119, 6, 0.12)',
-        'accent-cta': '0 0 0 1px rgba(217, 119, 6, 0.5), 0 4px 14px rgba(217, 119, 6, 0.35), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)',
+        'card-hover': '0 0 0 1px rgba(20, 184, 166, 0.25), 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 80px rgba(20, 184, 166, 0.12)',
+        'accent-cta': '0 0 0 1px rgba(20, 184, 166, 0.5), 0 4px 14px rgba(20, 184, 166, 0.35), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)',
         'inner-highlight': 'inset 0 1px 0 0 rgba(255, 255, 255, 0.1)',
-        'glow-sm': '0 0 20px rgba(217, 119, 6, 0.25)',
-        'glow-lg': '0 0 50px rgba(217, 119, 6, 0.35)',
+        'glow-sm': '0 0 20px rgba(20, 184, 166, 0.25)',
+        'glow-lg': '0 0 50px rgba(20, 184, 166, 0.35)',
       },
       transitionTimingFunction: {
         'expo-out': 'cubic-bezier(0.16, 1, 0.3, 1)',
