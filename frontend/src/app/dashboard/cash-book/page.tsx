@@ -30,7 +30,7 @@ const ENTRY_CATEGORIES_IN = [...CASH_ENTRY_CATEGORIES_IN]
 const ENTRY_CATEGORIES_OUT = [...CASH_ENTRY_CATEGORIES_OUT]
 
 export default function CashBookPage() {
-  const { isAdmin, isSiteManager, loading: authLoading, user, organizationId } = useAuth()
+  const { isAdmin, isSiteManager, loading: authLoading, user, organizationId, assignedSites } = useAuth()
   const router = useRouter()
   const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
@@ -38,6 +38,7 @@ export default function CashBookPage() {
   const [cashBook, setCashBook] = useState<CashBook | null>(null)
   const [entries, setEntries] = useState<(CashEntry & { signed_receipt_url?: string | null })[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<{
     entry_type: 'in' | 'out'
@@ -85,11 +86,17 @@ export default function CashBookPage() {
       router.push('/dashboard')
       return
     }
-    loadSites()
+    void loadSites()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, isAdmin, isSiteManager])
 
   useEffect(() => {
-    if (selectedSite) loadCashBook(false)
+    if (selectedSite) {
+      void loadCashBook(false)
+    } else if (!loading && sites.length === 0) {
+      // Nothing to load
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSite, selectedDate])
 
   useEffect(() => {
@@ -122,14 +129,23 @@ export default function CashBookPage() {
     return () => {
       supabase.removeChannel(channel)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSite, selectedDate, cashBook?.id])
 
   const loadSites = async () => {
+    setLoading(true)
+    setLoadError(null)
     try {
-      const loadedSites = await sitesRepository.listActive(supabase)
+      let loadedSites = await sitesRepository.listActive(supabase)
+      if (loadedSites.length === 0 && assignedSites && assignedSites.length > 0) {
+        loadedSites = assignedSites as unknown as Site[]
+      }
       setSites(loadedSites)
       if (loadedSites.length > 0) {
-        setSelectedSite(loadedSites[0].id)
+        setSelectedSite(prev => (prev && loadedSites.some(s => s.id === prev)) ? prev : loadedSites[0].id)
+      } else {
+        setSelectedSite('')
+        setLoading(false)
       }
 
       const { data: contractorsData } = await supabase
@@ -158,16 +174,26 @@ export default function CashBookPage() {
           .catch(() => {})
       }
     } catch (err: unknown) {
-      toast.error(`Error loading sites: ${toErrorMessage(err)}`)
+      const msg = toErrorMessage(err)
+      toast.error(`Error loading sites: ${msg}`)
+      setLoadError(msg)
+      setLoading(false)
     }
   }
 
   const loadCashBook = async (loadMore = false) => {
+    if (!selectedSite) {
+      setLoading(false)
+      return
+    }
+
     if (loadMore) {
       setLoadingMore(true)
     } else {
       setLoading(true)
     }
+    setLoadError(null)
+
     try {
       const cb = await cashBookRepository.getOrCreate(supabase, selectedSite, selectedDate)
       setCashBook(cb)
@@ -188,12 +214,14 @@ export default function CashBookPage() {
             path = path.split('cash-receipts/').pop() || path
           }
           try {
-            const { data: signed } = await supabase.storage
+            const { data: signed, error: signErr } = await supabase.storage
               .from('cash-receipts')
               .createSignedUrl(path, 3600)
-            signedReceiptUrl = signed?.signedUrl || null
+            if (!signErr && signed?.signedUrl) {
+              signedReceiptUrl = signed.signedUrl
+            }
           } catch (e) {
-            console.error(e)
+            console.error('Failed to sign receipt url:', e)
           }
         }
         return {
@@ -242,6 +270,7 @@ export default function CashBookPage() {
         toast('Serving cached cash book (offline mode)', { icon: '📶' })
       } else {
         toast.error(`Error loading cash book: ${message}`)
+        setLoadError(message)
         setCashBook(null)
         if (!loadMore) setEntries([])
       }
@@ -524,10 +553,29 @@ export default function CashBookPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: '72px', borderRadius: 'var(--radius)' }} />)}
         </div>
+      ) : sites.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-title">No Active Sites Found</div>
+          <div className="empty-desc" style={{ marginBottom: '1rem' }}>
+            {isAdmin
+              ? 'Please create and activate at least one site in Master Data before accessing the Cash Book.'
+              : 'No active mining site is currently assigned to your account. Please contact an organization administrator.'}
+          </div>
+          {isAdmin && (
+            <button className="btn btn-primary" onClick={() => router.push('/dashboard/settings')}>
+              Go to Master Data
+            </button>
+          )}
+        </div>
       ) : !cashBook ? (
         <div className="empty-state">
-          <div className="empty-title">Initialization Error</div>
-          <div className="empty-desc">Could not create cash book session.</div>
+          <div className="empty-title">Cash Book Not Loaded</div>
+          <div className="empty-desc" style={{ marginBottom: '1rem' }}>
+            {loadError || 'Could not load or initialize the cash book session for the selected date.'}
+          </div>
+          <button className="btn btn-secondary" onClick={() => loadCashBook(false)}>
+            Retry Loading
+          </button>
         </div>
       ) : (
         <>

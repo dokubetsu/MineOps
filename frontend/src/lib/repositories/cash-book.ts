@@ -23,6 +23,10 @@ export function tripSettlementNoteMarker(tripId: string): string {
 
 export const cashBookRepository = {
   async getOrCreate(supabase: SupabaseClient<Database>, siteId: string, date: string): Promise<CashBook> {
+    if (!siteId || !date) {
+      throw new Error('Site ID and date are required to open cash book')
+    }
+
     const { data: cb, error: loadError } = await supabase
       .from('cash_books')
       .select('*')
@@ -44,7 +48,7 @@ export const cashBookRepository = {
       .maybeSingle()
 
     if (prevError) throw prevError
-    const openingBalance = prev?.closing_balance || 0
+    const openingBalance = prev?.closing_balance != null ? Number(prev.closing_balance) : 0
 
     const { data: newCb, error: insertError } = await supabase
       .from('cash_books')
@@ -56,7 +60,7 @@ export const cashBookRepository = {
         status: 'draft',
       })
       .select()
-      .single()
+      .maybeSingle()
 
     if (insertError) {
       if (insertError.code === '23505') {
@@ -65,11 +69,23 @@ export const cashBookRepository = {
           .select('*')
           .eq('site_id', siteId)
           .eq('book_date', date)
-          .single()
+          .maybeSingle()
         if (retryError) throw retryError
-        return retryCb
+        if (retryCb) return retryCb
       }
       throw insertError
+    }
+
+    if (!newCb) {
+      const { data: retryCb, error: retryError } = await supabase
+        .from('cash_books')
+        .select('*')
+        .eq('site_id', siteId)
+        .eq('book_date', date)
+        .maybeSingle()
+      if (retryError) throw retryError
+      if (retryCb) return retryCb
+      throw new Error('Could not create or retrieve cash book record')
     }
 
     return newCb
@@ -430,7 +446,7 @@ export const cashBookRepository = {
         .from('cash_books')
         .select('opening_balance, closing_balance')
         .eq('id', cashBookId)
-        .single(),
+        .maybeSingle(),
       supabase
         .from('cash_entries')
         .select('entry_type, amount')
