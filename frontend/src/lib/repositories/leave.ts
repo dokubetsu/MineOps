@@ -69,15 +69,21 @@ function mapApproveError(msg: string): LeaveError {
 
 export const leaveRepository = {
   async listEmployees(
-    supabase: SupabaseClient<Database>
+    supabase: SupabaseClient<Database>,
+    siteId?: string
   ): Promise<LeaveEmployeeOption[]> {
-    const { data, error } = await supabase
+    let query = supabase
       .from('employees')
       .select('id, name, site_id')
       .eq('active', true)
       .order('name')
       .limit(500)
 
+    if (siteId) {
+      query = query.eq('site_id', siteId)
+    }
+
+    const { data, error } = await query
     if (error) throw error
     return (data || []) as LeaveEmployeeOption[]
   },
@@ -87,7 +93,7 @@ export const leaveRepository = {
     employeeIds: string[],
     status: LeaveStatus | 'all'
   ): Promise<LeaveApplicationRow[]> {
-    if (employeeIds.length === 0) return []
+    if (!employeeIds || employeeIds.length === 0) return []
 
     let query = supabase
       .from('leave_applications')

@@ -20,13 +20,14 @@ type LeaveApplication = LeaveApplicationRow
 type LeaveEmployee = LeaveEmployeeOption
 
 export default function LeavePage() {
-  const { isAdmin, isSiteManager, loading: authLoading } = useAuth()
+  const { isAdmin, isSiteManager, loading: authLoading, assignedSites } = useAuth()
   const router = useRouter()
   const [applications, setApplications] = useState<LeaveApplication[]>([])
   const [employees, setEmployees] = useState<LeaveEmployee[]>([])
   const [sites, setSites] = useState<Site[]>([])
   const [selectedSite, setSelectedSite] = useState('')
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending')
   const [form, setForm] = useState({
@@ -42,45 +43,123 @@ export default function LeavePage() {
       router.push('/dashboard')
       return
     }
-    loadInitialData()
+    void loadInitialData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, isAdmin, isSiteManager])
 
-  useEffect(() => { if (selectedSite) loadApplications() }, [selectedSite, activeTab])
+  useEffect(() => {
+    if (selectedSite) {
+      void loadApplications(selectedSite)
+    } else if (!loading && sites.length === 0) {
+      // No sites available
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSite, activeTab])
+
+  useEffect(() => {
+    const onFlushed = () => {
+      if (selectedSite) void loadApplications(selectedSite)
+    }
+    window.addEventListener('khani:outbox-flushed', onFlushed)
+    return () => window.removeEventListener('khani:outbox-flushed', onFlushed)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSite, activeTab])
+
+  useEffect(() => {
+    if (!selectedSite) return
+    const channel = supabase
+      .channel(`leave-realtime-${selectedSite}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'leave_applications',
+        },
+        () => {
+          void loadApplications(selectedSite)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedSite, activeTab])
 
   const loadInitialData = async () => {
+    setLoading(true)
+    setLoadError(null)
     try {
-      const [sitesData, empsData] = await Promise.all([
+      const [rawSitesData, empsData] = await Promise.all([
         sitesRepository.listActive(supabase),
         leaveRepository.listEmployees(supabase),
       ])
 
+      let sitesData = rawSitesData
+      if (sitesData.length === 0 && assignedSites && assignedSites.length > 0) {
+        sitesData = assignedSites as unknown as Site[]
+      }
+
       setSites(sitesData)
       setEmployees(empsData)
-      if (sitesData.length > 0) setSelectedSite(sitesData[0].id)
+
+      if (sitesData.length > 0) {
+        const nextSite = selectedSite && sitesData.some(s => s.id === selectedSite) ? selectedSite : sitesData[0].id
+        setSelectedSite(nextSite)
+        await loadApplications(nextSite, empsData)
+      } else {
+        setSelectedSite('')
+        setApplications([])
+        setLoading(false)
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       toast.error(`Error loading leave data: ${message}`)
+      setLoadError(message)
+      setLoading(false)
     }
   }
 
-  const loadApplications = async () => {
-    setLoading(true)
-    const siteEmpIds = employees
-      .filter((e) => e.site_id === selectedSite)
-      .map((e) => e.id)
-
-    if (siteEmpIds.length === 0) {
-      setApplications([])
+  const loadApplications = async (siteToLoad?: string, empsToUse?: LeaveEmployee[]) => {
+    const site = siteToLoad || selectedSite
+    if (!site) {
       setLoading(false)
       return
     }
 
+    setLoading(true)
+    setLoadError(null)
+
     try {
+      const currentEmps = empsToUse || employees
+      let siteEmpIds = currentEmps.filter((e) => e.site_id === site).map((e) => e.id)
+
+      if (siteEmpIds.length === 0) {
+        const siteEmps = await leaveRepository.listEmployees(supabase, site)
+        if (siteEmps.length > 0) {
+          setEmployees(prev => {
+            const map = new Map(prev.map(e => [e.id, e]))
+            siteEmps.forEach(e => map.set(e.id, e))
+            return Array.from(map.values())
+          })
+          siteEmpIds = siteEmps.map(e => e.id)
+        }
+      }
+
+      if (siteEmpIds.length === 0) {
+        setApplications([])
+        setLoading(false)
+        return
+      }
+
       const data = await leaveRepository.listApplications(supabase, siteEmpIds, activeTab)
       setApplications(data)
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       toast.error(`Error loading leave applications: ${message}`)
+      setLoadError(message)
     } finally {
       setLoading(false)
     }
@@ -214,6 +293,30 @@ export default function LeavePage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: '90px', borderRadius: 'var(--radius)' }} />)}
         </div>
+      ) : sites.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-title">No Active Sites Found</div>
+          <div className="empty-desc" style={{ marginBottom: '1rem' }}>
+            {isAdmin
+              ? 'Please create and activate at least one site in Master Data before managing leave.'
+              : 'No active mining site is currently assigned to your account. Please contact an organization administrator.'}
+          </div>
+          {isAdmin && (
+            <button className="btn btn-primary" onClick={() => router.push('/dashboard/settings')}>
+              Go to Master Data
+            </button>
+          )}
+        </div>
+      ) : loadError ? (
+        <div className="empty-state">
+          <div className="empty-title">Leave Applications Not Loaded</div>
+          <div className="empty-desc" style={{ marginBottom: '1rem' }}>
+            {loadError}
+          </div>
+          <button className="btn btn-secondary" onClick={() => loadApplications()}>
+            Retry Loading
+          </button>
+        </div>
       ) : applications.length === 0 ? (
         <div className="empty-state">
           <div style={{ fontSize: '2rem' }}>📅</div>
@@ -248,7 +351,7 @@ export default function LeavePage() {
                   </div>
                   {app.reason && (
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '0.25rem', fontStyle: 'italic' }}>
-                      "{app.reason}"
+                      &ldquo;{app.reason}&rdquo;
                     </div>
                   )}
                 </div>
