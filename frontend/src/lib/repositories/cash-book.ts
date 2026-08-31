@@ -91,7 +91,7 @@ export const cashBookRepository = {
     return newCb
   },
 
-  async listEntries(supabase: SupabaseClient<Database>, cashBookId: string, limit = 50, offset = 0): Promise<CashEntry[]> {
+  async listEntries(supabase: SupabaseClient<Database>, cashBookId: string, limit = 500, offset = 0): Promise<CashEntry[]> {
     const { data, error } = await supabase
       .from('cash_entries')
       .select('*')

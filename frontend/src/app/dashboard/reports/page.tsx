@@ -1149,7 +1149,7 @@ export default function ReportsPage() {
                   By transport (paper end totals)
                 </strong>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                  {transportTotals.slice(0, 20).map((t) => (
+                  {transportTotals.map((t) => (
                     <div
                       key={t.name}
                       style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}

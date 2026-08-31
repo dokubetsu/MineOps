@@ -64,7 +64,7 @@ export const tripsRepository = {
     supabase: SupabaseClient<Database>,
     siteId: string,
     date: string,
-    limit = 50,
+    limit = 500,
     offset = 0
   ): Promise<TripListItem[]> {
     const { data, error } = await supabase

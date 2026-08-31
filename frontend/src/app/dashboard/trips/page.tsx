@@ -78,7 +78,7 @@ export default function TripsPage() {
     useAuth()
   const router = useRouter()
   const supabase = createClient()
-  const PAGE_LIMIT = 20
+  const PAGE_LIMIT = 500
   const showBilling = canSeeTripBilling(userRole?.role, tripOps)
   const showSettle = canSettleTrips(userRole?.role, tripOps)
   const qtyLabel = quantityUnitLabel(tripOps)
@@ -304,7 +304,9 @@ export default function TripsPage() {
 
       if (loadMore) {
         setTrips(prev => {
-          const nextTrips = [...prev, ...tripsWithSignedUrls]
+          const existingIds = new Set(prev.map(t => t.id))
+          const uniqueNew = tripsWithSignedUrls.filter(t => !existingIds.has(t.id))
+          const nextTrips = [...prev, ...uniqueNew]
           const cacheable = nextTrips.map(({ signed_photo_urls: _s, ...rest }) => rest)
           setOfflineCache(user?.id, organizationId, cacheKey, cacheable)
           return nextTrips

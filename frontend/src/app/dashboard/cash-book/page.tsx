@@ -78,7 +78,7 @@ export default function CashBookPage() {
   const [confirmLock, setConfirmLock] = useState(false)
 
   const supabase = createClient()
-  const PAGE_LIMIT = 20
+  const PAGE_LIMIT = 500
 
   useEffect(() => {
     if (authLoading) return
@@ -236,7 +236,9 @@ export default function CashBookPage() {
 
       if (loadMore) {
         setEntries(prev => {
-          const nextEntries = [...prev, ...entriesWithUrls]
+          const existingIds = new Set(prev.map(e => e.id))
+          const uniqueNew = entriesWithUrls.filter(e => !existingIds.has(e.id))
+          const nextEntries = [...prev, ...uniqueNew]
           const cacheable = nextEntries.map(({ signed_receipt_url: _s, ...rest }) => rest)
           setOfflineCache(user?.id, organizationId, cacheKey, {
             book: cb,
