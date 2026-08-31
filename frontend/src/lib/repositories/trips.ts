@@ -60,6 +60,22 @@ async function syncAdvanceFromTrip(
 }
 
 export const tripsRepository = {
+  async count(
+    supabase: SupabaseClient<Database>,
+    siteId: string,
+    date: string
+  ): Promise<number> {
+    const { count, error } = await supabase
+      .from('trips')
+      .select('*', { count: 'exact', head: true })
+      .eq('site_id', siteId)
+      .eq('trip_date', date)
+      .eq('active', true)
+
+    if (error) throw error
+    return count ?? 0
+  },
+
   async list(
     supabase: SupabaseClient<Database>,
     siteId: string,

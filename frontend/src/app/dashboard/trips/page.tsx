@@ -131,6 +131,8 @@ export default function TripsPage() {
   const [submitting, setSubmitting] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [totalCount, setTotalCount] = useState(0)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [usersMap, setUsersMap] = useState<Record<string, string>>({})
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
@@ -166,6 +168,7 @@ export default function TripsPage() {
 
   useEffect(() => {
     if (!selectedSite) return
+    let timer: NodeJS.Timeout | null = null
     const channel = supabase
       .channel(`trips-realtime-${selectedSite}`)
       .on(
@@ -176,13 +179,19 @@ export default function TripsPage() {
           table: 'trips',
           filter: `site_id=eq.${selectedSite}`,
         },
-        () => {
-          loadTrips(false)
+        (payload) => {
+          const row = (payload.new || payload.old) as { trip_date?: string } | undefined
+          if (row?.trip_date && String(row.trip_date).slice(0, 10) !== selectedDate) return
+          if (timer) clearTimeout(timer)
+          timer = setTimeout(() => {
+            void loadTrips(false)
+          }, 500)
         }
       )
       .subscribe()
 
     return () => {
+      if (timer) clearTimeout(timer)
       supabase.removeChannel(channel)
     }
   }, [selectedSite, selectedDate])
@@ -263,10 +272,18 @@ export default function TripsPage() {
       setLoadingMore(true)
     } else {
       setLoading(true)
+      setLoadError(null)
     }
     try {
       const offset = loadMore ? trips.length : 0
-      const data = await tripsRepository.list(supabase, selectedSite, selectedDate, PAGE_LIMIT, offset)
+      const [data, serverCount] = await Promise.all([
+        tripsRepository.list(supabase, selectedSite, selectedDate, PAGE_LIMIT, offset),
+        !loadMore ? tripsRepository.count(supabase, selectedSite, selectedDate).catch(() => null) : Promise.resolve(null),
+      ])
+
+      if (serverCount !== null) {
+        setTotalCount(serverCount)
+      }
 
       const pathsToSign = data.map((trip) => {
         const photoUrls =
@@ -289,8 +306,8 @@ export default function TripsPage() {
               ? [trip.photo_url]
               : []
         const firstPath = photoUrls[0]
-          ? normalizeStoragePath(photoUrls[0], 'trip-photos')
-          : null
+        ? normalizeStoragePath(photoUrls[0], 'trip-photos')
+        : null
         const signedUrl = firstPath ? signedMap.get(firstPath) ?? null : null
         return {
           ...trip,
@@ -321,10 +338,14 @@ export default function TripsPage() {
       const cached = getOfflineCache<ExtendedTrip[]>(user?.id, organizationId, `trips_${selectedSite}_${selectedDate}`)
       if (cached && !loadMore) {
         setTrips(cached)
+        setTotalCount(cached.length)
         toast('Serving cached trip logs (offline mode)', { icon: '📶' })
       } else {
         toast.error(`Error loading trips: ${message}`)
-        if (!loadMore) setTrips([])
+        if (!loadMore) {
+          setTrips([])
+          setLoadError(message)
+        }
       }
     } finally {
       setLoading(false)
@@ -992,7 +1013,7 @@ export default function TripsPage() {
             fontFamily: 'var(--font-display)',
             fontSize: '1.1rem',
           }}>
-            {trips.length}
+            {totalCount > 0 ? totalCount : trips.length}
           </div>
         </div>
       </div>
@@ -1012,6 +1033,14 @@ export default function TripsPage() {
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
           {[1,2,3].map(i => <div key={i} className="skeleton" style={{ height: '72px', borderRadius: 'var(--radius)' }} />)}
+        </div>
+      ) : loadError && trips.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-title">Could Not Load Trips</div>
+          <div className="empty-desc" style={{ marginBottom: '1rem' }}>{loadError}</div>
+          <button className="btn btn-secondary" onClick={() => loadTrips(false)}>
+            Retry Loading
+          </button>
         </div>
       ) : trips.length === 0 ? (
         <div className="empty-state">
@@ -1124,6 +1153,20 @@ export default function TripsPage() {
               </div>
             </div>
           ))}
+
+          {/* Load More Button */}
+          {hasMore && (
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '1rem 0' }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => loadTrips(true)}
+                disabled={loadingMore}
+                style={{ minWidth: '150px' }}
+              >
+                {loadingMore ? 'Loading more...' : 'Load More Trips'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 

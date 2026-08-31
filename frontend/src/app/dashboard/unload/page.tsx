@@ -28,6 +28,7 @@ export default function UnloadPage() {
   const [notes, setNotes] = useState('')
   const [qty, setQty] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showAllDone, setShowAllDone] = useState(false)
 
   const allowed = canDocumentUnload(userRole?.role)
   const unit = quantityUnitLabel(tripOps)
@@ -158,7 +159,7 @@ export default function UnloadPage() {
             <p style={{ color: 'var(--text-muted)' }}>None yet.</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {done.slice(0, 30).map((t) => (
+              {(showAllDone ? done : done.slice(0, 30)).map((t) => (
                 <button
                   key={t.id}
                   type="button"
@@ -175,6 +176,16 @@ export default function UnloadPage() {
                   </div>
                 </button>
               ))}
+              {done.length > 30 && !showAllDone && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  style={{ alignSelf: 'center', marginTop: '0.5rem' }}
+                  onClick={() => setShowAllDone(true)}
+                >
+                  Show all {done.length} documented unloads
+                </button>
+              )}
             </div>
           )}
         </>

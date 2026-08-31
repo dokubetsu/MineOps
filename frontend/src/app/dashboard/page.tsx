@@ -13,6 +13,7 @@ import Link from 'next/link'
 import { Site, CashBook, CashEntry, Trip } from '@/lib/supabase/types'
 import { formatInr, formatMetric } from '@/lib/calculations'
 import { fetchAllPages } from '@/lib/supabase-pagination'
+import { cashBookRepository } from '@/lib/repositories/cash-book'
 
 interface ExtendedTrip extends Trip {
   vehicles?: {
@@ -45,6 +46,7 @@ export default function DashboardPage() {
   const [recentTrips, setRecentTrips] = useState<ExtendedTrip[]>([])
   const [cashBook, setCashBook] = useState<CashBook | null>(null)
   const [cashEntries, setCashEntries] = useState<CashEntry[]>([])
+  const [cashBalances, setCashBalances] = useState({ totalIn: 0, totalOut: 0 })
   const [siteRollups, setSiteRollups] = useState<SiteRollup[]>([])
   const [viewMode, setViewMode] = useState<'all' | 'site'>('all')
   const today = format(new Date(), 'yyyy-MM-dd')
@@ -79,10 +81,10 @@ export default function DashboardPage() {
     setSites(loadedSites)
     if (loadedSites.length > 0) {
       setSelectedSite(loadedSites[0].id)
-      // Multi-site: default to concurrent "all sites" rollup when more than one site
       setViewMode(loadedSites.length > 1 ? 'all' : 'site')
+    } else {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   const loadAllSitesRollup = async (siteList: Site[]) => {
@@ -151,46 +153,57 @@ export default function DashboardPage() {
 
   const loadDashboardData = async () => {
     setLoading(true)
-    // Trips today
-    const { data: trips } = await supabase
-      .from('trips')
-      .select('*, transport_contractors(name), vehicles(plate_number, vehicle_type)')
-      .eq('site_id', selectedSite)
-      .eq('trip_date', today)
-      .eq('active', true)
-      .order('created_at', { ascending: false })
-      .limit(200)
-
-    setRecentTrips((trips as ExtendedTrip[]) || [])
-
-    // Cash book
-    const { data: cb } = await supabase
-      .from('cash_books')
-      .select('*')
-      .eq('site_id', selectedSite)
-      .eq('book_date', today)
-      .maybeSingle()
-
-    setCashBook(cb || null)
-
-    if (cb) {
-      const { data: entries } = await supabase
-        .from('cash_entries')
-        .select('*')
-        .eq('cash_book_id', cb.id)
+    try {
+      // 1. Trips today (load up to 500 records)
+      const { data: trips, error: tripsErr } = await supabase
+        .from('trips')
+        .select('*, transport_contractors(name), vehicles(plate_number, vehicle_type)')
+        .eq('site_id', selectedSite)
+        .eq('trip_date', today)
         .eq('active', true)
         .order('created_at', { ascending: false })
-        .limit(5)
-      setCashEntries(entries || [])
-    } else {
-      setCashEntries([])
-    }
+        .limit(500)
 
-    setLoading(false)
+      if (tripsErr) throw tripsErr
+      setRecentTrips((trips as ExtendedTrip[]) || [])
+
+      // 2. Cash book
+      const { data: cb, error: cbErr } = await supabase
+        .from('cash_books')
+        .select('*')
+        .eq('site_id', selectedSite)
+        .eq('book_date', today)
+        .maybeSingle()
+
+      if (cbErr) throw cbErr
+      setCashBook(cb || null)
+
+      if (cb) {
+        const [entriesRes, balances] = await Promise.all([
+          supabase
+            .from('cash_entries')
+            .select('*')
+            .eq('cash_book_id', cb.id)
+            .eq('active', true)
+            .order('created_at', { ascending: false })
+            .limit(5),
+          cashBookRepository.getBalances(supabase, cb.id),
+        ])
+        setCashEntries(entriesRes.data || [])
+        setCashBalances(balances)
+      } else {
+        setCashEntries([])
+        setCashBalances({ totalIn: 0, totalOut: 0 })
+      }
+    } catch (err) {
+      console.error('Dashboard load failed:', err)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  const totalIn = cashEntries.filter(e => e.entry_type === 'in').reduce((s, e) => s + e.amount, 0)
-  const totalOut = cashEntries.filter(e => e.entry_type === 'out').reduce((s, e) => s + e.amount, 0)
+  const totalIn = cashBalances.totalIn
+  const totalOut = cashBalances.totalOut
   const totalSpentAdvances = recentTrips.reduce((s, t) => s + (t.advance_amount || 0), 0)
   const unsettledInwardWorth = recentTrips.filter(t => !t.settled).reduce((s, t) => s + (t.total_shipment_cost || t.trip_worth || 0), 0)
   const totalInwardRevenue = recentTrips.reduce((s, t) => s + (t.total_shipment_cost || t.trip_worth || 0), 0)

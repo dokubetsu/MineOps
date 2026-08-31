@@ -110,6 +110,7 @@ export default function CashBookPage() {
 
   useEffect(() => {
     if (!selectedSite || !cashBook?.id) return
+    let timer: NodeJS.Timeout | null = null
     const channel = supabase
       .channel(`cash-realtime-${selectedSite}`)
       .on(
@@ -121,12 +122,16 @@ export default function CashBookPage() {
           filter: `cash_book_id=eq.${cashBook.id}`,
         },
         () => {
-          loadCashBook(false)
+          if (timer) clearTimeout(timer)
+          timer = setTimeout(() => {
+            void loadCashBook(false)
+          }, 500)
         }
       )
       .subscribe()
 
     return () => {
+      if (timer) clearTimeout(timer)
       supabase.removeChannel(channel)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -216,7 +221,7 @@ export default function CashBookPage() {
           try {
             const { data: signed, error: signErr } = await supabase.storage
               .from('cash-receipts')
-              .createSignedUrl(path, 3600)
+              .createSignedUrl(path, 28800)
             if (!signErr && signed?.signedUrl) {
               signedReceiptUrl = signed.signedUrl
             }
@@ -349,6 +354,11 @@ export default function CashBookPage() {
         created_at: new Date().toISOString(),
       } as CashEntry
       setEntries((prev) => [optimistic, ...prev])
+      if (form.entry_type === 'in') {
+        setTotalIn((prev) => prev + amt)
+      } else {
+        setTotalOut((prev) => prev + amt)
+      }
       const photoNote = receiptFile ? ' · receipt queued' : ''
       toast.success(`Cash entry saved offline — will sync when online${photoNote}`, {
         icon: '📶',
